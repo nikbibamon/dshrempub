@@ -109,6 +109,8 @@ async function oneTurn(session, prompt, { json = false } = {}) {
     delete session.pending_task;
     await saveSession(session);
   }
+  const messages = [...conversation(session), { role: 'user', content: prompt }];
+  if (messages.length > 80 || Buffer.byteLength(JSON.stringify(messages), 'utf8') > 110 * 1024) throw new Error('Conversation exceeds the remote context bound. Start /new before creating another task grant.');
   const idempotencyKey = randomUUID();
   session.pending_grant = { idempotency_key: idempotencyKey, status: 'requesting', created_at: new Date().toISOString() };
   await saveSession(session);
@@ -129,7 +131,7 @@ async function oneTurn(session, prompt, { json = false } = {}) {
     const response = await request(`/tasks/${encodeURIComponent(grant.id)}/chat`, {
       method: 'POST', token: auth.access_token, signal: controller.signal,
       timeoutMs: 210_000,
-      body: { messages: [...conversation(session), { role: 'user', content: prompt }], max_tokens: 2048 }
+      body: { messages, max_tokens: 2048 }
     });
     const message = response?.choices?.[0]?.message;
     if (!message || typeof message.content !== 'string') throw new Error('Service returned a response without assistant text');
@@ -294,7 +296,8 @@ export async function main(args) {
   if (args[0] === '--version' || args[0] === '-v') { console.log(`dshrempub ${VERSION}`); return; }
   if (!args.length) {
     if (stdin.isTTY && stdout.isTTY) {
-      try { await currentAuth(); return startSession(''); } catch { console.log(HELP); return; }
+      try { await currentAuth(); } catch { console.log(HELP); return; }
+      return startSession('');
     }
     console.log(HELP); return;
   }
