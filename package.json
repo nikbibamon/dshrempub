@@ -1,0 +1,14 @@
+{
+  "name": "dshrempub",
+  "version": "0.1.0",
+  "description": "A small remote DSHREM research and chat client",
+  "type": "module",
+  "bin": {
+    "dsh": "./bin/dsh.mjs",
+    "dshrem": "./bin/dsh.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "UNLICENSED"
+}
