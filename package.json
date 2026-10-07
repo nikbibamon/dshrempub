@@ -10,5 +10,8 @@
   "engines": {
     "node": ">=22"
   },
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "scripts": {
+    "test": "node --test test/*.test.mjs && cd vscode && node --test test/*.test.js"
+  }
 }

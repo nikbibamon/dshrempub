@@ -39,7 +39,7 @@ export async function request(path, { token, method = 'GET', body, allowLocalhos
     throw new Error('Could not reach the DSHREM service. Check your network and service URL.');
   }
   try {
-    if (!response.ok) throw new Error(safePayload(response));
+    if (!response.ok) throw safePayload(response);
     if (response.status === 204) return null;
     const declared = Number(response.headers.get('content-length'));
     if (Number.isFinite(declared) && declared > 2 * 1024 * 1024) throw new Error('Remote response exceeded the 2 MiB limit');

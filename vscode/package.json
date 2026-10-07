@@ -1,0 +1,40 @@
+{
+  "name": "tvijo-dshrem",
+  "displayName": "Tvijo DSHREM",
+  "description": "Ask about your code with source evidence and a hard per-task spending cap. Sign in with your Tvijo account; no API keys in the editor.",
+  "version": "0.1.0",
+  "publisher": "tvijo",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["AI", "Programming Languages", "Other"],
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      { "command": "tvijo.signIn", "title": "Sign in", "category": "Tvijo" },
+      { "command": "tvijo.signOut", "title": "Sign out", "category": "Tvijo" },
+      { "command": "tvijo.account", "title": "Account and credit", "category": "Tvijo" },
+      { "command": "tvijo.ask", "title": "Ask (about selection)", "category": "Tvijo" },
+      { "command": "tvijo.newConversation", "title": "New conversation", "category": "Tvijo" },
+      { "command": "tvijo.cancelPending", "title": "Cancel pending task", "category": "Tvijo" },
+      { "command": "tvijo.addFileToKnowledge", "title": "Add file to my knowledge base", "category": "Tvijo" }
+    ],
+    "menus": {
+      "editor/context": [ { "command": "tvijo.ask", "when": "editorHasSelection", "group": "navigation@90" } ],
+      "explorer/context": [ { "command": "tvijo.addFileToKnowledge", "when": "!explorerResourceIsFolder", "group": "7_modification@90" } ]
+    },
+    "keybindings": [ { "command": "tvijo.ask", "key": "ctrl+alt+t", "mac": "cmd+alt+t" } ],
+    "configuration": {
+      "title": "Tvijo DSHREM",
+      "properties": {
+        "tvijo.apiBase": {
+          "type": "string",
+          "default": "https://finedg.com/api/dshrem/v1",
+          "description": "Service URL. HTTPS is required; plain HTTP is accepted only for localhost development."
+        }
+      }
+    }
+  },
+  "scripts": { "test": "node --test test/*.test.js" }
+}

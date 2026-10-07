@@ -32,6 +32,13 @@ The command is also available as `dshrem`. Run `dsh doctor` for a read-only serv
 
 To point at a development endpoint, set `DSHREM_API_BASE`. HTTPS is required. Plain HTTP is accepted only for an explicit loopback URL such as `http://localhost:8080/api/dshrem/v1`, which must also be enabled with `DSHREM_ALLOW_LOCALHOST=1` in the current shell.
 
+## VS Code
+
+The `vscode/` folder holds the editor client: device sign-in, questions about a selection,
+explicit knowledge-base upload and account credit, over the same service and the same rules
+(no API keys in the editor, one capped task per question, no automatic paid retries).
+See [vscode/README.md](vscode/README.md).
+
 ## Local data and security
 
 Login data and transcripts are stored below `~/.config/dshrempub/`; credential and transcript files are written atomically with mode `0600`, and containing directories with mode `0700`. Credentials are bound to the service URL used at login. Do not share session files if they contain sensitive prompts. The client never prints access tokens or raw HTTP error bodies. It does not make automatic paid retries. Uncertain tasks remain saved and block further paid turns until the service reports a terminal state with no held budget.
