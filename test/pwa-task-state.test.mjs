@@ -198,3 +198,25 @@ test('A task-id already bound to an old request cannot produce a second chat int
   const corrupt = structuredClone(old); corrupt.history.push({ ...corrupt.history[0], requestId: 'r2' });
   assert.throws(() => restoreState(corrupt, { tenant }), StateError);
 });
+
+
+test('Malformed top-level matching observations lock issued and terminal chains', () => {
+  for (const state of [issued(), completed()]) {
+    for (const event of [
+      { type: 'STATUS', taskId: 'task_1', status: 'completed' },
+      { ...status('completed'), unexpected: 'synthetic' },
+      { type: 'RESERVED', requestId: 'r1', taskId: 'task_1', status: 'completed' },
+    ]) {
+      const before = structuredClone(state);
+      const out = reduceTask(state, event);
+      assert.equal(out.error, 'invalid_observation');
+      assert.equal(out.state.phase, 'blocked');
+      assert.equal(out.state.current.taskId, 'task_1');
+      assert.deepEqual(out.intents, []);
+      assert.deepEqual(reduceTask(out.state, { type: 'SEND' }).intents, []);
+      assert.deepEqual(reduceTask(out.state, submit('r2')).intents, []);
+      assert.deepEqual(state, before);
+      assert.equal(completed(out.state).phase, 'terminal');
+    }
+  }
+});

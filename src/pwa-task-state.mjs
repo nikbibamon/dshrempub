@@ -157,9 +157,18 @@ export function restoreState(snapshot, options) {
 export function reduceTask(input, event) {
   validate(input);
   need(event !== null && typeof event === 'object' && typeof event.type === 'string' && Object.hasOwn(EVENT_KEYS, event.type), 'invalid_event');
-  keys(event, ['type', ...EVENT_KEYS[event.type]]);
-  if (event.type === 'SUBMIT') request(event);
   const state = structuredClone(input); const c = state.current;
+  try {
+    keys(event, ['type', ...EVENT_KEYS[event.type]]);
+  } catch (error) {
+    const matching = c && (event.type === 'RESERVED'
+      ? event.requestId === c.requestId && (c.taskId === null || event.taskId === c.taskId)
+      : event.type === 'STATUS' && c.taskId !== null && event.taskId === c.taskId);
+    if (!(error instanceof StateError) || state.access !== 'active' || !matching) throw error;
+    state.fault = 'invalid_observation'; c.uncertain = true; c.budget = null;
+    return finish(state, [], 'invalid_observation');
+  }
+  if (event.type === 'SUBMIT') request(event);
   const refuse = (error) => ({ state, intents: [], error });
   if (event.type === 'NETWORK') {
     need(typeof event.online === 'boolean', 'invalid_online'); state.online = event.online;
