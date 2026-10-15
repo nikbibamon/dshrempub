@@ -85,9 +85,13 @@ function validate(state) {
   need(typeof state.online === 'boolean' && ['active', 'expired', 'closed'].includes(state.access), 'invalid_access');
   need(state.fault === null || state.fault === 'invalid_observation', 'invalid_fault');
   need(Array.isArray(state.history) && state.history.length <= MAX_REQUESTS, 'invalid_history');
-  const seen = new Set();
+  const seen = new Set(); const tasks = new Set();
   for (const entry of state.history) {
-    keys(entry, ['requestId', 'fingerprint', 'maxUsd']); request(entry);
+    keys(entry, ['requestId', 'fingerprint', 'maxUsd', 'taskId']); request(entry);
+    if (entry.taskId !== null) {
+      identifier(entry.taskId);
+      need(!tasks.has(entry.taskId), 'duplicate_task'); tasks.add(entry.taskId);
+    } else need(entry === state.history.at(-1), 'unbound_history');
     need(!seen.has(entry.requestId), 'duplicate_history'); seen.add(entry.requestId);
   }
   need(state.revision >= state.history.length, 'invalid_revision');
@@ -96,7 +100,7 @@ function validate(state) {
   } else {
     const c = state.current; keys(c, CURRENT_KEYS); request(c);
     const last = state.history.at(-1);
-    need(last && ['requestId', 'fingerprint', 'maxUsd'].every((k) => last[k] === c[k]), 'history_current_mismatch');
+    need(last && ['requestId', 'fingerprint', 'maxUsd', 'taskId'].every((k) => last[k] === c[k]), 'history_current_mismatch');
     need(['chatSent', 'cancelSent', 'uncertain'].every((k) => typeof c[k] === 'boolean'), 'invalid_flags');
     budget(c.budget);
     if (c.taskId === null) {
@@ -152,8 +156,9 @@ export function restoreState(snapshot, options) {
 
 export function reduceTask(input, event) {
   validate(input);
-  need(event !== null && typeof event === 'object' && Object.hasOwn(EVENT_KEYS, event.type), 'invalid_event');
+  need(event !== null && typeof event === 'object' && typeof event.type === 'string' && Object.hasOwn(EVENT_KEYS, event.type), 'invalid_event');
   keys(event, ['type', ...EVENT_KEYS[event.type]]);
+  if (event.type === 'SUBMIT') request(event);
   const state = structuredClone(input); const c = state.current;
   const refuse = (error) => ({ state, intents: [], error });
   if (event.type === 'NETWORK') {
@@ -174,13 +179,12 @@ export function reduceTask(input, event) {
   }
   if (state.access !== 'active') return refuse('identity_blocked');
   if (event.type === 'SUBMIT') {
-    request(event);
     if (!state.online) return refuse('offline');
     const previous = state.history.find((x) => x.requestId === event.requestId);
     if (previous) return refuse(previous.fingerprint === event.fingerprint && previous.maxUsd === event.maxUsd ? null : 'identity_conflict');
     if (!['idle', 'terminal'].includes(state.phase)) return refuse('previous_task_unsettled');
     if (state.history.length === MAX_REQUESTS) return refuse('history_capacity');
-    const entry = { requestId: event.requestId, fingerprint: event.fingerprint, maxUsd: event.maxUsd };
+    const entry = { requestId: event.requestId, fingerprint: event.fingerprint, maxUsd: event.maxUsd, taskId: null };
     state.history.push(entry);
     state.current = { ...entry, taskId: null, status: null, budget: null,
       chatSent: false, cancelSent: false, uncertain: false };
@@ -194,7 +198,8 @@ export function reduceTask(input, event) {
     if (c.taskId !== null && event.taskId !== c.taskId) return refuse('task_mismatch');
     try {
       identifier(event.taskId);
-      c.taskId = event.taskId;
+      need(!state.history.some((entry) => entry.requestId !== c.requestId && entry.taskId === event.taskId), 'task_reused');
+      c.taskId = event.taskId; state.history.at(-1).taskId = event.taskId;
       c.status = SERVER.has(event.status) ? event.status : 'unknown';
       need(SERVER.has(event.status), 'invalid_task_status');
       budget(event.budget); c.budget = structuredClone(event.budget);

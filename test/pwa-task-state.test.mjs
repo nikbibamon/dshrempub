@@ -177,3 +177,24 @@ test('Late and mismatched observations do not rebind the current task; unknown f
   const tampered = structuredClone(state); tampered.current.budget.secret = 'synthetic';
   assert.throws(() => restoreState(tampered, { tenant }), StateError);
 });
+
+
+test('Strict control-event types and SUBMIT schema apply even under closed access', () => {
+  assert.throws(() => reduceTask(initialState({ tenant }), { type: ['NETWORK'], online: true }), StateError);
+  const closed = step(issued(), { type: 'LOGOUT' });
+  assert.throws(() => reduceTask(closed, { ...submit(), maxUsd: true }), StateError);
+  assert.throws(() => reduceTask(closed, { ...submit(), requestId: [] }), StateError);
+});
+
+test('A task-id already bound to an old request cannot produce a second chat intent', () => {
+  const first = step(issued(), { type: 'SEND' });
+  const old = completed(first);
+  const next = step(old, submit('r2'));
+  const bad = reduceTask(next, { ...status('issued'), type: 'RESERVED', requestId: 'r2' });
+  assert.equal(bad.state.phase, 'blocked');
+  assert.equal(bad.state.current.requestId, 'r2');
+  assert.equal(bad.state.current.taskId, null);
+  assert.deepEqual(reduceTask(bad.state, { type: 'SEND' }).intents, []);
+  const corrupt = structuredClone(old); corrupt.history.push({ ...corrupt.history[0], requestId: 'r2' });
+  assert.throws(() => restoreState(corrupt, { tenant }), StateError);
+});
