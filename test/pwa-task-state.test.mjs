@@ -220,3 +220,24 @@ test('Malformed top-level matching observations lock issued and terminal chains'
     }
   }
 });
+
+
+test('Closed or expired access ignores observations before inspecting their payload schema', () => {
+  for (const accessEvent of [{ type: 'LOGOUT' }, { type: 'IDENTITY_EXPIRED' }]) {
+    const state = step(issued(), accessEvent);
+    for (const event of [
+      { type: 'STATUS', taskId: 'task_1', status: 'completed' },
+      { type: 'RESERVED', requestId: 'r1', taskId: 'task_1', status: 'completed' },
+      { ...status('completed'), unexpected: 'synthetic' },
+      { type: 'RESERVED' },
+    ]) {
+      const out = reduceTask(state, event);
+      assert.deepEqual(out.state, state);
+      assert.equal(out.error, 'identity_blocked');
+      assert.deepEqual(out.intents, []);
+      assert.equal(Object.hasOwn(out.state, 'unexpected'), false);
+    }
+    assert.throws(() => reduceTask(state, { type: 'SEND', unexpected: 'synthetic' }), StateError);
+    assert.throws(() => reduceTask(state, { ...submit(), maxUsd: true }), StateError);
+  }
+});

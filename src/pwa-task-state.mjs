@@ -158,6 +158,9 @@ export function reduceTask(input, event) {
   validate(input);
   need(event !== null && typeof event === 'object' && typeof event.type === 'string' && Object.hasOwn(EVENT_KEYS, event.type), 'invalid_event');
   const state = structuredClone(input); const c = state.current;
+  if (state.access !== 'active' && (event.type === 'STATUS' || event.type === 'RESERVED')) {
+    return { state, intents: [], error: 'identity_blocked' };
+  }
   try {
     keys(event, ['type', ...EVENT_KEYS[event.type]]);
   } catch (error) {
