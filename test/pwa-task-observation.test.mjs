@@ -186,3 +186,21 @@ test('WA20 reserve recovery preserves request identity and never runs chat or ma
   const duplicate = observeTask(sent, reserve, payload());
   assert.deepEqual(duplicate.intents, []); assert.deepEqual(reduceTask(duplicate.state, { type: 'SEND' }).intents, []);
 });
+
+test('WA21 delayed same-task nonterminal observations preserve the terminal fact and require confirmation', () => {
+  for (const terminal of ['completed', 'cancelled', 'failed', 'expired']) {
+    for (const held of ['0', '0.1']) for (const later of ['issued', 'running', 'frozen']) {
+      const state = observeTask(issued(), status, payload(terminal, budget('1', '0.1', held))).state;
+      for (const context of [reserve, status]) {
+        const out = observeTask(state, context, payload(later));
+        locked(out);
+        assert.equal(out.state.current.status, terminal);
+        assert.equal(out.state.current.taskId, 'task_a');
+        assert.equal(out.state.current.budget, null);
+        const confirmed = observeTask(out.state, status, payload(terminal, budget('1', '0.1', '0')));
+        assert.equal(confirmed.state.phase, 'terminal');
+        assert.deepEqual(confirmed.intents, []);
+      }
+    }
+  }
+});

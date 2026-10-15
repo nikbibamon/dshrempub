@@ -211,6 +211,8 @@ export function reduceTask(input, event) {
     try {
       identifier(event.taskId);
       need(!state.history.some((entry) => entry.requestId !== c.requestId && entry.taskId === event.taskId), 'task_reused');
+      // A delayed grant cannot erase a terminal fact, even before its hold settles.
+      need(!TERMINAL.has(c.status) || TERMINAL.has(event.status), 'terminal_regression');
       c.taskId = event.taskId; state.history.at(-1).taskId = event.taskId;
       c.status = SERVER.has(event.status) ? event.status : 'unknown';
       need(SERVER.has(event.status), 'invalid_task_status');

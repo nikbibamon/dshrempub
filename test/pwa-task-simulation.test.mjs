@@ -186,3 +186,22 @@ test('SIM12 FIFO logout does not preempt an in-flight fake callback but blocks l
   assert.equal((await h.simulation.observe(status, {})).error, 'identity_blocked');
   assert.equal(h.simulation.snapshot().state.access, 'closed');
 });
+
+test('SIM13 delayed reservation after cancellation cannot run chat or start another task', async () => {
+  const h = harness({ state: issued() });
+  assert.equal((await h.simulation.observe(status, payload('cancelled', '0', '0.1'))).state.phase, 'terminal');
+  const delayed = await h.simulation.observe(reserve, payload());
+  assert.equal(delayed.error, 'invalid_observation');
+  assert.equal(delayed.state.phase, 'blocked');
+  assert.equal(delayed.state.current.status, 'cancelled');
+  assert.equal(delayed.state.current.budget, null);
+  assert.equal((await h.simulation.dispatch({ type: 'SEND' })).error, 'send_blocked');
+  assert.equal((await h.simulation.dispatch({ ...submit, requestId: 'r2' })).error, 'previous_task_unsettled');
+  assert.deepEqual(h.effects, []);
+  const lookup = await h.simulation.dispatch({ type: 'RECONCILE' });
+  assert.equal(lookup.state.phase, 'blocked');
+  assert.deepEqual(h.effects.map((x) => x.kind), ['status']);
+  const confirmed = await h.simulation.observe(status, payload('cancelled', '0', '0.1'));
+  assert.equal(confirmed.state.phase, 'terminal');
+  assert.deepEqual(confirmed.effects, []);
+});
