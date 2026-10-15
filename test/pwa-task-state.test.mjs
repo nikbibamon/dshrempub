@@ -241,3 +241,27 @@ test('Closed or expired access ignores observations before inspecting their payl
     assert.throws(() => reduceTask(state, { ...submit(), maxUsd: true }), StateError);
   }
 });
+
+test('Terminal observations cannot regress into a sendable grant, including unsettled terminal holds', () => {
+  for (const terminal of ['completed', 'cancelled', 'failed', 'expired']) {
+    for (const held of ['0', '0.1']) for (const later of ['issued', 'running', 'frozen']) {
+      const terminalState = step(issued(), status(terminal, budget('0.5', '0.1', held)));
+      for (const type of ['STATUS', 'RESERVED']) {
+        const event = { ...status(later), type, ...(type === 'RESERVED' ? { requestId: 'r1' } : {}) };
+        const out = reduceTask(terminalState, event);
+        assert.equal(out.error, 'invalid_observation');
+        assert.equal(out.state.phase, 'blocked');
+        assert.equal(out.state.current.status, terminal);
+        assert.equal(out.state.current.taskId, 'task_1');
+        assert.equal(out.state.current.budget, null);
+        assert.equal(out.state.current.uncertain, true);
+        assert.deepEqual(out.intents, []);
+        assert.deepEqual(reduceTask(out.state, { type: 'SEND' }).intents, []);
+        assert.deepEqual(reduceTask(out.state, submit('r2')).intents, []);
+        const confirmed = step(out.state, status(terminal, budget('0.5', '0.1', '0')));
+        assert.equal(confirmed.phase, 'terminal');
+        assert.equal(reduceTask(confirmed, submit('r2')).intents[0].kind, 'reserve');
+      }
+    }
+  }
+});
