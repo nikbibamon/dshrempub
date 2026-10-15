@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Task simulation · DSHREM</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./style.css">
+<script type="module" src="./app.mjs"></script>
+</head>
+<body>
+<div class="page">
+<header><a class="wordmark" href="./">DSHREM</a><span>Local demo</span></header>
+<main>
+<h1>Task simulation</h1>
+<p class="lead">Scripted replies and in-memory saves. No account or real charges.</p>
+<div class="workspace">
+<section class="task" aria-labelledby="phase">
+<div role="status" aria-live="polite"><h2 id="phase">Ready for a task</h2><p id="hint">Start a task, then send one simulated message.</p></div>
+<div id="conversation" aria-live="polite"><p class="placeholder">Your reply appears here after you send.</p></div>
+<label for="message">Message</label>
+<textarea id="message" maxlength="500" rows="3">How do I recover an uncertain task?</textarea>
+<div class="actions"><button id="primary" type="button" class="primary">Start task</button><button id="check" type="button" disabled>Check status</button><button id="cancel" type="button" disabled>Cancel task</button></div>
+<button id="restore" type="button" hidden>Restore saved copy</button>
+<p class="footnote">Nothing survives reload.</p>
+</section>
+<aside aria-labelledby="budget-title">
+<h2 id="budget-title">Simulated task budget</h2>
+<dl><div><dt>Limit</dt><dd id="limit">—</dd></div><div><dt>Recorded spend</dt><dd id="spent">—</dd></div><div><dt>Still held</dt><dd id="held">—</dd></div></dl>
+<label for="scenario">Scenario</label>
+<select id="scenario"><option value="normal">Normal reply</option><option value="unknown">Unknown reply</option><option value="save-failure">Save fails after reserve</option></select>
+<label class="toggle" for="offline"><input id="offline" type="checkbox"> Simulate offline</label>
+<p class="footnote">All values are fictional.</p>
+</aside>
+</div>
+<details><summary>Simulation activity</summary><ol id="activity" aria-label="Simulation activity log"></ol></details>
+<noscript>This local simulation needs JavaScript. It does not connect to an account.</noscript>
+</main>
+</div>
+</body>
+</html>
