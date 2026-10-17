@@ -34,6 +34,9 @@ To point at a development endpoint, set `DSHREM_API_BASE`. HTTPS is required. Pl
 
 ## VS Code
 
+Preview data flow is documented in [vscode/PRIVACY.md](vscode/PRIVACY.md).
+For graph orchestration, see the two-node [LangGraph/LangChain adapter](integrations/LANGGRAPH.md).
+
 The `vscode/` folder holds the editor client: device sign-in, questions about a selection,
 explicit knowledge-base upload and account credit, over the same service and the same rules
 (no API keys in the editor, one capped task per question, no automatic paid retries).

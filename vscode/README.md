@@ -34,10 +34,13 @@ VS Code 1.90+ and compatible editors that install `.vsix` packages.
 ```sh
 npm test                      # protocol tests, no VS Code needed
 npx @vscode/vsce package      # builds tvijo-dshrem-0.1.0.vsix
-code --install-extension tvijo-dshrem-0.1.0.vsix
+code --install-extension tvijo-dshrem-0.1.1.vsix
 ```
 
 For a local service set `tvijo.apiBase` to `http://localhost:PORT/api/dshrem/v1`.
+
+Read [PRIVACY.md](PRIVACY.md) before submitting private code. This is an
+operator-provisioned preview; installation does not issue a credit grant.
 
 ## License
 

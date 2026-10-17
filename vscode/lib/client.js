@@ -39,8 +39,23 @@ function apiBase(value) {
 async function readBounded(response) {
   const declared = Number(response.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) throw new ServiceError('oversized', 'Service response exceeded 2 MiB');
-  const text = await response.text();
-  if (Buffer.byteLength(text, 'utf8') > MAX_RESPONSE_BYTES) throw new ServiceError('oversized', 'Service response exceeded 2 MiB');
+  if (!response.body) return null;
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_RESPONSE_BYTES) {
+        await reader.cancel();
+        throw new ServiceError('oversized', 'Service response exceeded 2 MiB');
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally { reader.releaseLock(); }
+  const text = Buffer.concat(chunks, size).toString('utf8');
   if (!text) return null;
   try { return JSON.parse(text); } catch { throw new ServiceError('invalid_json', 'Service returned invalid JSON'); }
 }
@@ -62,21 +77,22 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
         signal: controller.signal,
         redirect: 'error'
       });
-    } catch {
+      if (!response.ok) {
+        // Raw error bodies may echo private prompts or internal details.
+        const [code, message] = HTTP_ERRORS[response.status] || ['remote_http_error', `Service returned HTTP ${response.status}.`];
+        throw new ServiceError(code, message, response.status);
+      }
+      if (response.status === 204) return null;
+      return await readBounded(response);
+    } catch (error) {
+      if (error instanceof ServiceError) throw error;
       if (signal?.aborted) throw new ServiceError('interrupted', 'Request was cancelled');
       if (controller.signal.aborted) throw new ServiceError('timeout', `Request timed out after ${Math.round(timeoutMs / 1000)} s`);
-      throw new ServiceError('unreachable', 'Could not reach the service. Check the network and tvijo.apiBase.');
+      throw new ServiceError('unreachable', 'Could not read the service response.');
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener('abort', relay);
     }
-    if (!response.ok) {
-      // Raw error bodies are never shown: they may echo prompts or internal details.
-      const [code, message] = HTTP_ERRORS[response.status] || ['remote_http_error', `Service returned HTTP ${response.status}.`];
-      throw new ServiceError(code, message, response.status);
-    }
-    if (response.status === 204) return null;
-    return readBounded(response);
   }
 
   async function startDeviceLogin() {
@@ -107,7 +123,7 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
   async function ask({ token, messages, idempotencyKey, title = 'VS Code', maxTokens = 2048, signal, onGrant }) {
     if (!Array.isArray(messages) || messages.length < 1 || messages.length > MAX_MESSAGES) throw new ServiceError('invalid_messages', 'Conversation must have 1-80 messages. Start a new conversation.');
     if (Buffer.byteLength(JSON.stringify(messages), 'utf8') > MAX_CONTEXT_BYTES) throw new ServiceError('context_limit', 'Conversation and selection exceed the per-task context bound. Start a new conversation or select less.');
-    const grant = await request('/tasks', { method: 'POST', token, body: { title: title.slice(0, 120), max_usd: '1', model: 'coding', idempotency_key: idempotencyKey } });
+    const grant = await request('/tasks', { method: 'POST', token, signal, body: { title: title.slice(0, 120), max_usd: '1', model: 'coding', idempotency_key: idempotencyKey } });
     if (!grant?.id) throw new ServiceError('incomplete', 'Service returned a task without an id');
     if (onGrant) await onGrant(grant);
     const response = await request(`/tasks/${encodeURIComponent(grant.id)}/chat`, { method: 'POST', token, signal, timeoutMs: 210_000, body: { messages, max_tokens: maxTokens } });
