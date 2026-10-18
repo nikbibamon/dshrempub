@@ -31,3 +31,17 @@ accounts for tasks and usage. It never asks for a model-provider API key.
 
 Customer access is provisioned by the operator. Free trials, when offered, are
 finite service credits, not unlimited tokens or access to the operator's account.
+
+## Self-hosted DSHREMBOT local preview
+
+The optional `bot/` preview keeps its BotFather token in the local process environment
+(the documented `.env` file remains on the machine running the bot). It sends Bot API
+requests directly to Telegram. For the configured owner only, `/status` sends that
+machine's hostname, uptime, one-minute load and free space on `/` as a Telegram message.
+Pairing mode replies with the requester's numeric Telegram ID and stops. The preview
+has no Tvijo backend connection, model calls, repository upload, analytics SDK, shell
+execution or remote server command feature. Generic HTTP error codes may be logged
+locally; the bot does not print its token, raw Telegram responses or message text.
+Telegram's own processing and retention of bot messages is governed by Telegram's
+terms. Stop the process and rotate the token with BotFather if the server or token is
+compromised.
