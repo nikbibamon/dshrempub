@@ -41,7 +41,7 @@ See [vscode/README.md](vscode/README.md).
 
 ## Telegram bot pilot
 
-You can prepare your own BotFather bot for a private pilot. Customer bot tokens are **not** accepted by this repository or by a public form. Read the [English setup guide](docs/BOTFATHER_CONNECT_EN.md) or [русскую инструкцию](docs/BOTFATHER_CONNECT_RU.md). The current operator bot is not a shared customer service.
+A [self-hosted read-only bot preview](bot/README_EN.md) is available for local status checks. You can also prepare your own BotFather bot for a private Tvijo pilot. Customer bot tokens are **not** accepted by this repository or by a public form. Read the [English setup guide](docs/BOTFATHER_CONNECT_EN.md) or [русскую инструкцию](docs/BOTFATHER_CONNECT_RU.md). The current operator bot is not a shared customer service.
 
 ## Local data and security
 
