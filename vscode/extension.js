@@ -278,6 +278,8 @@ function activate(context) {
     ensureIdle();
     if (!goal?.trim()) return;
     const auth = await requireAuth();
+    const agentScope = shared.selection(auth.scope) ? shared.scope(auth.scope) : auth.scope;
+    const agentHistory = shared.selection(auth.scope) ? [...historyFor(auth.scope), ...local.history(agentScope)] : historyFor(auth.scope);
     const editor = vscode.window.activeTextEditor;
     const folder = (editor && vscode.workspace.getWorkspaceFolder(editor.document.uri)) || (vscode.workspace.workspaceFolders || [])[0];
     if (!folder) throw new core.ServiceError('no_workspace', L('Open a project folder before starting the agent.', 'Откройте папку проекта, прежде чем запускать агента.'));
@@ -361,7 +363,7 @@ function activate(context) {
         }
       });
       const result = await runAgent({
-        goal, tree, planMode, maxSteps, budgetUsd, signal: abort.signal, tools,
+        goal, tree, history: agentHistory, planMode, maxSteps, budgetUsd, signal: abort.signal, tools,
         ask: async ({ messages, step, signal, finalization = false }) => {
           await guard();
           const remaining = Number(budgetUsd) - agentSpent;
@@ -394,8 +396,8 @@ function activate(context) {
         },
         onEvent: event => postAgentEvent(auth, event)
       });
-      const history = historyFor(auth.scope);
-      await local.saveHistory(auth.scope, [...history, { role: 'user', content: goal.trim(), display: goal.trim() }, { role: 'assistant', content: result.text, display: result.text }].slice(-40));
+      const history = local.history(agentScope);
+      await local.saveHistory(agentScope, [...history, { role: 'user', content: goal.trim(), display: goal.trim() }, { role: 'assistant', content: result.text, display: result.text }].slice(-40));
       await metrics.record({ event: 'agent', outcome: result.reason === 'step_limit' ? 'partial' : 'completed', mode: planMode ? 'plan' : 'agent', model: config.get('agentModel', 'ds41f'), steps: result.steps, cost_usd: result.spent, duration_ms: Date.now() - startedAt });
       lastAgentOutcome = { scope: currentViewScope(auth.scope), text: result.partial
         ? L('Step limit reached (' + result.steps + '). Partial result: review the log and narrow the next task.', 'Лимит шагов достигнут (' + result.steps + '). Частичный результат: проверьте журнал и уточните следующую задачу.')
