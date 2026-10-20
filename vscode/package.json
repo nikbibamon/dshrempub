@@ -14,7 +14,6 @@
   },
   "publisher": "tvijo",
   "license": "UNLICENSED",
-  "private": true,
   "engines": {
     "vscode": "^1.90.0"
   },
