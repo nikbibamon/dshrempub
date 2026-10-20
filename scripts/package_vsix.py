@@ -67,6 +67,9 @@ def build(repo, output):
     node(metadata, "DisplayName", text=meta["displayName"])
     node(metadata, "Description", text=meta["description"])
     node(metadata, "Categories", text=",".join(meta.get("categories", [])))
+    # The Marketplace reads visibility from the manifest; without "Public" an upload of this
+    # already public extension is rejected as an attempt to make it private.
+    node(metadata, "GalleryFlags", text="Public Preview" if meta.get("preview") else "Public")
     properties = node(metadata, "Properties")
     for key, value in {
         "Microsoft.VisualStudio.Code.Engine": meta["engines"]["vscode"],
