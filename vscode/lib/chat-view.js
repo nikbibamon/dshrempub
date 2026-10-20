@@ -14,13 +14,13 @@ ${THEME_CSS}
 </style></head><body>
 <header><strong id="brand"><span id="brand-mark" aria-hidden="true">›_</span>DSHREM</strong><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="signin" type="button">Sign in</button><button id="new" class="icon" type="button" title="New session" aria-label="New session">＋</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings">⚙</button></header>
 <nav aria-label="Workspace"><button id="tab-chat" type="button" aria-selected="true">Chat</button><button id="tab-context" type="button" aria-selected="false">Context</button><button id="tab-usage" type="button" aria-selected="false">Usage</button><button id="tab-terminal" type="button" aria-selected="false">Terminal</button></nav>
-<main id="messages" aria-live="polite"></main><section id="context-panel" aria-label="Context"><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
+<main id="messages" aria-live="polite"></main><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
 <div id="agent-log" role="log" aria-live="polite"></div>
 <div class="product-links"><button id="product-guide" type="button">Tvijo AI guide</button><button id="connections" type="button">Connections</button><button id="tasks" type="button">Server task history</button><button id="context-preview" type="button">Preview context</button><button id="quick-edit" type="button">Quick edit</button></div>
 <p id="history-note" class="mini-select">Chat stays in this workspace and is separate from Copilot. Submitted tasks also appear in server history.</p>
 <div id="account-status" role="status"><span class="dot">●</span><span id="connection-label">Limited free preview</span><span id="budget"></span></div>
-<form id="form"><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
+<form id="form"><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><p id="mode-help" role="note"></p><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
 <div id="plus-menu" role="menu" aria-label="Add context"><button id="attach" type="button" role="menuitem">Add file…</button><button id="workspace" type="button" role="menuitem">Choose workspace file…</button><button id="selection" type="button" role="menuitem">Use editor selection</button><button id="path" type="button" role="menuitem">Paste workspace path…</button></div>
 <div id="options-menu" role="menu" aria-label="Model and method"></div>
 <div id="notice" role="alert"><p id="notice-text"></p><button id="notice-action" type="button">Resolve task</button></div>
@@ -82,9 +82,10 @@ ${THEME_CSS}
   const modelHint = item => item.id === 'auto' ? t('modelAutoHint') : item.id === 'coding' ? t('modelCodingHint') : t('activatedRoute');
   function updateWorkflowLabel() {
     if (!optionState) { document.getElementById('workflow-label').textContent = t('options'); return; }
-    const model = (optionState.models || []).find(item => item.id === optionState.model) || { id: optionState.model, name: optionState.model };
+    const selected = uiMode === 'chat' ? optionState.model : optionState.agentModel;
+    const model = (optionState.models || []).find(item => item.id === selected) || { id: selected, name: selected };
     const method = { 'evidence-first': 'methodEvidence', 'plan-check': 'methodPlan', 'peer-review': 'methodPeer' }[optionState.reasoningMethod];
-    document.getElementById('workflow-label').textContent = modelLabel(model) + (method ? ' · ' + t(method) : '');
+    document.getElementById('workflow-label').textContent = modelLabel(model) + (uiMode === 'chat' && method ? ' · ' + t(method) : '');
   }
   function closeOptions() { optionsMenu.className = ''; document.getElementById('workflow').setAttribute('aria-expanded', 'false'); }
   const ACTIVITY = ['✻','✶','✷','✸','✹','✺','✹','✸','✷','✶'];
@@ -167,6 +168,8 @@ ${THEME_CSS}
     modeButton.title = t('mode') + ': ' + label;
     modeButton.setAttribute('aria-label', t('mode') + ': ' + label);
     question.placeholder = uiMode === 'chat' ? t('ask') : t('mentionHint');
+    document.getElementById('mode-help').textContent = t(uiMode === 'chat' ? 'modeChatHelp' : uiMode === 'agent' ? 'modeAgentHelp' : 'modePlanHelp') + ' ' + t('shellHelp');
+    updateWorkflowLabel();
   }
   function agentLine(tag, detail, kind) {
     const line = document.createElement('div'); line.className = 'line ' + (kind || '');
@@ -177,9 +180,13 @@ ${THEME_CSS}
   }
   function renderAgentEvent(event) {
     if (!event || typeof event !== 'object') return;
+    if (event.type === 'reset') { agentLog.replaceChildren(); agentLog.className = ''; return; }
     if (event.type === 'start') {
       agentLog.replaceChildren(); agentLog.className = 'visible';
-      agentLine(t('agentTitle'), (event.planMode ? t('modePlan') : t('modeAgent')) + ' · ' + t('agentStep') + ' 0/' + event.maxSteps + ' · $' + event.budgetUsd, 'head');
+      const details = [event.planMode ? t('modePlan') : t('modeAgent')];
+      if (Number.isFinite(event.maxSteps)) details.push(t('agentStep') + ' 0/' + event.maxSteps);
+      if (Number.isFinite(event.budgetUsd)) details.push('$' + event.budgetUsd);
+      agentLine(t('agentTitle'), details.join(' · '), 'head');
       agentLine(t('agentTitle'), event.goal || '', '');
       return;
     }
@@ -197,7 +204,7 @@ ${THEME_CSS}
       agentLine(result.ok === false ? (result.refused ? t('agentRefused') : t('agentError')) : t('agentOk'), detail, kind);
       return;
     }
-    if (event.type === 'final') { agentLine(t('agentFinal'), (event.text || '').slice(0, 300), 'ok'); }
+    if (event.type === 'final') { agentLine(t(event.partial ? 'agentPartial' : 'agentFinal'), (event.text || '').slice(0, 300), event.partial ? 'bad' : 'ok'); }
   }
   function updateThemeButton() {
     const label = t(theme === 'dark' ? 'themeDark' : theme === 'light' ? 'themeLight' : 'themeSystem');
@@ -215,6 +222,7 @@ ${THEME_CSS}
     document.getElementById('connections').textContent = locale === 'ru' ? 'Подключения' : 'Connections';
     document.getElementById('tasks').textContent = locale === 'ru' ? 'История задач на сервере' : 'Server task history';
     document.getElementById('context-preview').textContent = t('contextPreview');
+    document.getElementById('context-help').textContent = t('contextHelp');
     document.getElementById('quick-edit').textContent = t('quickEdit');
     if (lastUsage) renderUsage(lastUsage);
     document.getElementById('tab-terminal').textContent = t('terminal');
@@ -256,9 +264,9 @@ ${THEME_CSS}
     const budget = document.getElementById('budget');
     const preview = { ...(account?.budget || {}), ...(account?.preview || {}) };
     const values = [];
-    if (Number.isFinite(preview?.tasks_remaining)) values.push(preview.tasks_remaining + ' ' + (locale === 'ru' ? 'задач' : 'tasks'));
-    if (Number.isFinite(preview?.tokens_remaining)) values.push(preview.tokens_remaining.toLocaleString() + ' ' + (locale === 'ru' ? 'токенов' : 'tokens'));
-    if (preview?.remaining_usd !== undefined && Number.isFinite(Number(preview.remaining_usd))) values.push('$' + Number(preview.remaining_usd).toFixed(3));
+    if (typeof preview?.tasks_remaining === 'number' && Number.isFinite(preview.tasks_remaining)) values.push(preview.tasks_remaining + ' ' + (locale === 'ru' ? 'задач' : 'tasks'));
+    if (typeof preview?.tokens_remaining === 'number' && Number.isFinite(preview.tokens_remaining)) values.push(preview.tokens_remaining.toLocaleString() + ' ' + (locale === 'ru' ? 'токенов' : 'tokens'));
+    if (typeof preview?.remaining_usd === 'number' && Number.isFinite(preview.remaining_usd)) values.push('$' + preview.remaining_usd.toFixed(3));
     budget.textContent = values.join(' · ');
     document.getElementById('connection-label').textContent = lastSignedIn ? t('ready') : t('limited');
   }
@@ -269,6 +277,7 @@ ${THEME_CSS}
     document.getElementById('context-items').hidden = tab !== 'context';
     document.getElementById('usage-items').hidden = tab !== 'usage';
     document.getElementById('clear-context').hidden = tab !== 'context';
+    document.getElementById('context-help').hidden = tab !== 'context';
     document.getElementById('terminal-info').hidden = tab !== 'terminal';
     document.getElementById('terminal-info').textContent = t('terminalInfo');
     if (tab === 'terminal') post({type:'terminal'});
@@ -279,6 +288,12 @@ ${THEME_CSS}
     const box = document.getElementById('usage-items'); box.replaceChildren();
     const add = (text) => { const row = document.createElement('p'); row.textContent = text; box.append(row); };
     const ru = locale === 'ru';
+    const valueOrUnknown = v => v === null || v === undefined || typeof v === 'boolean' || v === '' ? '—' : String(v);
+    const money = v => {
+      if (v === null || v === undefined || typeof v === 'boolean' || (typeof v === 'string' && !v.trim())) return '—';
+      const n = Number(v);
+      return Number.isFinite(n) ? '$' + n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '') : '—';
+    };
     if (value.unit === 'micro_tvijo') {
       const tt = v => Number.isSafeInteger(v) && v >= 0 ? (v / 1000000).toLocaleString('en-US', { maximumFractionDigits: 6 }) : '—';
       const b = value.balance || {};
@@ -297,18 +312,21 @@ ${THEME_CSS}
       add('1 USD service credit = 1000 TT. 1 TT = 1000000 micro-Tvijo units. TT is not cryptocurrency or a model token. — means unknown.');
       return;
     }
-    const a = value.account;
+    const a = value.account || {};
+    const budget = a.budget || {};
+    const scope = value.scope || {};
     add(ru ? 'Tvijo: личный учет' : 'Tvijo: private usage');
-    add((ru ? 'Всего расход $' : 'Lifetime spend $') + a.budget.spent_usd + (ru ? ' · резерв $' : ' · held $') + a.budget.held_usd + (ru ? ' · доступно $' : ' · available $') + a.budget.remaining_usd);
-    add((ru ? 'Дневной остаток сервиса: ' : 'Service daily remaining: ') + (a.budget.daily_remaining_usd === undefined ? '—' : '$' + a.budget.daily_remaining_usd));
-    if (a.preview) add((ru ? 'Проба: ' : 'Preview: ') + a.preview.tasks_remaining + (ru ? ' задач · ' : ' tasks · ') + a.preview.tokens_remaining + (ru ? ' токенов' : ' tokens'));
-    if (value.knowledge) add((ru ? 'Личные источники: ' : 'Private knowledge: ') + value.knowledge.indexed_files + (ru ? ' файлов · ' : ' files · ') + value.knowledge.indexed_chunks + (ru ? ' фрагментов' : ' chunks'));
-    add((ru ? 'Загружено задач: ' : 'Loaded tasks: ') + value.scope.loaded_tasks + ' / ' + value.scope.total_account_tasks);
-    for (const item of value.tasks) {
+    add((ru ? 'Всего расход ' : 'Lifetime spend ') + money(budget.spent_usd) + (ru ? ' · резерв ' : ' · held ') + money(budget.held_usd) + (ru ? ' · доступно ' : ' · available ') + money(budget.remaining_usd));
+    add((ru ? 'Дневной остаток сервиса: ' : 'Service daily remaining: ') + money(budget.daily_remaining_usd));
+    if (a.preview) add((ru ? 'Проба: ' : 'Preview: ') + valueOrUnknown(a.preview.tasks_remaining) + (ru ? ' задач · ' : ' tasks · ') + valueOrUnknown(a.preview.tokens_remaining) + (ru ? ' токенов' : ' tokens'));
+    if (value.knowledge) add((ru ? 'Личные источники: ' : 'Private knowledge: ') + valueOrUnknown(value.knowledge.indexed_files) + (ru ? ' файлов · ' : ' files · ') + valueOrUnknown(value.knowledge.indexed_chunks) + (ru ? ' фрагментов' : ' chunks'));
+    add((ru ? 'Загружено задач: ' : 'Loaded tasks: ') + valueOrUnknown(scope.loaded_tasks) + ' / ' + valueOrUnknown(scope.total_account_tasks));
+    for (const item of value.tasks || []) {
       add(item.title + ' · ' + item.model + ' / ' + item.mode + ' · ' + item.status);
-      add((ru ? 'Токены ' : 'Tokens ') + (item.tokens ?? '—') + (ru ? ' · списано $' : ' · charged $') + item.budget.spent_usd + (ru ? ' · лимит $' : ' · cap $') + item.budget.max_usd);
-      add((ru ? 'Провайдер ' : 'Provider ') + (item.provider_cost_usd === null ? '—' : '$' + item.provider_cost_usd) + (ru ? ' · сервисная разница ' : ' · service difference ') + (item.service_difference_usd === null ? '—' : '$' + item.service_difference_usd));
-      for (const call of item.calls) add(call.provider + ' / ' + call.model + ' · in ' + call.tokens_in + ' / out ' + call.tokens_out + ' · ' + call.outcome);
+      const taskBudget = item.budget || {};
+      add((ru ? 'Токены ' : 'Tokens ') + valueOrUnknown(item.tokens) + (ru ? ' · списано ' : ' · charged ') + money(taskBudget.spent_usd) + (ru ? ' · лимит ' : ' · cap ') + money(taskBudget.max_usd));
+      add((ru ? 'Провайдер ' : 'Provider ') + money(item.provider_cost_usd) + (ru ? ' · сервисная разница ' : ' · service difference ') + money(item.service_difference_usd));
+      for (const call of item.calls || []) add(valueOrUnknown(call.provider) + ' / ' + valueOrUnknown(call.model) + ' · in ' + valueOrUnknown(call.tokens_in) + ' / out ' + valueOrUnknown(call.tokens_out) + ' · ' + valueOrUnknown(call.outcome));
     }
     add(ru ? 'Квота подписки и экономия кеша не измерены. — означает неизвестно.' : 'Subscription quota and cache savings are not measured. — means unknown.');
   }

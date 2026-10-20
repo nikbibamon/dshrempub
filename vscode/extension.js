@@ -6,6 +6,7 @@ const fs = require('node:fs/promises');
 const { constants } = require('node:fs');
 const core = require('./lib/client');
 const { chatHtml } = require('./lib/chat-view');
+const { settingsHtml, GUIDE_ACTIONS } = require('./lib/settings-guide');
 const files = require('./lib/attachments');
 const { ACTIONS, slashAction, fileReference } = require('./lib/actions');
 const { createBot } = require('./lib/telegram-bot');
@@ -35,6 +36,8 @@ function activate(context) {
   let lastContextSummary = null;
   let lastActivity = '';
   let lastError = null;
+  let lastAgentOutcome = null;
+  let settingsPanel = null;
   let agentAbort = null;
   let agentRunning = false;
   const customCommands = new Map();
@@ -213,7 +216,7 @@ function activate(context) {
     const history = scope ? historyFor(scope) : [];
     const nextAgentScope = scope ? currentViewScope(scope) : null;
     if (postChatState.agentScope !== nextAgentScope) {
-      await chatView.webview.postMessage({ type: 'agent', scopeKey: postChatState.agentScope, event: { type: 'start', goal: '', planMode: true } });
+      await chatView.webview.postMessage({ type: 'agent', scopeKey: postChatState.agentScope, event: { type: 'reset' } });
       postChatState.agentScope = nextAgentScope;
     }
     const pending = scope ? local.pending(scope) : null;
@@ -225,7 +228,7 @@ function activate(context) {
     await chatView.webview.postMessage({ type: 'state', scopeKey: scope ? currentViewScope(scope) : null, messages, signedIn, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length, account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'coding') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
-      status: message || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
+      status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
   }
 
   async function postActivity(stage, detail = '') {
@@ -287,7 +290,7 @@ function activate(context) {
     const autoApply = !!config.get('agentAutoApply', false);
     const startedAt = Date.now();
     const abort = new AbortController();
-    agentAbort = abort; agentRunning = true; busy = true; lastError = null;
+    agentAbort = abort; agentRunning = true; busy = true; lastError = null; lastAgentOutcome = null;
     await postChatState();
     try {
       const contextMode = config.get('workspaceContext', 'ask');
@@ -394,7 +397,10 @@ function activate(context) {
       const history = historyFor(auth.scope);
       await local.saveHistory(auth.scope, [...history, { role: 'user', content: goal.trim(), display: goal.trim() }, { role: 'assistant', content: result.text, display: result.text }].slice(-40));
       await metrics.record({ event: 'agent', outcome: result.reason === 'step_limit' ? 'partial' : 'completed', mode: planMode ? 'plan' : 'agent', model: config.get('agentModel', 'ds41f'), steps: result.steps, cost_usd: result.spent, duration_ms: Date.now() - startedAt });
-      await postChatState(L('Agent finished in ' + result.steps + ' steps.', 'Агент завершил за ' + result.steps + ' шагов.'));
+      lastAgentOutcome = { scope: currentViewScope(auth.scope), text: result.partial
+        ? L('Step limit reached (' + result.steps + '). Partial result: review the log and narrow the next task.', 'Лимит шагов достигнут (' + result.steps + '). Частичный результат: проверьте журнал и уточните следующую задачу.')
+        : L('Agent finished in ' + result.steps + ' steps.', 'Агент завершил за ' + result.steps + ' шагов.') };
+      await postChatState(lastAgentOutcome.text);
     } catch (error) {
       if (abort.signal.aborted) {
         lastError = null;
@@ -459,6 +465,7 @@ function activate(context) {
         operator_allowance_exhausted: 'Дневной тестовый allowance оператора исчерпан. Лимит обновится в 00:00 UTC.',
         credits_or_daily_cap_exhausted: 'Исчерпан кредит или дневной лимит аккаунта. Проверьте расходы и лимиты.',
         insufficient_credit: 'Доступный кредит не покрывает резерв этой задачи.',
+        project_required: 'Сначала выберите общий проект: Команды → Choose shared project. Затем откройте подключения.',
         account_changed: 'Аккаунт, проект или ветка изменились. Повторите действие в текущем аккаунте.',
         unreachable: 'Сервис недоступен. Проверьте соединение и повторите запрос; платная задача не создана.',
         timeout: 'Сервис не ответил вовремя. Повторите запрос; неизвестный расход не считается нулевым.'
@@ -797,7 +804,44 @@ function activate(context) {
   });
   command('tvijo.learn', () => vscode.env.openExternal(vscode.Uri.parse(new URL('/learn', client().base).toString())));
   command('tvijo.feedback', () => vscode.env.openExternal(vscode.Uri.parse(new URL('/feedback', client().base).toString())));
-  command('tvijo.settings', () => vscode.commands.executeCommand('workbench.action.openSettings', '@ext:tvijo.tvijo-dshrem'));
+  command('tvijo.nativeSettings', () => vscode.commands.executeCommand('workbench.action.openSettings', '@ext:tvijo.tvijo-dshrem'));
+  const settingProperties = () => require('./package.json').contributes.configuration.properties;
+  function settingsValues() {
+    const config = vscode.workspace.getConfiguration('tvijo');
+    const values = {};
+    for (const [key, property] of Object.entries(settingProperties())) {
+      values[key] = config.get(key.slice('tvijo.'.length), property.default);
+    }
+    // A custom URL may contain user info or query credentials; never embed them.
+    try { const url = new URL(values['tvijo.apiBase']); url.username = ''; url.password = ''; url.search = ''; url.hash = ''; values['tvijo.apiBase'] = url.toString(); }
+    catch { values['tvijo.apiBase'] = L('Invalid service URL', 'Некорректный адрес сервиса'); }
+    return values;
+  }
+  command('tvijo.settings', () => {
+    if (settingsPanel) { settingsPanel.reveal(); return; }
+    const panel = vscode.window.createWebviewPanel('tvijo.settingsGuide', L('Tvijo · Settings & how it works', 'Tvijo · Настройки и как это работает'), vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [] });
+    settingsPanel = panel;
+    panel.webview.html = settingsHtml(panel.webview, { locale: uiLocale(), properties: settingProperties(), values: settingsValues() });
+    const listener = panel.webview.onDidReceiveMessage(async message => {
+      try {
+        if (message?.type === 'openSetting' && typeof message.key === 'string' && Object.hasOwn(settingProperties(), message.key)) {
+          await vscode.commands.executeCommand('workbench.action.openSettings', '@id:' + message.key);
+        } else if (message?.type === 'guideAction' && typeof message.id === 'string' && Object.hasOwn(GUIDE_ACTIONS, message.id)) {
+          const target = GUIDE_ACTIONS[message.id];
+          if (target.startsWith('https://')) await vscode.env.openExternal(vscode.Uri.parse(target));
+          else if (target === 'workbench.action.openSettings') await vscode.commands.executeCommand('tvijo.nativeSettings');
+          else await vscode.commands.executeCommand(target);
+        } else if (message?.type === 'refresh') {
+          await panel.webview.postMessage({ type: 'settingsValues', values: settingsValues() });
+        }
+      } catch (error) { report(error); }
+    });
+    const changed = vscode.workspace.onDidChangeConfiguration(event => {
+      if (event.affectsConfiguration('tvijo')) void panel.webview.postMessage({ type: 'settingsValues', values: settingsValues() });
+    });
+    panel.onDidDispose(() => { listener.dispose(); changed.dispose(); if (settingsPanel === panel) settingsPanel = null; });
+    context.subscriptions.push(panel, listener, changed);
+  });
   const publicSite = () => {
     const url = new URL(client().base);
     return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) ? 'https://dsh.tvijo.com' : url.origin;
@@ -904,7 +948,7 @@ function activate(context) {
     const botToken = await context.secrets.get(`tvijo.telegram.token.${auth.scope}`);
     if (!botToken || !botConfig.ownerId) throw new core.ServiceError('bot_account_setup', 'Configure Telegram bot for this signed-in account first. Older unassigned bot credentials remain preserved and are not reused.');
     let botPendingId = null;
-    customerBot = createBot({ botToken, ownerId: botConfig.ownerId, apiBase: auth.api_base, accessToken: auth.access_token, allowedServices: botConfig.allowedServices || [],
+    customerBot = createBot({ botToken, ownerId: botConfig.ownerId, apiBase: auth.api_base, accessToken: auth.access_token, allowedServices: config.get('telegram.allowedServices', []),
       withAction: async action => { if (busy) throw new Error('Editor is busy. Retry your command after it finishes.'); busy = true; try { return await action(); } finally { busy = false; await postChatState(); } },
       load: async () => {
         const pending = local.pending(auth.scope) || null;
@@ -1035,6 +1079,7 @@ function activate(context) {
   command('tvijo.newConversation', async () => {
     ensureIdle();
     const auth = await requireAuth();
+    lastError = null; lastAgentOutcome = null;
     if (shared.selection(auth.scope)) return createSharedThread(auth);
     const previous = historyFor(auth.scope);
     if (previous.length) await local.archiveHistory(auth.scope, randomUUID(), previous);
@@ -1133,7 +1178,7 @@ function activate(context) {
     const startedAt = Date.now();
     busy = true;
     try {
-    lastError = null;
+    lastError = null; lastAgentOutcome = null;
     await postChatState();
     const auth = await requireAuth();
     await postActivity('prepare', L('Preparing the request…', 'Готовлю запрос…'));

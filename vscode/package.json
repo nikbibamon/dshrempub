@@ -2,7 +2,7 @@
   "name": "tvijo-dshrem",
   "displayName": "Tvijo DSHREM",
   "description": "Managed coding and bounded reviews for shared projects with a per-task spending cap. Provider API credentials remain on the service.",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "repository": {
     "type": "git",
     "url": "https://github.com/nikbibamon/dshcode.git",
@@ -187,7 +187,7 @@
       },
       {
         "command": "tvijo.settings",
-        "title": "Settings",
+        "title": "Settings and how it works",
         "category": "Tvijo"
       },
       {
@@ -256,6 +256,11 @@
         "command": "tvijo.productGuide",
         "title": "Tvijo AI workspace guide",
         "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.nativeSettings",
+        "title": "Edit native VS Code settings",
+        "category": "Tvijo"
       }
     ],
     "menus": {
@@ -302,7 +307,7 @@
         "tvijo.service": {
           "type": "string",
           "default": "standard",
-          "description": "Tvijo service for shared projects. Its immutable quote is reserved before each task."
+          "markdownDescription": "Selects the managed shared-project service. Use when choosing a shared workflow; the server reserves an immutable quote. Shared projects use this service instead of chat model/mode."
         },
         "tvijo.model": {
           "type": "string",
@@ -317,7 +322,17 @@
             "gpt61sol",
             "luna"
           ],
-          "description": "Requested model alias. The server refuses unavailable routes; no silent paid fallback."
+          "markdownDescription": "Requests a model for ordinary chat and Quick Edit. Use to choose a route; unavailable routes are refused. Shared-project chat uses service quotes instead. Local Agent/Plan uses agentModel.",
+          "enumDescriptions": [
+            "Default coding route for ordinary chat and Quick Edit.",
+            "Server chooses an activated route for the request.",
+            "Request the ds41f route; the server verifies availability.",
+            "Request the glm53f route; the server verifies availability.",
+            "Request the Devstral route; the server verifies availability.",
+            "Request the Haiku route; the server verifies availability.",
+            "Request the GPT-6.1 Sol service route. This does not use your Codex subscription.",
+            "Request the Luna service route; unavailable routes are refused."
+          ]
         },
         "tvijo.agentMode": {
           "type": "string",
@@ -327,7 +342,12 @@
             "auto",
             "council"
           ],
-          "description": "Single model, deterministic routing, or DeepSeek + GLM council under one shared $1 task cap."
+          "markdownDescription": "Changes ordinary chat routing: single, auto or council. Use council for a bounded review; it shares one service task ceiling. Local Agent/Plan always requests single mode per step.",
+          "enumDescriptions": [
+            "One model per ordinary chat answer.",
+            "Deterministic service routing for ordinary chat.",
+            "DeepSeek and GLM collaboration for chat under one task ceiling. Not the local Agent loop."
+          ]
         },
         "tvijo.reasoningMethod": {
           "type": "string",
@@ -337,7 +357,12 @@
             "plan-check",
             "peer-review"
           ],
-          "description": "Reasoning workflow. Method selection is not a guarantee of higher quality or lower cost."
+          "markdownDescription": "Selects the requested reasoning workflow for chat, Quick Edit and Agent steps. Use to choose evidence-first, plan-check or peer-review. This is no quality or savings guarantee.",
+          "enumDescriptions": [
+            "Ask for evidence from supplied context.",
+            "Ask for a plan and a check against evidence.",
+            "Ask for review of the draft; does not itself activate a council."
+          ]
         },
         "tvijo.workspaceContext": {
           "type": "string",
@@ -347,19 +372,24 @@
             "on",
             "off"
           ],
-          "description": "Send a bounded project tree, README, manifests and the active file with each question. Secrets and binaries are excluded locally. 'ask' asks once, then remembers the choice."
+          "markdownDescription": "Controls bounded project context. Use off for less sharing or on for project questions. Ask remembers the consent choice; reselect Ask in the chat context control to reset it. Preview before sending; exclusions are not a guarantee against all sensitive text.",
+          "enumDescriptions": [
+            "Ask once and remember consent. Reselect Ask from the chat context menu to reset.",
+            "Include a bounded project summary with each supported request.",
+            "Do not add automatic project context. Explicit attachments are still sent."
+          ]
         },
         "tvijo.workspaceContextMaxBytes": {
           "type": "number",
           "default": 48000,
           "minimum": 4096,
           "maximum": 200000,
-          "description": "Hard byte limit for the generated project-context block."
+          "markdownDescription": "Limits the generated project-context block in bytes. Reduce it when context is too large. It does not cap attachments or the entire conversation; Agent/Plan and Quick Edit each use a separate 16000-byte project-context limit."
         },
         "tvijo.autoApply": {
           "type": "boolean",
           "default": false,
-          "description": "Apply a reviewed quick-edit diff without the confirmation dialog. The file is still not saved automatically."
+          "markdownDescription": "Skips the final Quick Edit apply confirmation after the diff is opened. Enable only for reviewed workflows. Edits change an unsaved editor buffer; this does not save files or control Agent edits."
         },
         "tvijo.agentModel": {
           "type": "string",
@@ -374,54 +404,65 @@
             "gpt61sol",
             "luna"
           ],
-          "description": "Model used for each agent step. A cheap JSON-reliable route is recommended; the server refuses an unavailable route."
+          "markdownDescription": "Requests one model for each local Agent or Plan step. Use a route that reliably returns tool JSON. Each step is a separate service task in single mode, regardless of chat model/agentMode; unavailable routes are refused.",
+          "enumDescriptions": [
+            "Request the ds41f route; the server verifies availability.",
+            "Request the glm53f route; the server verifies availability.",
+            "Request the Devstral route; the server verifies availability.",
+            "Default coding route for ordinary chat and Quick Edit.",
+            "Server chooses an activated route for the request.",
+            "Request the Haiku route; the server verifies availability.",
+            "Request the GPT-6.1 Sol service route. This does not use your Codex subscription.",
+            "Request the Luna service route; unavailable routes are refused."
+          ]
         },
         "tvijo.agentMaxSteps": {
           "type": "number",
           "default": 6,
           "minimum": 1,
           "maximum": 12,
-          "description": "Maximum model turns in one agent task. Each turn is a separate paid task with the service per-task cap."
+          "markdownDescription": "Caps model turns in one local Agent/Plan loop, including JSON repair turns. Lower it for small tasks. Reaching the limit may leave work partial; it is not a completion promise."
         },
         "tvijo.agentBudgetUsd": {
           "type": "number",
           "default": 2,
           "minimum": 0.01,
           "maximum": 10,
-          "description": "Local session budget for the agent loop. It refuses to start another model turn above this amount. It does not replace the service cap."
+          "markdownDescription": "Sets the local Agent/Plan loop budget in USD; the host checks remaining budget before another step and passes a bounded task cap. Separate service per-task ceilings still apply. This is neither account credit nor a credit purchase."
         },
         "tvijo.agentAutoRun": {
           "type": "boolean",
           "default": false,
-          "description": "Run build/test/lint commands without a per-command confirmation when they match the local allowlist. Destructive commands stay blocked."
+          "markdownDescription": "Skips per-command approval only for local Agent commands matching the allowlist. Use for trusted build/test/lint routines. Destructive commands remain blocked; Plan refuses all commands."
         },
         "tvijo.agentAutoApply": {
           "type": "boolean",
           "default": false,
-          "description": "Write agent file edits without the per-file confirmation. A diff is still opened and the editor buffer is not saved automatically."
+          "markdownDescription": "Skips per-file approval for local Agent edits. Use when you can review opened diffs. Edits remain unsaved editor buffers; Plan refuses writes even when enabled."
         },
         "tvijo.telegram.enabled": {
           "type": "boolean",
           "default": false,
           "scope": "machine",
-          "description": "Start your owner-only Telegram connector on this extension host. Requires Configure Telegram bot first."
+          "markdownDescription": "Enables the owner-only Telegram connector on this extension host after bot configuration. Use only on a host that should run your bot. It requires a separately stored bot token and owner ID."
         },
         "tvijo.telegram.ownerId": {
           "type": "string",
           "default": "",
           "scope": "machine",
-          "description": "Numeric Telegram ID allowed to control your bot in private chat. BotFather token is stored separately in SecretStorage."
+          "markdownDescription": "Legacy native value, not the active bot owner. Use Configure Telegram bot to set the owner for the signed-in account. The active owner is saved per account; changing this field alone does not transfer control. Bot tokens belong in SecretStorage.",
+          "markdownDeprecationMessage": "Use **Tvijo: Configure Telegram bot** to change the account-local owner."
         },
         "tvijo.ocrLanguages": {
           "type": "string",
           "default": "eng+rus",
           "scope": "machine",
-          "description": "Installed Tesseract languages used for local PNG/JPG text extraction. For example eng or eng+rus. Images are not sent to a vision model."
+          "markdownDescription": "Selects installed Tesseract languages for local PNG/JPG OCR. Use eng+rus for English/Russian screenshots when installed. Only extracted text is sent as context; the model does not see image layout."
         },
         "tvijo.apiBase": {
           "type": "string",
           "default": "https://dsh.tvijo.com/api/dshrem/v1",
-          "description": "Service URL. HTTPS is required; plain HTTP is accepted only for localhost development."
+          "markdownDescription": "Changes the service API endpoint. Use only for a trusted deployment; HTTPS is required except localhost development. Changing it switches account scope. Do not put credentials or tokens in this URL."
         },
         "tvijo.telegram.allowedServices": {
           "type": "array",
@@ -430,7 +471,7 @@
           },
           "default": [],
           "scope": "machine",
-          "description": "Exact systemd .service names this owner may inspect/restart. Restarts need a fresh 60-second Telegram confirmation. Empty disables service control."
+          "markdownDescription": "Allows exact systemd .service names for owner inspection/restart. Use only for explicitly selected services on the connector host. Empty disables service control; restart requires a fresh 60-second Telegram confirmation."
         }
       }
     }

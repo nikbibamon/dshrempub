@@ -32,7 +32,9 @@ const THEME_CSS = `
   #context-summary{margin:6px 0 0;padding:7px 8px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--muted);font-size:10px;line-height:1.4;overflow-wrap:anywhere}
   #messages:has(.welcome){display:flex;flex-direction:column;justify-content:center}
   @media(max-width:340px){header{flex-wrap:wrap}#brand{min-width:75px}#account-status{flex-wrap:wrap}#budget{white-space:normal;overflow-wrap:anywhere;margin-left:0}#signin{font-size:11px;padding:4px}header .icon{min-width:23px;padding:3px}#lang{padding:4px 2px}}
-  nav{flex-wrap:wrap}.product-links{display:flex;gap:3px;padding:2px 8px;border-top:1px solid var(--border)}.product-links button{font-size:10px;color:var(--accent);padding:3px 6px}#usage-items{font-size:11px;overflow-wrap:anywhere}#usage-items p{margin:7px 0}#context-panel:has(#usage-items:not([hidden])){flex:1;overflow:auto;max-height:70vh}
+  nav{flex-wrap:wrap}.product-links{display:flex;flex-wrap:wrap;gap:3px;padding:2px 8px;border-top:1px solid var(--border);min-width:0}.product-links button{font-size:10px;color:var(--accent);padding:3px 6px;min-width:0;max-width:100%;white-space:normal;word-break:normal;overflow-wrap:break-word;text-align:left}#usage-items{font-size:11px;overflow-wrap:anywhere}#usage-items p{margin:7px 0}#context-panel:has(#usage-items:not([hidden])){flex:1;overflow:auto;max-height:70vh}
+  .composer-actions{flex-wrap:wrap;min-width:0}.composer-actions .spacer{flex:1 1 0;min-width:0}#workflow{min-width:0;max-width:100%;overflow-wrap:anywhere}#mode-help,#context-help{margin:0;color:var(--muted);font-size:10px;line-height:1.4;overflow-wrap:anywhere}#context-help{padding:2px 0 6px}
+  @media(max-width:420px){.product-links{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.product-links button{width:100%;box-sizing:border-box}.composer-actions .spacer{display:none}#workflow{flex:1 1 auto}}
   [hidden]{display:none!important}
   .toolbar-hidden{display:none!important}.view-panel{display:none}#context-panel.visible{display:block}
 `;
@@ -57,8 +59,11 @@ const COPY = {
     contextSection:'Project context', contextAsk:'Ask me', contextOn:'Always send', contextOff:'Do not send', contextSummary:'Context', contextOffHint:'Project context is off; only explicit attachments are sent.', applySection:'Edits', autoApplyOff:'Confirm before apply', autoApplyOn:'Apply without confirmation',
     activityPrepare:'Preparing the request…', activityScan:'Reading the project…', activityGrant:'Checking the task limit…', activityQuote:'Reserving the quote…', activityModel:'Model is working…', activitySettle:'Checking the receipt…', activityDone:'Done',
     quickEdit:'Quick edit', editFile:'Edit the current file', contextPreview:'Preview project context',
-    mode:'Mode', modeChat:'Chat', modeAgent:'Agent', modePlan:'Plan (read-only)', agentTitle:'Agent', agentStep:'Step', agentOk:'OK', agentRefused:'Refused', agentError:'Error', agentFinal:'Finished', agentRunning:'Agent is working…', agentStop:'Stop agent', agentShell:'Run a shell command directly',
-    mentionHint:'@file mentions are attached automatically; ! runs a shell command yourself.'
+    mode:'Mode', modeChat:'Chat', modeAgent:'Agent', modePlan:'Plan (read-only)', agentTitle:'Agent', agentStep:'Step', agentOk:'OK', agentRefused:'Refused', agentError:'Error', agentFinal:'Finished', agentPartial:'Partial result', agentRunning:'Agent is working…', agentStop:'Stop agent', agentShell:'Run a shell command directly',
+    mentionHint:'@file mentions are attached automatically; ! runs a shell command yourself.',
+    modeChatHelp:'Chat sends one question and returns an answer.', modeAgentHelp:'Agent follows a task using project tools and asks before file edits or commands unless enabled in settings.', modePlanHelp:'Plan inspects the project and suggests steps; it cannot write files or run commands.',
+    shellHelp:'A message beginning with ! runs a local shell command directly, without a model; command approval and restrictions still apply.',
+    contextHelp:'With “Ask me”, the first request asks whether to include a bounded project summary. Review it with Preview context; secrets and binaries are excluded.'
   },
   ru: {
     chat:'Чат', context:'Контекст', terminal:'Терминал', new:'Новая сессия', settings:'Настройки', account:'Аккаунт',
@@ -79,8 +84,11 @@ const COPY = {
     contextSection:'Контекст проекта', contextAsk:'Спрашивать', contextOn:'Всегда отправлять', contextOff:'Не отправлять', contextSummary:'Контекст', contextOffHint:'Контекст проекта выключен; отправляются только явные вложения.', applySection:'Правки', autoApplyOff:'Подтверждать перед применением', autoApplyOn:'Применять без подтверждения',
     activityPrepare:'Готовлю запрос…', activityScan:'Смотрю проект…', activityGrant:'Проверяю лимит задачи…', activityQuote:'Резервирую цену…', activityModel:'Модель работает…', activitySettle:'Проверяю квитанцию…', activityDone:'Готово',
     quickEdit:'Быстрая правка', editFile:'Править текущий файл', contextPreview:'Предпросмотр контекста проекта',
-    mode:'Режим', modeChat:'Чат', modeAgent:'Агент', modePlan:'План (только чтение)', agentTitle:'Агент', agentStep:'Шаг', agentOk:'OK', agentRefused:'Отказано', agentError:'Ошибка', agentFinal:'Готово', agentRunning:'Агент работает…', agentStop:'Остановить агента', agentShell:'Выполнить shell-команду самому',
-    mentionHint:'@файл прикрепляется автоматически; ! выполняет shell-команду без модели.'
+    mode:'Режим', modeChat:'Чат', modeAgent:'Агент', modePlan:'План (только чтение)', agentTitle:'Агент', agentStep:'Шаг', agentOk:'OK', agentRefused:'Отказано', agentError:'Ошибка', agentFinal:'Готово', agentPartial:'Частичный результат', agentRunning:'Агент работает…', agentStop:'Остановить агента', agentShell:'Выполнить shell-команду самому',
+    mentionHint:'@файл прикрепляется автоматически; ! выполняет shell-команду без модели.',
+    modeChatHelp:'Чат отправляет один вопрос и возвращает ответ.', modeAgentHelp:'Агент выполняет задачу с инструментами проекта и спрашивает перед правкой файлов или запуском команд, если это не разрешено в настройках.', modePlanHelp:'План изучает проект и предлагает шаги; запись файлов и запуск команд недоступны.',
+    shellHelp:'Сообщение с начальным ! запускает локальную shell-команду без модели; подтверждения и ограничения команд сохраняются.',
+    contextHelp:'При режиме «Спрашивать» первый запрос уточнит, добавлять ли краткий контекст проекта. Его можно проверить через «Предпросмотр контекста»; секреты и бинарные файлы исключаются.'
   }
 };
 

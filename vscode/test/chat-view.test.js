@@ -16,11 +16,11 @@ function sidebar(initialState = {}) {
       value: '', disabled: false, textContent: '',
       attributes: {},
       addEventListener(type, fn) { listeners.set(`${id}:${type}`, fn); },
-      focus() {}, replaceChildren() {}, append() {}, requestSubmit() {}, querySelectorAll() { return []; }, setAttribute(name, value) { this.attributes[name] = value; }, click() {}
+      focus() {}, replaceChildren(...nodes) { this.children = nodes; }, append(...nodes) { this.children = [...(this.children || []), ...nodes]; }, requestSubmit() {}, querySelectorAll() { return []; }, setAttribute(name, value) { this.attributes[name] = value; }, click() {}
     });
     return elements.get(id);
   }
-  const document = { getElementById: element, body: element('body'), documentElement: element('html'), createElement: (tag) => { const node = { tag, append() {}, addEventListener() {}, setAttribute() {} }; created.push(node); return node; } };
+  const document = { getElementById: element, body: element('body'), documentElement: element('html'), createElement: (tag) => { const node = { tag, textContent: '', children: [], append(...nodes) { this.children.push(...nodes); }, addEventListener() {}, setAttribute() {} }; created.push(node); return node; } };
   const window = { addEventListener(type, fn) { listeners.set(`window:${type}`, fn); } };
   const html = chatHtml({ cspSource: 'vscode-webview:' });
   const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
@@ -259,8 +259,58 @@ test('agent events render a bounded activity log', () => {
   view.emit('window:message', { data: { type: 'agent', scopeKey: 'tenant-a', event: { type: 'action', action: { tool: 'read_file', path: 'src/app.js' }, step: 1 } } });
   view.emit('window:message', { data: { type: 'agent', scopeKey: 'tenant-a', event: { type: 'result', result: { ok: true, path: 'src/app.js' }, step: 1 } } });
   view.emit('window:message', { data: { type: 'agent', scopeKey: 'tenant-a', event: { type: 'final', text: 'Done' } } });
+  view.emit('window:message', { data: { type: 'agent', scopeKey: 'tenant-a', event: { type: 'final', text: 'Step limit reached', partial: true } } });
   const texts = view.created.map(node => node.textContent).join('|');
   assert.match(texts, /Inspect/);
   assert.match(texts, /read_file/);
   assert.match(texts, /Done/);
+  assert.match(texts, /Partial result/);
+});
+
+test('agent reset clears stale output and incomplete starts omit missing counters', () => {
+  const view = sidebar();
+  view.emit('window:message', { data: { type: 'agent', scopeKey: 'tenant-a', event: { type: 'start', goal: '', planMode: true } } });
+  assert.equal(view.element('agent-log').className, 'visible');
+  assert.doesNotMatch(view.element('agent-log').children.map(item => item.children.map(child => child.textContent).join(' ')).join(' '), /undefined/);
+  const rendered = view.element('agent-log');
+  view.emit('window:message', { data: { type: 'agent', scopeKey: 'tenant-a', event: { type: 'reset' } } });
+  assert.equal(rendered.className, '');
+  assert.equal(rendered.children.length, 0);
+});
+
+test('agent and plan labels use the configured agent model while chat shows model and method', () => {
+  const view = sidebar();
+  view.emit('window:message', { data: { type: 'state', locale: 'en', messages: [], signedIn: true, options: {
+    models: [{ id: 'coding', name: 'DSHREM Coding' }, { id: 'ds41f', name: 'DeepSeek V4.1 Flash' }],
+    model: 'coding', agentModel: 'ds41f', agentMode: 'single', reasoningMethod: 'plan-check'
+  } } });
+  assert.equal(view.element('workflow-label').textContent, 'DSHREM Coding · Plan, then check');
+  view.emit('mode:click', {});
+  assert.equal(view.element('workflow-label').textContent, 'DeepSeek V4.1 Flash');
+  assert.match(view.element('mode-help').textContent, /project tools/);
+  view.emit('mode:click', {});
+  assert.equal(view.element('workflow-label').textContent, 'DeepSeek V4.1 Flash');
+  assert.match(view.element('mode-help').textContent, /cannot write files/);
+  assert.match(view.element('mode-help').textContent, /local shell command directly/);
+});
+
+test('nullable usage fields render as unknown instead of null or a false zero', () => {
+  const view = sidebar();
+  view.emit('lang:click', {});
+  view.emit('window:message', { data: { type: 'usage', usage: {
+    account: { budget: { spent_usd: false, held_usd: null, remaining_usd: undefined, daily_remaining_usd: null },
+      preview: { tasks_remaining: null, tokens_remaining: undefined } },
+    scope: { loaded_tasks: null, total_account_tasks: undefined }, tasks: []
+  } } });
+  const usage = view.element('usage-items').children.map(item => item.textContent).join('\n');
+  assert.doesNotMatch(usage, /null|undefined|\$0(?:\.0+)?/);
+  assert.match(usage, /— задач · — токенов/);
+  assert.match(usage, /Всего расход — · резерв — · доступно —/);
+});
+
+test('narrow sidebar styles wrap footer actions without character-by-character columns', () => {
+  const html = chatHtml({ cspSource: 'vscode-webview:' });
+  assert.match(html, /@media\(max-width:420px\)\{\.product-links\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
+  assert.match(html, /overflow-wrap:break-word/);
+  assert.match(html, /min-width:0;max-width:100%;white-space:normal;word-break:normal/);
 });

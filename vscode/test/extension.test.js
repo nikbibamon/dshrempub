@@ -19,6 +19,8 @@ function host(options = {}) {
   const shown = [];
   const requests = [];
   const errors = [];
+  const panels = [];
+  const external = [];
   let grantError = options.grantError;
   let warningAnswer = 'Forget request';
   let chatContent = options.chatContent || 'Test answer';
@@ -48,7 +50,7 @@ function host(options = {}) {
   };
   const vscode = {
     Uri, Position, Range, WorkspaceEdit, FileType: { File: 1, Directory: 2, SymbolicLink: 64 }, StatusBarAlignment: { Right: 1 }, ProgressLocation: { Notification: 1 }, ViewColumn: { Beside: 2 }, ConfigurationTarget: { Global: 1 },
-    env: { clipboard: { writeText: async () => {} }, openExternal: async () => {} },
+    env: { clipboard: { writeText: async () => {} }, openExternal: async uri => { external.push(uri.fsPath); } },
     commands: { registerCommand: (id, fn) => { commands.set(id, fn); return disposable; }, executeCommand: async (id, ...args) => { executed.push({ id, args }); return commands.get(id)?.(...args); } },
     workspace: {
       getConfiguration: () => ({ get: (key, fallback) => key === 'apiBase' ? base : (settings.has(key) ? settings.get(key) : fallback), update: async (key, value) => { settings.set(key, value); } }),
@@ -64,6 +66,13 @@ function host(options = {}) {
       openTextDocument: async (doc) => { docs.push(doc); return doc?.fsPath && activeEditor?.document?.uri?.fsPath === doc.fsPath ? activeEditor.document : doc; }
     },
     window: {
+      createWebviewPanel: () => {
+        let listener;
+        const panel = { revealed: 0, reveal() { this.revealed++; }, dispose() {}, onDidDispose() {},
+          webview: { cspSource: 'test:', html: '', postMessage: async message => { posts.push(message); }, onDidReceiveMessage: fn => { listener = fn; return disposable; } },
+          receive: message => listener(message) };
+        panels.push(panel); return panel;
+      },
       createStatusBarItem: () => ({ show() {} }),
       registerWebviewViewProvider: (_id, value) => { provider = value; return disposable; },
       showErrorMessage: async message => { errors.push(message); }, showInformationMessage: async () => undefined,
@@ -114,7 +123,7 @@ function host(options = {}) {
     onDidDispose: (fn) => { disposal = fn; }
   });
   const { tenantState, scopeKey } = require('../lib/tenant-state');
-  return { context, posts, docs, shown, requests, commands, executed, errors, base, local: tenantState(context), scope: tenant => scopeKey(base, tenant), receive: (message) => receive(message),
+  return { context, posts, docs, shown, requests, commands, executed, errors, panels, external, base, local: tenantState(context), scope: tenant => scopeKey(base, tenant), receive: (message) => receive(message),
     botAdapter: () => botAdapter, settings, Uri, Position, Range,
     grantError: value => { grantError = value; }, lookup: value => { lookup = value; }, warning: value => { warningAnswer = value; }, chat: value => { chatContent = value; }, editor: value => { activeEditor = value; }, applied: () => appliedEdit, taskSnapshot: value => { taskSnapshot = value; },
     blockResponse: (requestPath, method = 'GET') => { blockedRequest = { path: requestPath, method }; }, responseWaiting: () => !!releaseRequest,
@@ -732,7 +741,7 @@ test('agent stops after account change while the model is working and keeps orig
     assert.equal(app.posts.filter(p => p.type === 'agent' && p.event.type === 'action').length, 0);
     const privateEvents = app.posts.filter(p => p.type === 'agent' && p.event.goal === 'Account A editor question');
     assert.ok(privateEvents.every(p => p.scopeKey === original));
-    assert.ok(app.posts.some(p => p.type === 'agent' && p.event.type === 'start' && p.event.goal === ''));
+    assert.ok(app.posts.some(p => p.type === 'agent' && p.event.type === 'reset'));
   } finally { app.close(); }
 });
 
@@ -761,3 +770,70 @@ for (const [code, expected] of [
     } finally { app.close(); }
   });
 }
+
+
+test('settings guide works signed out, targets native settings, rejects arbitrary commands and URLs', async () => {
+  const app = host();
+  try {
+    await app.context.secrets.delete('tvijo.auth');
+    await app.commands.get('tvijo.settings')();
+    assert.equal(app.panels.length, 1);
+    const panel = app.panels[0];
+    assert.match(panel.webview.html, /Settings.*how it works/);
+    assert.doesNotMatch(panel.webview.html, /test-token/);
+    await panel.receive({ type: 'openSetting', key: 'tvijo.agentBudgetUsd' });
+    assert.deepEqual(app.executed.at(-1), { id: 'workbench.action.openSettings', args: ['@id:tvijo.agentBudgetUsd'] });
+    const before = app.executed.length;
+    await panel.receive({ type: 'openSetting', key: '__proto__' });
+    await panel.receive({ type: 'guideAction', id: 'workbench.action.terminal.sendSequence' });
+    await panel.receive({ type: 'guideAction', id: 'https://evil.example/' });
+    assert.equal(app.executed.length, before);
+    assert.equal(app.external.length, 0);
+    await panel.receive({ type: 'guideAction', id: 'platform' });
+    assert.deepEqual(app.external, ['https://platform.tvijo.com']);
+    await panel.receive({ type: 'guideAction', id: 'nativeSettings' });
+    assert.deepEqual(app.executed.at(-1), { id: 'workbench.action.openSettings', args: ['@ext:tvijo.tvijo-dshrem'] });
+    await panel.receive({ type: 'refresh' });
+    assert.equal(app.posts.at(-1).type, 'settingsValues');
+    assert.equal(app.posts.at(-1).values['tvijo.agentBudgetUsd'], 2);
+    await app.commands.get('tvijo.settings')();
+    assert.equal(app.panels.length, 1);
+    assert.equal(panel.revealed, 1);
+    assert.equal(app.requests.filter(r => r.url.endsWith('/tasks') && r.method === 'POST').length, 0);
+  } finally { app.close(); }
+});
+
+test('step limit retains partial outcome after final idle update', async () => {
+  const app = host({ chatContent: JSON.stringify({ tool: 'list_dir', path: '.' }) });
+  try {
+    app.settings.set('workspaceContext', 'off');
+    app.settings.set('agentMaxSteps', 1);
+    await app.commands.get('tvijo.agent')();
+    const state = app.posts.filter(p => p.type === 'state').at(-1);
+    assert.equal(state.busy, false);
+    assert.match(state.status, /Step limit reached.*Partial result/);
+    await app.commands.get('tvijo.newConversation')();
+    const cleared = app.posts.filter(p => p.type === 'state').at(-1);
+    assert.doesNotMatch(cleared.status, /Partial result/);
+    assert.equal(cleared.error, null);
+  } finally { app.close(); }
+});
+
+
+test('Telegram startup obeys the current service allowlist, including explicit removal', async () => {
+  const app = host({ captureBot: true });
+  try {
+    const scope = app.scope('tenant-a');
+    await app.local.saveBotConfig(scope, { ownerId: '123456', allowedServices: ['old-privileged.service'] });
+    await app.context.secrets.store(`tvijo.telegram.token.${scope}`, '123456:synthetic-token-only-for-test');
+    app.settings.set('telegram.allowedServices', []);
+    app.settings.set('telegram.ownerId', '999999');
+    await app.commands.get('tvijo.startBot')();
+    assert.deepEqual(app.botAdapter().allowedServices, []);
+    assert.equal(app.botAdapter().ownerId, '123456', 'only explicit account-local Configure Bot changes owner');
+    await app.commands.get('tvijo.stopBot')();
+    app.settings.set('telegram.allowedServices', ['selected.service']);
+    await app.commands.get('tvijo.startBot')();
+    assert.deepEqual(app.botAdapter().allowedServices, ['selected.service']);
+  } finally { app.close(); }
+});

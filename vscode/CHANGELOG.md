@@ -1,3 +1,11 @@
+## 0.5.3 — 2026-10-20
+
+- Searchable English/Russian Settings & how it works guide for every setting, with current/default values and direct native controls.
+- Explain Chat, Agent, Plan, service credit, loop budgets, local terminal and shared-project boundaries.
+- Fix narrow sidebar overflow, missing usage values, stale agent resets and misleading step-limit completion.
+- Display the model used by the active composer mode; keep native settings available.
+- Native Windows execution remains a separate CI validation; path normalization is unchanged.
+
 # 0.5.2
 
 Fix the sponsored-preview dead end: a preview can now continue while money and
