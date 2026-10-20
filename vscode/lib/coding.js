@@ -105,12 +105,23 @@ function normalizeRequirements(requirements) {
     return {id:item.id,text:item.text.trim(),scope:item.scope,mandatory:item.mandatory,critical:item.critical};
   });
 }
-function validateWorkflowQuote(quote, workflow, requirements, snapshotHash, contextHash) {
+// Limits v2 mirrors the gateway table (coding_workflow.LIMITS_V2): every node bound
+// stays finite and max_tokens must equal what this client requests. A plan without
+// limits_version is v1 with its original tiers, so stored v1 artifacts still validate.
+function workflowPlanLimits(plan, workflow, requirements) {
+  const version = plan.limits_version === undefined ? 1 : plan.limits_version;
+  if (version !== 1 && version !== 2) refuse('The review quote uses an unknown limits version.');
+  const documented = requirements.some(requirement => requirement.scope === 'documented');
+  return { version, max_tokens: version === 2 ? 8192 : 1000, proposer_max: version === 2 ? (workflow === 'swarm' ? 8192 : documented ? 12288 : 24576) : (workflow === 'swarm' || documented ? 1024 : 2048), request_max: version === 2 ? 163840 : 98304, snapshot_max: version === 2 ? (workflow === 'swarm' ? 40960 : 57344) : 16384 };
+}
+function validateWorkflowQuote(quote, workflow, requirements, snapshotHash, contextHash, expectedVersion) {
   const limits = workflowLimits(workflow), plan = quote.workflow_plan;
   const same = (a,b) => canonicalJson(a) === canonicalJson(b);
-  if (quote.workflow !== workflow || !HASH.test(quote.plan_hash || '') || !plan || sha256(canonicalJson(plan)) !== quote.plan_hash || !same(quote.limits,limits) || !same(quote.requirements,requirements) || plan.workflow !== workflow || !same(plan.limits,limits) || !same(plan.requirements,requirements) || plan.snapshot_hash !== snapshotHash || !HASH.test(plan.context_hash || '') || (contextHash !== undefined && plan.context_hash !== contextHash) || plan.max_tokens !== 1000 || plan.tariff_version !== quote.tariff_version || typeof plan.version !== 'string' || !plan.version || !plan.template_hashes || !Object.values(plan.template_hashes).length || Object.values(plan.template_hashes).some(hash => !HASH.test(hash)) || plan.calibration_status !== 'passed') refuse('The review quote does not bind the selected requirements, templates, snapshot and bounded workflow plan.');
+  if (quote.workflow !== workflow || !HASH.test(quote.plan_hash || '') || !plan || sha256(canonicalJson(plan)) !== quote.plan_hash || !same(quote.limits,limits) || !same(quote.requirements,requirements) || plan.workflow !== workflow || !same(plan.limits,limits) || !same(plan.requirements,requirements) || plan.snapshot_hash !== snapshotHash || !HASH.test(plan.context_hash || '') || (contextHash !== undefined && plan.context_hash !== contextHash) || plan.tariff_version !== quote.tariff_version || typeof plan.version !== 'string' || !plan.version || !plan.template_hashes || !Object.values(plan.template_hashes).length || Object.values(plan.template_hashes).some(hash => !HASH.test(hash)) || plan.calibration_status !== 'passed') refuse('The review quote does not bind the selected requirements, templates, snapshot and bounded workflow plan.');
+  const versioned = workflowPlanLimits(plan,workflow,requirements);
+  if ((expectedVersion !== undefined && versioned.version !== expectedVersion) || plan.max_tokens !== versioned.max_tokens) refuse('The review plan token limit does not match its limits version or the requested ceiling.');
   const expected = workflow === 'review' ? ['proposal-1','judge'] : ['proposal-1','proposal-2','judge'];
-  if (!Array.isArray(plan.nodes) || plan.nodes.length !== limits.max_calls || plan.nodes.some((node,index) => node.id !== expected[index] || node.step !== index || node.role !== (node.id === 'judge' ? 'judge' : 'proposer') || !['request_bytes_max','output_bytes_max','token_upper'].every(key => Number.isSafeInteger(node[key]) && node[key] > 0) || (node.role === 'proposer' ? node.output_bytes_max > (workflow === 'swarm' ? 1024 : 2048) : node.output_bytes_max > 98304) || node.request_bytes_max > 98304)) refuse('The review quote has an unexpected node graph or byte/token limits.');
+  if (!Array.isArray(plan.nodes) || plan.nodes.length !== limits.max_calls || plan.nodes.some((node,index) => node.id !== expected[index] || node.step !== index || node.role !== (node.id === 'judge' ? 'judge' : 'proposer') || !['request_bytes_max','output_bytes_max','token_upper'].every(key => Number.isSafeInteger(node[key]) && node[key] > 0) || (node.role === 'proposer' ? node.output_bytes_max > versioned.proposer_max : node.output_bytes_max > 98304) || node.request_bytes_max > versioned.request_max)) refuse('The review quote has an unexpected node graph or byte/token limits.');
   return quote;
 }
 function conversationContext(thread, projectId, threadId, messages) {
@@ -303,7 +314,7 @@ function codingClient(api, token) {
         if (normalized?.some(requirement => requirement.mandatory && requirement.scope === 'runtime_verified')) refuse('Mandatory runtime review is unavailable without independent semantic proof. Choose implemented source behavior or a documented claim.');
         if (normalized?.some(requirement => requirement.mandatory && requirement.scope === 'documented') && !snapshot.files.some(file => /\.(?:md|txt)$/i.test(file.path))) refuse('A mandatory documented contract needs a selected Markdown or text document before upload.');
         if (!Number.isSafeInteger(maxMicroTvijo) || maxMicroTvijo <= 0 || maxMicroTvijo > 50000000) refuse('A verified coding task limit is required.');
-        if (workflow !== 'single' && snapshot.files.reduce((total,file) => total + Buffer.byteLength(file.content),0) > 16384) refuse('Review and swarm snapshots are limited to 16 KiB of selected UTF-8 source.');
+        if (workflow !== 'single' && snapshot.files.reduce((total,file) => total + Buffer.byteLength(file.content),0) > (workflow === 'swarm' ? 40960 : 57344)) refuse(workflow === 'swarm' ? 'Swarm snapshots are limited to 40 KiB of selected UTF-8 source.' : 'Review snapshots are limited to 56 KiB of selected UTF-8 source.');
         await check();
         uploaded = await checked(check, request('/projects/' + encodeURIComponent(projectId) + '/coding-snapshots', { method: 'POST', signal, body: { files: snapshot.files.map(({path,content}) => ({path,content})), test_files: snapshot.test_files, profile: snapshot.profile } }));
         if (!uploaded?.snapshot_id || !/^[a-f0-9]{64}$/.test(uploaded.snapshot_hash || '') || uploaded.profile !== snapshot.profile) refuse('The uploaded snapshot could not be verified.');
@@ -316,13 +327,13 @@ function codingClient(api, token) {
           const thread = await checked(check,request('/projects/' + encodeURIComponent(projectId) + '/threads/' + encodeURIComponent(threadId),{signal}));
           turns = conversationContext(thread,projectId,threadId,messages);
         }
-        quote = await checked(check, request('/services/quote', { method: 'POST', signal, body: { service_id:'coding', snapshot_id:uploaded.snapshot_id, project_id:projectId, thread_id:threadId, title:'VS Code coding task', messages, max_tokens:workflow === 'single' ? 2048 : 1000, max_micro_tvijo:maxMicroTvijo, method:'evidence-first', ...(workflow !== 'single' ? {workflow,requirements:normalized} : {}), ...byok.quoteFields(payer), idempotency_key:idempotencyKey } }));
+        quote = await checked(check, request('/services/quote', { method: 'POST', signal, body: { service_id:'coding', snapshot_id:uploaded.snapshot_id, project_id:projectId, thread_id:threadId, title:'VS Code coding task', messages, max_tokens:workflow === 'single' ? 2048 : 8192, max_micro_tvijo:maxMicroTvijo, method:'evidence-first', ...(workflow !== 'single' ? {workflow,requirements:normalized,limits_version:2} : {}), ...byok.quoteFields(payer), idempotency_key:idempotencyKey } }));
         const expires = typeof quote?.expires_at === 'number' ? quote.expires_at * 1000 : Date.parse(quote?.expires_at);
         if (!quote?.quote_id || quote.service_id !== 'coding' || quote.project_id !== projectId || quote.thread_id !== threadId || quote.snapshot_id !== uploaded.snapshot_id || quote.snapshot_hash !== uploaded.snapshot_hash || quote.profile !== snapshot.profile || !quote.tariff_version || !Number.isFinite(expires) || expires <= Date.now() || !Number.isSafeInteger(quote.ceiling_micro_tvijo) || quote.ceiling_micro_tvijo <= 0 || quote.ceiling_micro_tvijo > maxMicroTvijo) refuse('The coding quote does not match the selected snapshot or limit.');
         byok.validateQuote(quote,payer);
         if (payer && workflow !== 'single') refuse('BYOK review and swarm are unavailable; no Managed fallback.');
         if (workflow === 'single' && quote.workflow !== undefined && quote.workflow !== 'single') refuse('A single coding task cannot authorize an agent workflow.');
-        if (workflow !== 'single') validateWorkflowQuote(quote,workflow,normalized,uploaded.snapshot_hash,sha256(canonicalJson(turns)));
+        if (workflow !== 'single') validateWorkflowQuote(quote,workflow,normalized,uploaded.snapshot_hash,sha256(canonicalJson(turns)),2);
         await checked(check, journal({ idempotencyKey, quoteId:quote.quote_id, snapshotId:uploaded.snapshot_id, snapshotHash:uploaded.snapshot_hash }));
         if (onQuote) await checked(check, onQuote(quote));
       } catch (error) { error.definitiveGrantRefusal = true; throw error; }

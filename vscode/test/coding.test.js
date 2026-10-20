@@ -163,3 +163,46 @@ test('fresh server artifact after human modal must retain financial closure and 
  assert.equal(await coding.apply({...f,confirm:async()=>true,revalidate:async()=>{refreshes++;return f.artifact;}}),true);assert.equal(refreshes,1);
  const g=await fixture();await assert.rejects(coding.apply({...g,confirm:async()=>true,revalidate:async()=>{throw Error('artifact fetch failed');}}),/artifact fetch failed/);assert.equal(g.edits(),0);
 });
+
+// Limits v2 lets a reviewed proposal span several files and ~24 KiB. Apply must
+// stay all-or-nothing at that size: one dirty buffer blocks every edit, and a
+// clean workspace receives each file byte for byte in a single WorkspaceEdit.
+async function largeFixture() {
+  const root=await fs.mkdtemp(path.join(E,'fixture-v2-'));
+  const names=['calc.py','text.py','units.py','dates.py','money.py'];
+  for(const n of names) await fs.writeFile(path.join(root,n),'def f():\n    return 0\n');
+  await fs.writeFile(path.join(root,'test_calc.py'),'import unittest\n');
+  const documents=[];const submitted=[];
+  const vscode={
+    Uri:{file:fsPath=>({fsPath})},Position:class {constructor(line,character){Object.assign(this,{line,character});}},Range:class {},
+    WorkspaceEdit:class {constructor(){this.ops=[];} createFile(){} insert(uri,pos,text){this.ops.push([uri.fsPath,text]);} replace(uri,range,text){this.ops.push([uri.fsPath,text]);}},
+    workspace:{textDocuments:documents,openTextDocument:async uri=>{
+      let doc=documents.find(d=>d.uri.fsPath===uri.fsPath);
+      if(!doc){const content=await fs.readFile(uri.fsPath,'utf8');doc={uri,isDirty:false,version:1,getText:()=>content,positionAt:n=>n};documents.push(doc);}
+      return doc;
+    },applyEdit:async edit=>{submitted.push(edit);return true;}}
+  };
+  const snapshot=await coding.capture({root,selected:[...names,'test_calc.py'],testFiles:['test_calc.py'],profile:'python-unittest',vscode});
+  const line='value = compute(1, 2)  # deterministic filler line\n';
+  const content=line.repeat(Math.ceil(4600/line.length)).slice(0,4600);
+  const edits=names.map((n,i)=>({path:n,content,base_sha256:snapshot.files[i].sha256,new_sha256:coding.sha256(content)}));
+  const artifact={task_id:'task',project_id:'p',thread_id:'t',snapshot_hash:'a'.repeat(64),financial_status:'completed',receipt:{held_micro_tvijo:0},edits,tests:{exit_code:0,reported_test_count:1,result_trust:'untrusted_test_process',test_result_verified:false}};
+  return {root,vscode,snapshot,artifact,names,content,submitted};
+}
+test('limits v2: a dirty buffer in one of five large edited files blocks the whole apply',async()=>{
+  const f=await largeFixture();
+  assert.ok(Buffer.byteLength(f.content)*f.names.length>20*1024);
+  await assert.rejects(coding.apply({...f,confirm:async()=>{
+    const doc=await f.vscode.workspace.openTextDocument({fsPath:path.join(f.root,'units.py')});doc.isDirty=true;return true;
+  }}));
+  assert.equal(f.submitted.length,0);
+  for(const n of f.names) assert.equal(await fs.readFile(path.join(f.root,n),'utf8'),'def f():\n    return 0\n');
+});
+test('limits v2: a clean five-file 23 KiB apply submits every file exactly once',async()=>{
+  const f=await largeFixture();
+  assert.equal(await coding.apply({...f,confirm:async()=>true}),true);
+  assert.equal(f.submitted.length,1);
+  const ops=f.submitted[0].ops;
+  assert.deepEqual(ops.map(([p])=>path.basename(p)).sort(),[...f.names].sort());
+  assert.ok(ops.every(([,text])=>text===f.content));
+});

@@ -1372,8 +1372,8 @@ function activate(context) {
   async function chooseCodingWorkflow(auth, guard) {
     const picked = await codingChecked(guard,vscode.window.showQuickPick([
       {label:'Single proposal',description:'1 call; sequential; depth 1; one attempt',value:'single'},
-      {label:'Proposal and review',description:'2 calls; sequential; depth 1; one attempt; proposal limit up to 2048 bytes',value:'review'},
-      {label:'Two proposals and review',description:'3 calls; sequential; depth 1; one attempt; each proposal limit up to 1024 bytes',value:'swarm'}
+      {label:'Proposal and review',description:'2 calls; sequential; depth 1; one attempt; proposal limit up to 24 KiB',value:'review'},
+      {label:'Two proposals and review',description:'3 calls; sequential; depth 1; one attempt; each proposal limit up to 8 KiB',value:'swarm'}
     ], {title:'Choose coding workflow under one task ceiling',ignoreFocusOut:true}));
     if (!picked) return null;
     coding.requireWorkflowScope(auth,accountSnapshot?.key_scopes,picked.value);

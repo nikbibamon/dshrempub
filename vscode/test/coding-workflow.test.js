@@ -6,8 +6,49 @@ const hash = 'a'.repeat(64), context = 'b'.repeat(64);
 const requirements = [{id:'sum',text:'The source adds both arguments.',scope:'implemented',mandatory:true,critical:false}];
 function quote(workflow = 'review') {
   const limits = coding.workflowLimits(workflow);
-  const workflow_plan = {version:'coding-workflow-v1',workflow,limits,requirements,snapshot_hash:hash,context_hash:coding.sha256(coding.canonicalJson([{role:'user',content:'Add arguments'}])),max_tokens:1000,tariff_version:'tariff-v1',template_hashes:{proposer:hash,judge:context},calibration_status:'passed',nodes:(workflow === 'review' ? ['proposal-1','judge'] : ['proposal-1','proposal-2','judge']).map((id,step) => ({id,step,role:id === 'judge'?'judge':'proposer',request_bytes_max:20000,output_bytes_max:id !== 'judge' && workflow === 'swarm' ? 1024 : 2048,token_upper:3000}))};
+  const workflow_plan = {version:'coding-workflow-v1',limits_version:2,workflow,limits,requirements,snapshot_hash:hash,context_hash:coding.sha256(coding.canonicalJson([{role:'user',content:'Add arguments'}])),max_tokens:8192,tariff_version:'tariff-v1',template_hashes:{proposer:hash,judge:context},calibration_status:'passed',nodes:(workflow === 'review' ? ['proposal-1','judge'] : ['proposal-1','proposal-2','judge']).map((id,step) => ({id,step,role:id === 'judge'?'judge':'proposer',request_bytes_max:120000,output_bytes_max:id !== 'judge' && workflow === 'swarm' ? 8192 : 24576,token_upper:3000}))};
   return {workflow,workflow_plan,plan_hash:coding.sha256(coding.canonicalJson(workflow_plan)),limits,requirements,tariff_version:'tariff-v1'};
+}
+// limits v1: exactly the pre-limits_version plan tiers for stored artifacts.
+function v1Quote(workflow = 'review') { return v1PlanQuote(workflow,p=>{}); }
+// Rehash helper: tests must recompute plan_hash after every plan mutation.
+function rehash(q) { q.plan_hash = coding.sha256(coding.canonicalJson(q.workflow_plan)); return q; }
+// Frozen v1 tiers: 98304 requests, 98304 judge, 2048 / 1024 documented or swarm proposals.
+// Applied after any mode mutation that is meant to stay legal, so tests can override it.
+function tierV1(p, workflow) {
+  p.limits_version = 1;
+  p.max_tokens = 1000;
+  for (const node of p.nodes) { node.request_bytes_max = 98304; node.output_bytes_max = node.role === 'judge' ? 98304 : workflow === 'swarm' ? 1024 : 2048; }
+  return p;
+}
+// A plan with the requested limits version: v2 by default, or explicit 1/2 for version tests.
+function planQuote(workflow, mutate, requirements_ = requirements) {
+  const q = quote(workflow);
+  q.requirements = requirements_;
+  q.workflow_plan.requirements = requirements_;
+  if (workflow === 'swarm') q.workflow_plan.nodes[1].output_bytes_max = 98304;
+  mutate(q.workflow_plan);
+  return rehash(q);
+}
+// A v1 plan: the caller mutation runs first, then the frozen v1 tier is imposed on top.
+function v1PlanQuote(workflow, mutate, requirements_ = requirements) {
+  return planQuote(workflow, p => { mutate(p); tierV1(p, workflow); return p; }, requirements_);
+}
+// Explicit plan builder for over-budget cases: sets version, token and byte caps verbatim.
+function rawQuote(workflow = 'review', caps = {}, requirements_ = requirements) {
+  const q = quote(workflow);
+  const plan = q.workflow_plan, limits_version = caps.limits_version === undefined ? 2 : caps.limits_version;
+  if (limits_version === undefined) delete plan.limits_version; else plan.limits_version = limits_version;
+  plan.requirements = requirements_;
+  q.requirements = requirements_;
+  plan.max_tokens = caps.max_tokens === undefined ? (limits_version === 1 ? 1000 : 8192) : caps.max_tokens;
+  const documented = requirements_.some(item => item.scope === 'documented');
+  for (const node of plan.nodes) {
+    node.request_bytes_max = caps.request === undefined ? (limits_version === 1 ? 98304 : 163840) : caps.request;
+    const judge_cap = limits_version === 1 ? 98304 : 98304;
+    node.output_bytes_max = node.role === 'judge' ? judge_cap : caps.proposer === undefined ? (limits_version === 1 ? (workflow === 'swarm' || documented ? 1024 : 2048) : (workflow === 'swarm' ? 8192 : documented ? 12288 : 24576)) : caps.proposer;
+  }
+  return rehash(q);
 }
 test('review and swarm have exact finite sequential bounds; unknown workflow refuses',() => {
   assert.deepEqual(coding.workflowLimits(),{max_calls:1,max_parallel:1,max_depth:1,attempts_per_node:1});
@@ -32,7 +73,7 @@ test('canonical sorted Unicode plan hashes are deterministic and match exact quo
   for (const mode of ['review','swarm']) coding.validateWorkflowQuote(quote(mode),mode,requirements,hash);
 });
 test('quote mutated workflow, limits, requirements, templates, graph, context or snapshot refuses',() => {
-  for (const mutate of [q=>q.workflow='single',q=>q.limits={...q.limits,max_parallel:2},q=>q.requirements=[],q=>q.plan_hash='0'.repeat(64),q=>q.workflow_plan.snapshot_hash=context,q=>q.workflow_plan.context_hash='unknown',q=>q.workflow_plan.template_hashes={},q=>q.workflow_plan.nodes[0].token_upper=0,q=>q.workflow_plan.nodes[1].role='proposer',q=>q.workflow_plan.nodes[0].output_bytes_max=2049,q=>q.workflow_plan.requirements=[]]) {
+  for (const mutate of [q=>q.workflow='single',q=>q.limits={...q.limits,max_parallel:2},q=>q.requirements=[],q=>q.plan_hash='0'.repeat(64),q=>q.workflow_plan.snapshot_hash=context,q=>q.workflow_plan.context_hash='unknown',q=>q.workflow_plan.template_hashes={},q=>q.workflow_plan.nodes[0].token_upper=0,q=>q.workflow_plan.nodes[1].role='proposer',q=>q.workflow_plan.nodes[0].output_bytes_max=24577,q=>q.workflow_plan.requirements=[]]) {
     const q=quote();mutate(q);
     // Even rehashing cannot make altered authority match the frozen client choice.
     if(q.plan_hash!=='0'.repeat(64)) q.plan_hash=coding.sha256(coding.canonicalJson(q.workflow_plan));
@@ -84,6 +125,8 @@ function runFixture(changedQuote, options={}) {
 test('multi quote and one root grant bind workflow and frozen requirements with no per-node task',async()=>{
   const f=runFixture();const artifact=await f.run();assert.equal(artifact.workflow,'review');assert.equal(f.calls.length,5);
   assert.equal(f.calls[2].body.workflow,'review');assert.deepEqual(f.calls[2].body.requirements,requirements);
+  assert.equal(f.calls[2].body.limits_version,2);assert.equal(f.calls[2].body.max_tokens,8192);
+  assert.equal(f.calls[2].body.workflow_plan,undefined);
   assert.equal(f.calls.filter(c=>c.url==='/tasks').length,1);assert.equal(f.calls.filter(c=>c.url.endsWith('/coding')).length,1);
   assert.doesNotMatch(JSON.stringify(f.journals),/test-key|Add arguments|def add/);
 });
@@ -142,11 +185,67 @@ test('mandatory documented contract needs a selected Markdown or text document b
 });
 
 test('documented review accepts a smaller frozen proposal tier and refuses caps above mode ceiling',()=>{
-  const documented=requirements.map(item=>({...item,scope:'documented'})),q=quote();q.requirements=documented;q.workflow_plan.requirements=documented;q.workflow_plan.nodes[0].output_bytes_max=1024;q.plan_hash=coding.sha256(coding.canonicalJson(q.workflow_plan));
+  const documented=requirements.map(item=>({...item,scope:'documented'})),q=quote();q.requirements=documented;q.workflow_plan.requirements=documented;q.workflow_plan.nodes[0].output_bytes_max=12288;q.plan_hash=coding.sha256(coding.canonicalJson(q.workflow_plan));
   coding.validateWorkflowQuote(q,'review',documented,hash);
-  for(const [mode,cap] of [['review',2049],['swarm',1025],['review',0]]) {
+  for(const [mode,cap] of [['review',24577],['swarm',8193],['review',0]]) {
     const bad=quote(mode);bad.workflow_plan.nodes[0].output_bytes_max=cap;bad.plan_hash=coding.sha256(coding.canonicalJson(bad.workflow_plan));assert.throws(()=>coding.validateWorkflowQuote(bad,mode,requirements,hash));
   }
+});
+
+test('limits v2 review plan is accepted with the exact requested version and token ceiling',()=>{
+  const q=quote();
+  assert.equal(q.workflow_plan.max_tokens,8192);assert.equal(q.workflow_plan.nodes[0].output_bytes_max,24576);
+  coding.validateWorkflowQuote(q,'review',requirements,hash,coding.sha256(coding.canonicalJson([{role:'user',content:'Add arguments'}])),2);
+});
+
+test('limits v1 plan is refused when the client requested version 2 but still opens as a stored artifact',()=>{
+  for(const workflow of ['review','swarm']) {
+    const q=v1Quote(workflow);
+    assert.throws(()=>coding.validateWorkflowQuote(q,workflow,requirements,hash,undefined,2),/limits version/);
+    coding.validateWorkflowQuote(q,workflow,requirements,hash);
+  }
+});
+
+test('limits v2 refuses unknown versions, oversized tokens and every per-node byte ceiling',()=>{
+  for(const [workflow,plan] of [
+    ['review',p=>{p.limits_version=3;}],
+    ['review',p=>{p.max_tokens=8193;}],['review',p=>{p.max_tokens=0;}],['review',p=>{p.max_tokens=1.5;}],['review',p=>{p.max_tokens='8192';}],
+    ['review',p=>{p.nodes[0].output_bytes_max=24577;}],['swarm',p=>{p.nodes[0].output_bytes_max=8193;}],
+    ['review',p=>{p.nodes[0].request_bytes_max=163841;}],['swarm',p=>{p.nodes[1].request_bytes_max=163841;}],
+    ['review',p=>{p.nodes[1].output_bytes_max=98305;}]
+  ]) {
+    const q=quote(workflow);
+    if(workflow==='swarm') q.workflow_plan.nodes[1].output_bytes_max=98304;
+    plan(q.workflow_plan);
+    assert.throws(()=>coding.validateWorkflowQuote(rehash(q),workflow,requirements,hash,undefined,2));
+  }
+});
+
+test('limits v2 documented review admits a 12 KiB proposal tier and refuses one byte above',()=>{
+  const documented=requirements.map(item=>({...item,scope:'documented'}));
+  coding.validateWorkflowQuote(planQuote('review',p=>{p.nodes[0].output_bytes_max=12288;},documented),'review',documented,hash,undefined,2);
+  assert.throws(()=>coding.validateWorkflowQuote(planQuote('review',p=>{p.nodes[0].output_bytes_max=12289;},documented),'review',documented,hash,undefined,2));
+});
+
+test('limits v1 stored plans keep exactly the original tiers and version',()=>{
+  // A v1 plan keeps the original 98304 request and 2048/1024 proposal ceilings.
+  for(const [workflow,cap] of [['review',2048],['swarm',1024]]) {
+    coding.validateWorkflowQuote(v1PlanQuote(workflow,p=>{}),workflow,requirements,hash);
+    assert.throws(()=>coding.validateWorkflowQuote(rawQuote(workflow,{limits_version:1,max_tokens:1000,proposer:cap+1}),workflow,requirements,hash));
+    assert.throws(()=>coding.validateWorkflowQuote(rawQuote(workflow,{limits_version:1,max_tokens:1000,request:98305}),workflow,requirements,hash));
+    assert.throws(()=>coding.validateWorkflowQuote(rawQuote(workflow,{limits_version:1,max_tokens:1001}),workflow,requirements,hash));
+    // The v2 tiers are over budget in v1.
+    assert.throws(()=>coding.validateWorkflowQuote(rawQuote(workflow,{limits_version:1,max_tokens:8192,proposer:workflow === 'swarm' ? 8192 : 24576,request:163840}),workflow,requirements,hash));
+  }
+  const documented=requirements.map(item=>({...item,scope:'documented'}));
+  // v1 documented proposals stay at the 1024 tier; a 2048 node is over budget.
+  coding.validateWorkflowQuote(rawQuote('review',{limits_version:1,max_tokens:1000,proposer:1024},documented),'review',documented,hash);
+  assert.throws(()=>coding.validateWorkflowQuote(rawQuote('review',{limits_version:1,max_tokens:1000,proposer:2048},documented),'review',documented,hash));
+  for(const version of [0,3,'2']) assert.throws(()=>coding.validateWorkflowQuote(rawQuote('review',{limits_version:version,max_tokens:version === '2' ? 8192 : 1000}),'review',requirements,hash));
+  // A JSON null limits_version is present but not a known version, so it is refused.
+  assert.throws(()=>coding.validateWorkflowQuote(rawQuote('review',{limits_version:null,max_tokens:1000}),'review',requirements,hash));
+  assert.throws(()=>coding.validateWorkflowQuote(v1PlanQuote('review',p=>{}),'review',requirements,hash,undefined,2));
+  assert.throws(()=>coding.validateWorkflowQuote(planQuote('review',p=>{p.max_tokens=8192;}),'review',requirements,hash,undefined,1));
 });
 
 test('second coding task binds complete current shared history and metadata-free canonical turns',async()=>{
