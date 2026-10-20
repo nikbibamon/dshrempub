@@ -3,7 +3,7 @@
 // Same contract as the terminal client (src/api.mjs): the service owns prices, limits and models;
 // this side only holds the login token and never retries a paid request.
 
-const DEFAULT_API_BASE = 'https://finedg.com/api/dshrem/v1';
+const DEFAULT_API_BASE = 'https://dsh.tvijo.com/api/dshrem/v1';
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_KB_BYTES = 512 * 1024;
 const MAX_MESSAGES = 80;
@@ -24,6 +24,25 @@ const HTTP_ERRORS = {
 
 class ServiceError extends Error {
   constructor(code, message, status) { super(message); this.code = code; this.status = status; }
+}
+
+// Only these structured gateway refusals prove a *new* grant was not issued.
+// An HTTP status alone, a proxy response, or an idempotency conflict proves nothing.
+const GRANT_REFUSALS = new Set(['project_key_task_cap_exceeded', 'project_key_daily_cap_exceeded', 'project_key_scope_refused', 'project_key_route_refused', 'unsupported_task_request', 'unsupported_workflow', 'model_unavailable', 'council_route_unavailable', 'invalid_amount', 'task_cap_must_be_at_most_1', 'invalid_title', 'idempotency_key_required', 'operator_allowance_exhausted', 'insufficient_credit', 'credits_or_daily_cap_exhausted', 'previous_task_not_settled', 'free_preview_exhausted', 'preview_choose_flash_or_devstral', 'preview_daily_pool_exhausted', 'authentication_required', 'origin_refused', 'account_changed', 'invalid_json', 'object_required', 'request_too_large']);
+const REFUSAL_MESSAGES = {
+  previous_task_not_settled: 'Another task on this account is unresolved. Open Recent tasks and spending to inspect it.',
+  preview_choose_flash_or_devstral: 'Preview supports DeepSeek Flash, GLM Flash and Devstral. Choose an available preview model.',
+  free_preview_exhausted: 'The free preview has ended. Open credit terms.',
+  operator_allowance_exhausted: 'The daily operator test allowance is exhausted. Wait until the next UTC day.',
+  credits_or_daily_cap_exhausted: 'The credit or daily account limit is exhausted. Review usage and limits.',
+  insufficient_credit: 'Available credit cannot cover this task reservation.',
+  preview_daily_pool_exhausted: 'The shared daily preview allowance is exhausted. No task was created.',
+  model_unavailable: 'The selected model is unavailable. Choose an activated model.',
+  council_route_unavailable: 'A council model is unavailable. Choose a supported workflow.'
+};
+function validateMessages(messages) {
+  if (!Array.isArray(messages) || messages.length < 1 || messages.length > MAX_MESSAGES) throw new ServiceError('invalid_messages', 'Conversation must have 1-80 messages. Start a new conversation.');
+  if (Buffer.byteLength(JSON.stringify(messages), 'utf8') > MAX_CONTEXT_BYTES) throw new ServiceError('context_limit', 'Conversation and selection exceed the per-task context bound. Start a new conversation or select less.');
 }
 
 function apiBase(value) {
@@ -80,7 +99,14 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
       if (!response.ok) {
         // Raw error bodies may echo private prompts or internal details.
         const [code, message] = HTTP_ERRORS[response.status] || ['remote_http_error', `Service returned HTTP ${response.status}.`];
-        throw new ServiceError(code, message, response.status);
+        let serverCode;
+        try {
+          const value = await readBounded(response);
+          if (typeof value?.error?.code === 'string' && GRANT_REFUSALS.has(value.error.code)) serverCode = value.error.code;
+        } catch { /* Unreadable errors remain ambiguous; never expose the raw body. */ }
+        const error = new ServiceError(['free_preview_exhausted', 'operator_allowance_exhausted', 'credits_or_daily_cap_exhausted', 'insufficient_credit'].includes(serverCode) ? serverCode : code, REFUSAL_MESSAGES[serverCode] || message, response.status);
+        if (serverCode) error.serverCode = serverCode;
+        throw error;
       }
       if (response.status === 204) return null;
       return await readBounded(response);
@@ -120,10 +146,14 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
   }
 
   // One paid turn = one task grant with a caller idempotency key, then one chat call. Never retried.
-  async function ask({ token, messages, idempotencyKey, title = 'VS Code', maxTokens = 2048, signal, onGrant }) {
-    if (!Array.isArray(messages) || messages.length < 1 || messages.length > MAX_MESSAGES) throw new ServiceError('invalid_messages', 'Conversation must have 1-80 messages. Start a new conversation.');
-    if (Buffer.byteLength(JSON.stringify(messages), 'utf8') > MAX_CONTEXT_BYTES) throw new ServiceError('context_limit', 'Conversation and selection exceed the per-task context bound. Start a new conversation or select less.');
-    const grant = await request('/tasks', { method: 'POST', token, signal, body: { title: title.slice(0, 120), max_usd: '1', model: 'coding', idempotency_key: idempotencyKey } });
+  async function ask({ maxUsd = 1, token, messages, idempotencyKey, title = 'VS Code', maxTokens = 2048, model = 'coding', mode = 'single', method = 'evidence-first', signal, onGrant }) {
+    validateMessages(messages);
+    let grant;
+    try { grant = await request('/tasks', { method: 'POST', token, signal, body: { title: title.slice(0, 120), max_usd: String(maxUsd), model, mode, method, idempotency_key: idempotencyKey } }); }
+    catch (error) {
+      if (error instanceof ServiceError && error.status >= 400 && error.status < 500 && GRANT_REFUSALS.has(error.serverCode)) error.definitiveGrantRefusal = true;
+      throw error;
+    }
     if (!grant?.id) throw new ServiceError('incomplete', 'Service returned a task without an id');
     if (onGrant) await onGrant(grant);
     const response = await request(`/tasks/${encodeURIComponent(grant.id)}/chat`, { method: 'POST', token, signal, timeoutMs: 210_000, body: { messages, max_tokens: maxTokens } });
@@ -141,6 +171,7 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
     pollDeviceLogin,
     ask,
     taskState,
+    lookupGrant: (token, idempotencyKey) => request(`/tasks/by-idempotency/${encodeURIComponent(idempotencyKey)}`, { token }),
     cancel: (token, taskId) => request(`/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST', token }),
     account: (token) => request('/account', { token }),
     logout: (token) => request('/auth/logout', { method: 'POST', token }),
@@ -150,8 +181,12 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
 
 function taskStateOf(snapshot) {
   const status = String(snapshot?.status ?? snapshot?.task?.status ?? '').toLowerCase();
+  if ((snapshot?.byok || snapshot?.task?.byok)?.provider_cost_status === 'unknown') return { status, terminal:false, held:null };
+  const serviceHeld = snapshot?.receipt?.held_micro_tvijo ?? snapshot?.task?.receipt?.held_micro_tvijo;
+  if (serviceHeld !== undefined) return { status, terminal: TERMINAL.has(status), held: Number.isSafeInteger(serviceHeld) && serviceHeld >= 0 ? serviceHeld / 1000000000 : null };
   const heldValue = snapshot?.held_usd ?? snapshot?.task?.held_usd ?? snapshot?.budget?.held_usd ?? snapshot?.task?.budget?.held_usd;
-  const held = heldValue === undefined || heldValue === null ? null : Number(heldValue);
+  const validHeld = typeof heldValue === 'number' || (typeof heldValue === 'string' && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(heldValue));
+  const held = validHeld ? Number(heldValue) : null;
   return { status, terminal: TERMINAL.has(status), held: Number.isFinite(held) ? held : null };
 }
 
@@ -185,10 +220,27 @@ function formatAnswer({ question, answer }) {
     for (const e of answer.evidence) lines.push(`- [${e.id}] ${e.path}:${e.start_line}-${e.end_line}`);
     lines.push('');
   }
+  if (answer.receipt) {
+    const r = answer.receipt, u = answer.usage;
+    lines.push('---', `Task ${answer.taskId} · debited ${formatTvijo(r.debited_micro_tvijo)} Tvijo Tokens · held ${formatTvijo(r.held_micro_tvijo)} Tvijo Tokens`, `Tariff ${typeof r.tariff_version === 'string' ? r.tariff_version : 'unknown'} · actual model tokens ${u?.total_tokens ?? 'unknown'} (${u?.completeness || 'unknown'})`);
+    if (answer.byok) {
+      const r = answer.byok;
+      const amount = typeof r.provider_cost_usd === 'string' && /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(r.provider_cost_usd) ? r.provider_cost_usd : 'unknown';
+      const status = ['reported','estimated','not_dispatched'].includes(r.provider_cost_status) ? r.provider_cost_status : 'unknown';
+      lines.push('BYOK provider payer: your provider account (separate from Tvijo). Provider expense USD ' + (status === 'unknown' ? 'unknown' : amount) + ' (' + status + ', not a provider invoice). No Managed fallback.');
+    }
+    return lines.join('\n');
+  }
   const spent = answer.cost?.spent_usd ?? 'unknown';
   const held = answer.cost?.held_usd ?? 'unknown';
   lines.push('---', `Task ${answer.taskId} · spent ${spent} USD · held ${held} USD`);
   return lines.join('\n');
 }
 
-module.exports = { DEFAULT_API_BASE, ServiceError, apiBase, createClient, taskStateOf, pendingBlocks, checkKnowledgeFile, questionWithSelection, formatAnswer };
+function formatTvijo(value) {
+  if (!Number.isSafeInteger(value) || value < 0) return 'unknown';
+  const whole = Math.floor(value / 1000000), fraction = String(value % 1000000).padStart(6, '0').replace(/0+$/, '');
+  return String(whole) + (fraction ? '.' + fraction : '');
+}
+
+module.exports = { formatTvijo, DEFAULT_API_BASE, ServiceError, apiBase, createClient, taskStateOf, pendingBlocks, validateMessages, checkKnowledgeFile, questionWithSelection, formatAnswer };

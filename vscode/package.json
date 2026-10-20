@@ -1,43 +1,441 @@
 {
   "name": "tvijo-dshrem",
   "displayName": "Tvijo DSHREM",
-  "description": "Ask about your code with source evidence and a hard per-task spending cap. Sign in with your Tvijo account; no API keys in the editor.",
-  "version": "0.1.1",
-  "repository": { "type": "git", "url": "https://github.com/nikbibamon/dshrempub.git", "directory": "vscode" },
-  "homepage": "https://tvijo.com",
-  "bugs": { "url": "https://github.com/nikbibamon/dshrempub/issues" },
+  "description": "Managed coding and bounded reviews for shared projects with a per-task spending cap. Provider API credentials remain on the service.",
+  "version": "0.5.2",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nikbibamon/dshcode.git",
+    "directory": "vscode"
+  },
+  "homepage": "https://dsh.tvijo.com",
+  "bugs": {
+    "url": "https://github.com/nikbibamon/dshcode/issues"
+  },
   "publisher": "tvijo",
   "license": "UNLICENSED",
   "private": true,
-  "engines": { "vscode": "^1.90.0" },
-  "categories": ["AI", "Programming Languages", "Other"],
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Other"
+  ],
   "main": "./extension.js",
   "activationEvents": [],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "tvijo",
+          "title": "Tvijo",
+          "icon": "media/tvijo.svg"
+        }
+      ]
+    },
+    "views": {
+      "tvijo": [
+        {
+          "id": "tvijo.chat",
+          "name": "DSHREM Chat",
+          "type": "webview"
+        }
+      ]
+    },
     "commands": [
-      { "command": "tvijo.signIn", "title": "Sign in", "category": "Tvijo" },
-      { "command": "tvijo.signOut", "title": "Sign out", "category": "Tvijo" },
-      { "command": "tvijo.account", "title": "Account and credit", "category": "Tvijo" },
-      { "command": "tvijo.ask", "title": "Ask (about selection)", "category": "Tvijo" },
-      { "command": "tvijo.newConversation", "title": "New conversation", "category": "Tvijo" },
-      { "command": "tvijo.cancelPending", "title": "Cancel pending task", "category": "Tvijo" },
-      { "command": "tvijo.addFileToKnowledge", "title": "Add file to my knowledge base", "category": "Tvijo" }
+      {
+        "command": "tvijo.codingTask",
+        "title": "Create isolated coding task",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.openCodingTask",
+        "title": "Open coding task and preview diffs",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.applyCoding",
+        "title": "Apply reviewed coding proposal",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.signInProject",
+        "title": "Sign in with project key",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.chooseProject",
+        "title": "Choose shared project",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.chooseThread",
+        "title": "Open shared server thread",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.refreshThread",
+        "title": "Refresh shared server thread",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.configureBot",
+        "title": "Configure Telegram bot",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.startBot",
+        "title": "Start Telegram bot",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.stopBot",
+        "title": "Stop Telegram bot",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.botGuide",
+        "title": "Telegram bot setup guide",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.chooseWorkflow",
+        "title": "Choose service and workflow",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.buyCredit",
+        "title": "Request $10 service credit",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.openChat",
+        "title": "Open chat",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.commands",
+        "title": "All commands",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.attachFile",
+        "title": "Attach workspace file",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.attachPath",
+        "title": "Attach by path",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.attachSelection",
+        "title": "Attach selected code",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.quickEdit",
+        "title": "Quick edit the current file",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.agent",
+        "title": "Run agent task",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.agentPlan",
+        "title": "Run agent in plan mode",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.contextPreview",
+        "title": "Preview bounded project context",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.clearAttachments",
+        "title": "Clear attachments",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.tasks",
+        "title": "Recent tasks and spending",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.status",
+        "title": "Check service connection",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.metrics",
+        "title": "Local usage metrics",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.startFirstTask",
+        "title": "Start your first task (guided)",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.export",
+        "title": "Export conversation",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.settings",
+        "title": "Settings",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.help",
+        "title": "Help and commands",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.signIn",
+        "title": "Sign in",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.signOut",
+        "title": "Sign out",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.account",
+        "title": "Account and credit",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.ask",
+        "title": "Ask (about selection)",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.newConversation",
+        "title": "New conversation",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.cancelPending",
+        "title": "Cancel pending task",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.addFileToKnowledge",
+        "title": "Add file to my knowledge base",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.terminal",
+        "title": "Tvijo: Open project terminal"
+      },
+      {
+        "command": "tvijo.learn",
+        "title": "Tvijo: Learn"
+      },
+      {
+        "command": "tvijo.feedback",
+        "title": "Tvijo: Send feedback"
+      },
+      {
+        "command": "tvijo.usage",
+        "title": "Service usage and receipts",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.connections",
+        "title": "Connections and BYOK pilot status",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.productGuide",
+        "title": "Tvijo AI workspace guide",
+        "category": "Tvijo"
+      }
     ],
     "menus": {
-      "editor/context": [ { "command": "tvijo.ask", "when": "editorHasSelection", "group": "navigation@90" } ],
-      "explorer/context": [ { "command": "tvijo.addFileToKnowledge", "when": "!explorerResourceIsFolder", "group": "7_modification@90" } ]
+      "editor/context": [
+        {
+          "command": "tvijo.ask",
+          "when": "editorHasSelection",
+          "group": "navigation@90"
+        },
+        {
+          "command": "tvijo.attachSelection",
+          "when": "editorHasSelection",
+          "group": "navigation@91"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "tvijo.attachFile",
+          "when": "!explorerResourceIsFolder",
+          "group": "7_modification@89"
+        },
+        {
+          "command": "tvijo.addFileToKnowledge",
+          "when": "!explorerResourceIsFolder",
+          "group": "7_modification@90"
+        }
+      ]
     },
-    "keybindings": [ { "command": "tvijo.ask", "key": "ctrl+alt+t", "mac": "cmd+alt+t" } ],
+    "keybindings": [
+      {
+        "command": "tvijo.ask",
+        "key": "ctrl+alt+t",
+        "mac": "cmd+alt+t"
+      },
+      {
+        "command": "tvijo.openChat",
+        "key": "ctrl+alt+shift+t",
+        "mac": "cmd+alt+shift+t"
+      }
+    ],
     "configuration": {
       "title": "Tvijo DSHREM",
       "properties": {
+        "tvijo.service": {
+          "type": "string",
+          "default": "standard",
+          "description": "Tvijo service for shared projects. Its immutable quote is reserved before each task."
+        },
+        "tvijo.model": {
+          "type": "string",
+          "default": "coding",
+          "enum": [
+            "coding",
+            "auto",
+            "ds41f",
+            "glm53f",
+            "devstral",
+            "haiku55",
+            "gpt61sol",
+            "luna"
+          ],
+          "description": "Requested model alias. The server refuses unavailable routes; no silent paid fallback."
+        },
+        "tvijo.agentMode": {
+          "type": "string",
+          "default": "single",
+          "enum": [
+            "single",
+            "auto",
+            "council"
+          ],
+          "description": "Single model, deterministic routing, or DeepSeek + GLM council under one shared $1 task cap."
+        },
+        "tvijo.reasoningMethod": {
+          "type": "string",
+          "default": "evidence-first",
+          "enum": [
+            "evidence-first",
+            "plan-check",
+            "peer-review"
+          ],
+          "description": "Reasoning workflow. Method selection is not a guarantee of higher quality or lower cost."
+        },
+        "tvijo.workspaceContext": {
+          "type": "string",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "on",
+            "off"
+          ],
+          "description": "Send a bounded project tree, README, manifests and the active file with each question. Secrets and binaries are excluded locally. 'ask' asks once, then remembers the choice."
+        },
+        "tvijo.workspaceContextMaxBytes": {
+          "type": "number",
+          "default": 48000,
+          "minimum": 4096,
+          "maximum": 200000,
+          "description": "Hard byte limit for the generated project-context block."
+        },
+        "tvijo.autoApply": {
+          "type": "boolean",
+          "default": false,
+          "description": "Apply a reviewed quick-edit diff without the confirmation dialog. The file is still not saved automatically."
+        },
+        "tvijo.agentModel": {
+          "type": "string",
+          "default": "ds41f",
+          "enum": [
+            "ds41f",
+            "glm53f",
+            "devstral",
+            "coding",
+            "auto",
+            "haiku55",
+            "gpt61sol",
+            "luna"
+          ],
+          "description": "Model used for each agent step. A cheap JSON-reliable route is recommended; the server refuses an unavailable route."
+        },
+        "tvijo.agentMaxSteps": {
+          "type": "number",
+          "default": 6,
+          "minimum": 1,
+          "maximum": 12,
+          "description": "Maximum model turns in one agent task. Each turn is a separate paid task with the service per-task cap."
+        },
+        "tvijo.agentBudgetUsd": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0.01,
+          "maximum": 10,
+          "description": "Local session budget for the agent loop. It refuses to start another model turn above this amount. It does not replace the service cap."
+        },
+        "tvijo.agentAutoRun": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run build/test/lint commands without a per-command confirmation when they match the local allowlist. Destructive commands stay blocked."
+        },
+        "tvijo.agentAutoApply": {
+          "type": "boolean",
+          "default": false,
+          "description": "Write agent file edits without the per-file confirmation. A diff is still opened and the editor buffer is not saved automatically."
+        },
+        "tvijo.telegram.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "description": "Start your owner-only Telegram connector on this extension host. Requires Configure Telegram bot first."
+        },
+        "tvijo.telegram.ownerId": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Numeric Telegram ID allowed to control your bot in private chat. BotFather token is stored separately in SecretStorage."
+        },
+        "tvijo.ocrLanguages": {
+          "type": "string",
+          "default": "eng+rus",
+          "scope": "machine",
+          "description": "Installed Tesseract languages used for local PNG/JPG text extraction. For example eng or eng+rus. Images are not sent to a vision model."
+        },
         "tvijo.apiBase": {
           "type": "string",
-          "default": "https://finedg.com/api/dshrem/v1",
+          "default": "https://dsh.tvijo.com/api/dshrem/v1",
           "description": "Service URL. HTTPS is required; plain HTTP is accepted only for localhost development."
+        },
+        "tvijo.telegram.allowedServices": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machine",
+          "description": "Exact systemd .service names this owner may inspect/restart. Restarts need a fresh 60-second Telegram confirmation. Empty disables service control."
         }
       }
     }
   },
-  "scripts": { "test": "node --test test/*.test.js" }
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
 }
