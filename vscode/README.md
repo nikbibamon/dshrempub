@@ -1,8 +1,24 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.5.5. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.6.0. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
+
+## Skill packs
+
+Choose a skill pack from the compact chat-header button or the Tvijo status bar.
+Packs come from your signed-in service and stay in memory for the session. If the
+service has no packs or cannot be reached, these controls stay hidden.
+
+`tvijo.pack` is the only new setting: empty means automatic. Automatic checks literal
+marker files in the first workspace root, then uses the served `engineer` pack when
+available. The picker shows `auto: <title>`; choose a pack to override it for the workspace.
+Guidance is added once per Chat or Agent/Plan request, never to stored local history.
+Your explicit `model` or `agentModel` choice wins; otherwise the pack recommends the model.
+Shared-project Chat keeps its server-quoted service routing.
+
+The status bar shows the pack and today's known USD spend, or **—** when unknown.
+No pack contents are bundled with the extension.
 
 ## What 0.5.5 changed
 
@@ -127,7 +143,7 @@ Installation does not issue credit.
 
 ## Release history
 
-0.5.5 is the current release; 0.5.4 fixed the agent's final answer and large reads; 0.5.3
+0.6.0 adds server skill packs; 0.5.5 widened review/swarm limits. 0.5.4 fixed the agent's final answer and large reads; 0.5.3
 added the searchable settings guide; 0.5.2 fixed the sponsored-preview dead end and
 hardened the agent. Full history is in [CHANGELOG.md](CHANGELOG.md).
 

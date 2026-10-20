@@ -66,6 +66,22 @@ function extensionHost(overrides = {}) {
 
 async function settleBlocked(app) { for (let n=0; n<100 && !app.waiting(); n++) await new Promise(r=>setTimeout(r,5)); assert.ok(app.waiting()); }
 async function login(app) { await app.commands.get('tvijo.signInProject')(); await app.commands.get('tvijo.chooseThread')(); }
+test('shared service chat receives one leading pack message while keeping server-quoted routing', async () => {
+  const synthetic = { schema: 'tvijo.skill_packs/v1', packs: [{ id: 'engineer', title: { en: 'TEST', ru: 'ТЕСТ' }, summary: { en: 'TEST_SUMMARY', ru: 'ТЕСТ' }, model: 'synthetic-model', markers: [], instructions: 'SYNTHETIC_SHARED_PACK', checklist: { en: [], ru: [] } }] };
+  const app = extensionHost({ request: async route => route === '/packs' ? Response.json(synthetic) : null });
+  try {
+    await login(app);
+    await app.receive({ type: 'ask', scopeKey: app.state().scopeKey, question: 'SYNTHETIC_SHARED_QUESTION' });
+    const request = app.calls.find(item => item.route === '/tasks/task-a/chat');
+    assert.equal(request.body.messages[0].role, 'system');
+    assert.equal(request.body.messages[0].content, 'SYNTHETIC_SHARED_PACK');
+    assert.equal(request.body.messages.filter(item => item.role === 'system').length, 1);
+    assert.equal(app.calls.find(item => item.route === '/tasks').body.model, undefined);
+    assert.equal(app.calls.find(item => item.route === '/services/quote').body.service_id, 'standard');
+    assert.equal(JSON.stringify(app.posts).includes('SYNTHETIC_SHARED_PACK'), false);
+    assert.equal(app.errors.length, 0);
+  } finally { app.close(); }
+});
 test('in-flight quote cannot reserve after external credential change or API-base A B A', async () => {
   for (const final of ['external-credential','base-aba']) {
     const app = extensionHost();

@@ -11,6 +11,7 @@ function memory(initial = {}) {
 }
 
 function host(options = {}) {
+  const optionsHost = options;
   const base = 'http://localhost:18106/api/dshrem/v1';
   const commands = new Map();
   const executed = [];
@@ -40,6 +41,7 @@ function host(options = {}) {
   const disposable = { dispose() {} };
   const root = path.resolve(__dirname, '../..');
   const settings = new Map();
+  const status = { show() {} };
   class Uri { constructor(fsPath) { this.fsPath = fsPath; this.scheme = 'file'; } static file(value) { return new Uri(value); } static parse(value) { return new Uri(value); } static joinPath(base, ...parts) { return new Uri(path.join(base.fsPath, ...parts)); } }
   class Position { constructor(line, character) { this.line = line; this.character = character; } }
   class Range { constructor(start, end) { this.start = start; this.end = end; } }
@@ -53,7 +55,7 @@ function host(options = {}) {
     env: { clipboard: { writeText: async () => {} }, openExternal: async uri => { external.push(uri.fsPath); } },
     commands: { registerCommand: (id, fn) => { commands.set(id, fn); return disposable; }, executeCommand: async (id, ...args) => { executed.push({ id, args }); return commands.get(id)?.(...args); } },
     workspace: {
-      getConfiguration: () => ({ get: (key, fallback) => key === 'apiBase' ? base : (settings.has(key) ? settings.get(key) : fallback), update: async (key, value) => { settings.set(key, value); } }),
+      getConfiguration: () => ({ get: (key, fallback) => key === 'apiBase' ? base : (settings.has(key) ? settings.get(key) : fallback), inspect: key => ({ globalValue: settings.get(key) }), update: async (key, value) => { settings.set(key, value); } }),
       onDidChangeConfiguration: () => disposable,
       workspaceFolders: [{ uri: Uri.file(root) }],
       getWorkspaceFolder: (uri) => uri?.fsPath?.startsWith(root + path.sep) ? { uri: Uri.file(root) } : undefined,
@@ -73,7 +75,7 @@ function host(options = {}) {
           receive: message => listener(message) };
         panels.push(panel); return panel;
       },
-      createStatusBarItem: () => ({ show() {} }),
+      createStatusBarItem: () => status,
       registerWebviewViewProvider: (_id, value) => { provider = value; return disposable; },
       showErrorMessage: async message => { errors.push(message); }, showInformationMessage: async () => undefined,
       showWarningMessage: async (...args) => { if (options.onWarning) await options.onWarning(...args); return warningAnswer; },
@@ -104,7 +106,8 @@ function host(options = {}) {
     const body = options.body && JSON.parse(options.body);
     requests.push({ url, body, method: options.method, token: options.headers.authorization });
     if (blockedRequest && url.endsWith(blockedRequest.path) && options.method === blockedRequest.method) await new Promise(resolve => { releaseRequest = resolve; });
-    if (url.endsWith('/account')) return Response.json({ tenant_id: options.headers.authorization === 'Bearer account-b' ? 'tenant-b' : 'tenant-a' });
+    if (url.endsWith('/account')) return Response.json({ tenant_id: options.headers.authorization === 'Bearer account-b' ? 'tenant-b' : 'tenant-a', ...optionsHost.account });
+    if (url.endsWith('/packs')) return optionsHost.packs ? Response.json(optionsHost.packs) : Response.json({}, { status: 404 });
     if (url.endsWith('/projects') && projectFixtures) return Response.json({ projects: projectFixtures });
     if (url.endsWith('/byok') && projectFixtures) return Response.json({ connections: [] });
     if (url.endsWith('/auth/logout')) return Response.json({ revoked: true });
@@ -128,13 +131,122 @@ function host(options = {}) {
   });
   const { tenantState, scopeKey } = require('../lib/tenant-state');
   return { context, posts, docs, shown, requests, commands, executed, errors, panels, external, base, local: tenantState(context), scope: tenant => scopeKey(base, tenant), receive: (message) => receive(message),
-    botAdapter: () => botAdapter, settings, Uri, Position, Range,
+    botAdapter: () => botAdapter, settings, status, Uri, Position, Range,
     grantError: value => { grantError = value; }, lookup: value => { lookup = value; }, warning: value => { warningAnswer = value; }, chat: value => { chatContent = value; }, editor: value => { activeEditor = value; }, applied: () => appliedEdit, taskSnapshot: value => { taskSnapshot = value; },
     blockResponse: (requestPath, method = 'GET') => { blockedRequest = { path: requestPath, method }; }, responseWaiting: () => !!releaseRequest,
     releaseResponse: () => { blockedRequest = null; releaseRequest?.(); },
     block: () => { blockGrant = true; }, unblock: () => release?.(),
     close: () => { disposal(); globalThis.fetch = originalFetch; } };
 }
+
+// Deliberately meaningless catalogue: no product pack content belongs in tests.
+const syntheticPacks = { schema: 'tvijo.skill_packs/v1', packs: [{ id: 'engineer', title: { en: 'TEST PACK', ru: 'ТЕСТ ПАКЕТ' }, summary: { en: 'Synthetic summary', ru: 'Тестовое описание' }, model: 'synthetic-model', markers: [], instructions: 'SYNTHETIC_PACK_SENTINEL', checklist: { en: [], ru: [] } }] };
+
+test('pack header/status hide on 404 and sign-out, cache once, and never expose instructions', async () => {
+  for (const catalogue of [undefined, syntheticPacks]) {
+    const app = host({ packs: catalogue });
+    try {
+      await app.receive({ type: 'ready' });
+      await app.receive({ type: 'ready' });
+      const state = app.posts.filter(item => item.type === 'state').at(-1);
+      assert.equal(app.requests.filter(item => item.url.endsWith('/packs')).length, 1);
+      assert.deepEqual(state.pack, catalogue ? { label: 'auto: TEST PACK', summary: 'Synthetic summary' } : null);
+      assert.equal(app.status.command, catalogue ? 'tvijo.choosePack' : 'tvijo.account');
+      assert.deepEqual(app.executed.filter(item => item.id === 'setContext').at(-1).args, ['tvijo.hasPacks', !!catalogue]);
+      if (catalogue) assert.equal(app.status.text, 'Tvijo · auto: TEST PACK · —');
+      assert.ok(!JSON.stringify(app.posts).includes('SYNTHETIC_PACK_SENTINEL'));
+      await app.commands.get('tvijo.signOut')();
+      assert.equal(app.posts.filter(item => item.type === 'state').at(-1).pack, null);
+      assert.equal(app.status.command, 'tvijo.signIn');
+      assert.deepEqual(app.executed.filter(item => item.id === 'setContext').at(-1).args, ['tvijo.hasPacks', false]);
+      assert.equal(app.requests.filter(item => item.url.endsWith('/packs')).length, 1);
+      assert.equal(app.errors.length, 0);
+    } finally { app.close(); }
+  }
+});
+
+test('pack chat requests have one leading system message across turns and preserve explicit models', async () => {
+  const app = host({ packs: syntheticPacks });
+  try {
+    app.settings.set('workspaceContext', 'off');
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_QUESTION_A' });
+    app.settings.set('model', 'coding');
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_QUESTION_B' });
+    const chats = app.requests.filter(item => item.url.endsWith('/chat'));
+    assert.equal(chats.length, 2);
+    for (const chat of chats) {
+      assert.equal(chat.body.messages[0].role, 'system');
+      assert.equal(chat.body.messages[0].content, 'SYNTHETIC_PACK_SENTINEL');
+      assert.equal(chat.body.messages.filter(item => item.role === 'system').length, 1);
+    }
+    const grants = app.requests.filter(item => item.url.endsWith('/tasks') && item.method === 'POST');
+    assert.deepEqual(grants.map(item => item.body.model), ['synthetic-model', 'coding']);
+    assert.ok(!JSON.stringify(app.local.history(app.scope('tenant-a'))).includes('SYNTHETIC_PACK_SENTINEL'));
+    assert.ok(!JSON.stringify(app.posts).includes('SYNTHETIC_PACK_SENTINEL'));
+    assert.equal(app.errors.length, 0);
+  } finally { app.close(); }
+});
+
+test('Agent steps and finalization combine pack with tool rules in one system message and use pack model', async () => {
+  const app = host({ packs: syntheticPacks, chatContent: '{"tool":"read_file","path":"package.json"}' });
+  try {
+    app.settings.set('workspaceContext', 'off');
+    app.settings.set('agentMaxSteps', 1);
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_GOAL', agent: true });
+    const chats = app.requests.filter(item => item.url.endsWith('/chat'));
+    assert.equal(chats.length, 2, 'tool step and finalization');
+    for (const chat of chats) {
+      assert.equal(chat.body.messages[0].role, 'system');
+      assert.equal(chat.body.messages.filter(item => item.role === 'system').length, 1);
+      assert.equal(chat.body.messages[0].content.split('SYNTHETIC_PACK_SENTINEL').length, 2);
+      assert.ok(chat.body.messages[0].content.startsWith('SYNTHETIC_PACK_SENTINEL\n\n'));
+    }
+    assert.match(chats[0].body.messages[0].content, /read_file/);
+    assert.match(chats[1].body.messages[0].content, /Tools are disabled/);
+    assert.ok(app.requests.filter(item => item.url.endsWith('/tasks')).every(item => item.body.model === 'synthetic-model'));
+    assert.ok(!JSON.stringify(app.local.history(app.scope('tenant-a'))).includes('SYNTHETIC_PACK_SENTINEL'));
+    app.settings.set('agentModel', 'auto');
+    app.chat('{"tool":"finish","answer":"SYNTHETIC_FINISH"}');
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_GOAL_B', agent: true });
+    assert.equal(app.requests.filter(item => item.url.endsWith('/tasks')).at(-1).body.model, 'auto');
+    assert.equal(app.errors.length, 0);
+  } finally { app.close(); }
+});
+
+test('native pack picker writes only tvijo.pack and localized header/status show the chosen pack', async () => {
+  let choices;
+  const app = host({ packs: syntheticPacks, account: { budget: { daily_spent_usd: '0.01234' } }, pick: items => { choices = items; return items.find(item => item.id === 'engineer'); } });
+  try {
+    await app.receive({ type: 'ready' });
+    await app.receive({ type: 'choosePack' });
+    assert.equal(choices[0].id, '');
+    assert.equal(choices[1].label, 'TEST PACK');
+    assert.deepEqual([...app.settings], [['pack', 'engineer']]);
+    assert.equal(app.status.text, 'Tvijo · TEST PACK · $0.01234');
+    await app.receive({ type: 'locale', value: 'ru' });
+    assert.equal(app.status.text, 'Tvijo · ТЕСТ ПАКЕТ · $0.01234');
+    assert.equal(app.posts.filter(item => item.type === 'state').at(-1).pack.label, 'ТЕСТ ПАКЕТ');
+    assert.equal(app.errors.length, 0);
+  } finally { app.close(); }
+});
+
+test('a delayed pack response cannot restore private labels after sign-out', async () => {
+  const app = host({ packs: syntheticPacks });
+  try {
+    app.blockResponse('/packs');
+    const pending = app.receive({ type: 'ready' });
+    for (let n = 0; n < 100 && !app.responseWaiting(); n++) await new Promise(resolve => setImmediate(resolve));
+    assert.ok(app.responseWaiting());
+    await app.commands.get('tvijo.signOut')();
+    const afterSignOut = app.posts.length;
+    app.releaseResponse();
+    await pending;
+    assert.ok(app.posts.slice(afterSignOut).filter(item => item.type === 'state').every(item => item.pack === null));
+    assert.equal(app.status.command, 'tvijo.signIn');
+    assert.equal(app.posts.filter(item => item.type === 'state').at(-1).pack, null);
+    assert.equal(app.errors.length, 0);
+  } finally { app.releaseResponse(); app.close(); }
+});
 
 test('context preview opens without an account or a paid task', async () => {
   const app = host();
@@ -155,7 +267,7 @@ test('workspace attachments reach one task and slash help never creates a task',
     assert.equal(app.posts.filter((item) => item.type === 'state').at(-1).attachments.length, 1);
     await app.receive({ type: 'ask', question: 'vscode/lib/actions.js' });
     assert.equal(app.posts.filter((item) => item.type === 'state').at(-1).attachments.length, 1);
-    assert.equal(app.requests.filter(item => !item.url.endsWith('/account')).length, 0);
+    assert.equal(app.requests.filter(item => !item.url.endsWith('/account') && !item.url.endsWith('/packs')).length, 0);
     const attached = app.posts.filter((item) => item.type === 'state').at(-1).attachments[0];
     await app.receive({ type: 'previewAttachment', id: attached.id });
     assert.equal(app.docs.at(-1).language, 'plaintext');
@@ -167,7 +279,7 @@ test('workspace attachments reach one task and slash help never creates a task',
     assert.match(chat.body.messages.at(-1).content, /const ACTIONS/);
     assert.equal(app.posts.filter((item) => item.type === 'state').at(-1).attachments.length, 0);
     await app.receive({ type: 'ask', question: '/help' });
-    assert.equal(app.requests.filter(item => !item.url.endsWith('/account')).length, 3);
+    assert.equal(app.requests.filter(item => !item.url.endsWith('/account') && !item.url.endsWith('/packs')).length, 3);
     assert.match(app.docs.at(-1).content, /local text extraction/);
   } finally { app.close(); }
 });
@@ -193,7 +305,7 @@ test('credential attachments and unknown slash commands create no model task', a
     assert.equal(app.posts.filter((item) => item.type === 'state').at(-1).attachments.length, 0);
     assert.ok(app.posts.some((item) => item.type === 'attachmentDone'));
     await app.receive({ type: 'ask', question: '/does-not-exist' });
-    assert.equal(app.requests.filter(item => !item.url.endsWith('/account')).length, 0);
+    assert.equal(app.requests.filter(item => !item.url.endsWith('/account') && !item.url.endsWith('/packs')).length, 0);
     assert.ok(app.posts.some((item) => item.type === 'submission' && !item.ok));
   } finally { app.close(); }
 });

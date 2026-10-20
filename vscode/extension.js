@@ -5,6 +5,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const { constants } = require('node:fs');
 const core = require('./lib/client');
+const packs = require('./lib/packs');
 const { chatHtml } = require('./lib/chat-view');
 const { settingsHtml, GUIDE_ACTIONS } = require('./lib/settings-guide');
 const files = require('./lib/attachments');
@@ -32,6 +33,8 @@ function activate(context) {
   let activeAbort = null;
   let codingReview = null;
   const byokSelection = customerConnection.createSelection();
+  const packCache = packs.createPackCache();
+  let packAvailable = null;
   let workspaceEpoch = 0;
   let lastContextSummary = null;
   let lastActivity = '';
@@ -41,7 +44,7 @@ function activate(context) {
   let agentAbort = null;
   let agentRunning = false;
   const customCommands = new Map();
-  if (vscode.workspace.onDidChangeWorkspaceFolders) context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { workspaceEpoch++; codingReview = null; }));
+  if (vscode.workspace.onDidChangeWorkspaceFolders) context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { workspaceEpoch++; codingReview = null; refreshStatus(); }));
   const handlers = new Map();
   let customerBot = null;
   let accountSnapshot = null;
@@ -67,6 +70,39 @@ function activate(context) {
 
   const client = () => core.createClient({ base: vscode.workspace.getConfiguration('tvijo').get('apiBase') });
 
+  async function currentPack(auth) {
+    const catalogue = await packCache.get(auth, core.createClient({ base: auth.api_base }));
+    const selection = await packs.selectPack(catalogue, vscode.workspace.getConfiguration('tvijo').get('pack', ''), vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
+    return { catalogue, ...selection };
+  }
+  function updatePackStatus(selection, auth) {
+    const available = !!selection?.catalogue.length;
+    if (packAvailable !== available) {
+      packAvailable = available;
+      vscode.commands.executeCommand('setContext', 'tvijo.hasPacks', available);
+    }
+    status.text = available ? packs.statusText(selection, accountSnapshot, uiLocale()) : auth ? '$(sparkle) Tvijo' : '$(account) Tvijo: sign in';
+    status.tooltip = available ? L('Choose skill pack · today’s spend (USD)', 'Выбрать пакет навыков · расход за сегодня (USD)') : auth ? L('Tvijo: account and credit', 'Tvijo: аккаунт и баланс') : L('Tvijo: sign in', 'Tvijo: войти');
+    status.command = available ? 'tvijo.choosePack' : auth ? 'tvijo.account' : 'tvijo.signIn';
+    status.accessibilityInformation = { label: status.text + '. ' + status.tooltip };
+    status.show();
+  }
+  command('tvijo.choosePack', async () => {
+    let auth;
+    try { auth = await requireAuth(); } catch { return; }
+    const selection = await currentPack(auth);
+    if (!selection.catalogue.length || !await isCurrentAuth(auth)) return;
+    const locale = uiLocale();
+    const id = vscode.workspace.getConfiguration('tvijo').get('pack', '');
+    const picked = await vscode.window.showQuickPick([
+      { label: L('Automatic', 'Автоматически'), description: selection.auto ? packs.packLabel(selection, locale) : '', id: '', picked: !id },
+      ...selection.catalogue.map(pack => ({ label: pack.title[locale], description: pack.summary[locale], id: pack.id, picked: pack.id === id }))
+    ], { title: L('Skill pack', 'Пакет навыков'), placeHolder: L('Choose expert guidance for this project', 'Выберите экспертные инструкции для проекта'), matchOnDescription: true });
+    if (!picked || !await isCurrentAuth(auth)) return;
+    await vscode.workspace.getConfiguration('tvijo').update('pack', picked.id, vscode.workspace.workspaceFolders?.length ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global);
+    await postChatState();
+  });
+
   // Route names are proper nouns from the service catalogue; only generic
   // labels are translated. The static list keeps the menu usable offline and
   // avoids a background request before the user asks anything. The server is
@@ -89,16 +125,18 @@ function activate(context) {
       if (data.length) catalogue = { at: Date.now(), base, data };
     } catch { /* Keep the static or previous verified list. */ }
   }
-  function chatOptions(auth) {
+  function chatOptions(auth, pack = null) {
     const configuration = vscode.workspace.getConfiguration('tvijo');
-    const current = configuration.get('model', 'coding');
+    const current = packs.packModel(configuration, 'model', 'coding', pack);
     const verified = catalogue.base === auth.api_base && catalogue.data.length ? catalogue.data : STATIC_MODELS;
-    const allowed = new Set(['auto', 'coding', ...verified.map(item => item.id)]);
+    const models = [{ id: 'auto', name: 'Automatic' }, ...verified.map(item => ({ id: item.id, name: item.name || item.id }))];
+    const agentModel = packs.packModel(configuration, 'agentModel', 'ds41f', pack);
+    for (const id of [current, agentModel]) if (!models.some(item => item.id === id)) models.push({ id, name: id });
     return {
-      models: [{ id: 'auto', name: 'Automatic' }, ...verified.map(item => ({ id: item.id, name: item.name || item.id }))],
-      model: allowed.has(current) ? current : 'coding',
+      models,
+      model: current,
       agentMode: configuration.get('agentMode', 'single'),
-      agentModel: configuration.get('agentModel', 'ds41f'),
+      agentModel,
       reasoningMethod: configuration.get('reasoningMethod', 'evidence-first'),
       contextMode: configuration.get('workspaceContext', 'ask'),
       autoApply: !!configuration.get('autoApply', false)
@@ -173,6 +211,8 @@ function activate(context) {
       attachments = next ? (tenantAttachments.get(currentViewScope(next.scope)) || []) : [];
       customerBot?.stop(); customerBot = null;
       byokSelection.clear();
+      packCache.clear();
+      updatePackStatus(null, next);
       lastError = null; lastContextSummary = null; lastActivity = '';
     }
     identity = next;
@@ -190,10 +230,7 @@ function activate(context) {
     try { auth = await requireAuth(); } catch { if (attempt !== authAttempt) return; switchIdentity(null); }
     if (attempt !== authAttempt) return;
     const live = !!auth;
-    status.text = live ? '$(sparkle) Tvijo' : '$(account) Tvijo: sign in';
-    status.tooltip = live ? 'Tvijo DSHREM: signed in. Click for account and credit.' : 'Tvijo DSHREM: not signed in';
-    status.command = live ? 'tvijo.account' : 'tvijo.signIn';
-    status.show();
+    if (!live || !packAvailable) updatePackStatus(null, auth);
     if (live && auth.kind !== 'project') {
       try {
         const account = await client().account(auth.access_token);
@@ -204,6 +241,10 @@ function activate(context) {
     if (live && !busy && !attaching && shared.selection(auth.scope)?.threadId) {
       try { await loadSharedThread(auth, shared.selection(auth.scope)); }
       catch { /* Keep the last verified thread snapshot; Refresh shared server thread exposes errors. */ }
+    }
+    if (live && await isCurrentAuth(auth)) {
+      const selection = await currentPack(auth);
+      if (await isCurrentAuth(auth)) updatePackStatus(selection, auth);
     }
     if (chatView) await postChatState();
   }
@@ -224,8 +265,16 @@ function activate(context) {
     const recovery = !!(pending || (legacy && (!legacy.apiBase || legacy.apiBase === client().base)));
     const messages = history.map((item) => ({ role: item.role, content: item.display || item.content }));
     let options = null;
-    if (signedIn) { try { options = chatOptions(auth); } catch { options = null; } }
-    await chatView.webview.postMessage({ type: 'state', scopeKey: scope ? currentViewScope(scope) : null, messages, signedIn, sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length, account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
+    let pack = null;
+    if (signedIn) {
+      const epoch = authAttempt;
+      const selection = await currentPack(auth);
+      if (epoch !== authAttempt || currentViewScope(scope) !== nextAgentScope || !await isCurrentAuth({ ...auth, scope, authEpoch: epoch })) return;
+      pack = selection.catalogue.length ? (packs.publicSelection(selection, uiLocale()) || { label: L('Choose skill pack', 'Выбрать пакет навыков'), summary: '' }) : null;
+      updatePackStatus(selection, auth);
+      try { options = chatOptions(auth, selection.pack); } catch { options = null; }
+    } else updatePackStatus(null, null);
+    await chatView.webview.postMessage({ type: 'state', scopeKey: scope ? currentViewScope(scope) : null, messages, signedIn, pack, sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length, account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'coding') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
       status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
@@ -295,6 +344,8 @@ function activate(context) {
     agentAbort = abort; agentRunning = true; busy = true; lastError = null; lastAgentOutcome = null;
     await postChatState();
     try {
+      const { pack } = await currentPack(auth);
+      const agentModel = packs.packModel(config, 'agentModel', 'ds41f', pack);
       const contextMode = config.get('workspaceContext', 'ask');
       let tree = '';
       if (contextMode !== 'off') {
@@ -376,9 +427,9 @@ function activate(context) {
           const idempotencyKey = randomUUID();
           await local.savePending(auth.scope, { idempotencyKey, apiBase: auth.api_base, tenantId: auth.tenant_id, createdAt: new Date().toISOString() });
           const answer = await api.ask({
-            token: auth.access_token, messages: bounded, maxUsd: Math.min(1, Math.floor(remaining * 1e9) / 1e9), idempotencyKey,
+            token: auth.access_token, messages: packs.packMessages(bounded, pack), maxUsd: Math.min(1, Math.floor(remaining * 1e9) / 1e9), idempotencyKey,
             title: 'VS Code agent step ' + step + ': ' + goal.trim().slice(0, 50),
-            maxTokens: 2048, model: config.get('agentModel', 'ds41f'), mode: 'single', method: config.get('reasoningMethod', 'evidence-first'), signal,
+            maxTokens: 2048, model: agentModel, mode: 'single', method: config.get('reasoningMethod', 'evidence-first'), signal,
             onGrant: async grant => { await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
           }).catch(async error => {
             const pending = local.pending(auth.scope, idempotencyKey);
@@ -398,7 +449,7 @@ function activate(context) {
       });
       const history = local.history(agentScope);
       await local.saveHistory(agentScope, [...history, { role: 'user', content: goal.trim(), display: goal.trim() }, { role: 'assistant', content: result.text, display: result.text }].slice(-40));
-      await metrics.record({ event: 'agent', outcome: result.reason === 'step_limit' ? 'partial' : 'completed', mode: planMode ? 'plan' : 'agent', model: config.get('agentModel', 'ds41f'), steps: result.steps, cost_usd: result.spent, duration_ms: Date.now() - startedAt });
+      await metrics.record({ event: 'agent', outcome: result.reason === 'step_limit' ? 'partial' : 'completed', mode: planMode ? 'plan' : 'agent', model: agentModel, steps: result.steps, cost_usd: result.spent, duration_ms: Date.now() - startedAt });
       lastAgentOutcome = { scope: currentViewScope(auth.scope), text: result.partial
         ? L('Step limit reached (' + result.steps + '). Partial result: review the log and narrow the next task.', 'Лимит шагов достигнут (' + result.steps + '). Частичный результат: проверьте журнал и уточните следующую задачу.')
         : L('Agent finished in ' + result.steps + ' steps.', 'Агент завершил за ' + result.steps + ' шагов.') };
@@ -1256,11 +1307,13 @@ function activate(context) {
     const history = historyFor(auth.scope);
     const sentAttachments = attachments.slice();
     const content = contextBlock + files.questionWithAttachments(core.questionWithSelection(question.trim(), selection), sentAttachments);
-    const messages = [...(selectionState ? [] : history.map((item) => ({ role: item.role, content: item.content }))), { role: 'user', content }];
+    const { pack } = await currentPack(auth);
+    if (!await isCurrentAuth(auth)) throw new core.ServiceError('account_changed', 'The account changed. Submit again from the intended account.');
+    const messages = packs.packMessages([...(selectionState ? [] : history.map((item) => ({ role: item.role, content: item.content }))), { role: 'user', content }], pack);
     core.validateMessages(messages);
     const payer = selectionState ? byokSelection.get(auth,selectionState.projectId) : null;
     const idempotencyKey = randomUUID();
-    const grantRequest = { title: `VS Code: ${question.trim().slice(0, 80)}`, max_usd: selectionState ? sharedTaskCap(auth) : '1', model: config.get('model', 'coding'), mode: config.get('agentMode', 'single'), method: config.get('reasoningMethod', 'evidence-first'), idempotency_key: idempotencyKey, ...(selectionState ? { project_id: selectionState.projectId, thread_id: selectionState.threadId } : {}) };
+    const grantRequest = { title: `VS Code: ${question.trim().slice(0, 80)}`, max_usd: selectionState ? sharedTaskCap(auth) : '1', model: packs.packModel(config, 'model', 'coding', pack), mode: config.get('agentMode', 'single'), method: config.get('reasoningMethod', 'evidence-first'), idempotency_key: idempotencyKey, ...(selectionState ? { project_id: selectionState.projectId, thread_id: selectionState.threadId } : {}) };
     if (selectionState) { delete grantRequest.model; delete grantRequest.mode; delete grantRequest.max_usd; grantRequest.service_id = config.get('service', 'standard'); grantRequest.max_micro_tvijo = sharedTaskMicroCap(auth); }
     await local.savePending(auth.scope, { idempotencyKey, request: grantRequest, apiBase: auth.api_base, tenantId: auth.tenant_id, projectId: selectionState?.projectId, threadId: selectionState?.threadId, createdAt: new Date().toISOString() });
       let answer;
@@ -1495,7 +1548,7 @@ function activate(context) {
       view.webview.html = chatHtml(view.webview).replaceAll('Chat stays in this workspace and is separate from Copilot. Submitted tasks also appear in server history.', 'Use Commands to choose a shared project and server thread. Shared messages are available in your browser.');
       const listener = view.webview.onDidReceiveMessage(async (message) => {
         try {
-          if (['ask', 'attach', 'removeAttachment', 'previewAttachment', 'copy', 'openAnswer', 'new', 'cancel', 'workspace', 'selection', 'path', 'clearAttachments', 'tasks', 'usage', 'workflow', 'setOption', 'quickEdit'].includes(message?.type) && message.scopeKey !== undefined) {
+          if (['ask', 'attach', 'removeAttachment', 'previewAttachment', 'copy', 'openAnswer', 'new', 'cancel', 'workspace', 'selection', 'path', 'clearAttachments', 'tasks', 'usage', 'workflow', 'setOption', 'quickEdit', 'choosePack'].includes(message?.type) && message.scopeKey !== undefined) {
             const auth = await requireAuth();
             if (message.scopeKey !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account changed. This action was not sent.');
           }
@@ -1507,9 +1560,13 @@ function activate(context) {
           } else if (message?.type === 'locale') {
             await context.globalState.update(UI_LOCALE, message.value === 'ru' ? 'ru' : 'en');
             await postChatState();
+          } else if (message?.type === 'choosePack') {
+            await handlers.get('tvijo.choosePack')();
           } else if (message?.type === 'setOption') {
             const auth = await requireAuth();
-            const options = chatOptions(auth);
+            const { pack } = await currentPack(auth);
+            if (!await isCurrentAuth(auth)) return;
+            const options = chatOptions(auth, pack);
             const allowed = {
               model: options.models.map(item => item.id),
               agentModel: options.models.map(item => item.id),
@@ -1607,7 +1664,7 @@ function activate(context) {
     vscode.window.showInformationMessage(`Tvijo: ${label} added to your knowledge base.`);
   });
 
-  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration('tvijo.apiBase')) { authAttempt++; switchIdentity(null); } if (e.affectsConfiguration('tvijo.apiBase') || e.affectsConfiguration('tvijo.telegram.ownerId') || e.affectsConfiguration('tvijo.telegram.allowedServices') || (e.affectsConfiguration('tvijo.telegram.enabled') && !vscode.workspace.getConfiguration('tvijo').get('telegram.enabled', false))) { customerBot?.stop(); customerBot = null; refreshStatus(); } }));
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration('tvijo.pack')) refreshStatus(); if (e.affectsConfiguration('tvijo.model') || e.affectsConfiguration('tvijo.agentModel')) postChatState(); if (e.affectsConfiguration('tvijo.apiBase')) { authAttempt++; switchIdentity(null); } if (e.affectsConfiguration('tvijo.apiBase') || e.affectsConfiguration('tvijo.telegram.ownerId') || e.affectsConfiguration('tvijo.telegram.allowedServices') || (e.affectsConfiguration('tvijo.telegram.enabled') && !vscode.workspace.getConfiguration('tvijo').get('telegram.enabled', false))) { customerBot?.stop(); customerBot = null; refreshStatus(); } }));
   refreshStatus();
   if (vscode.workspace.getConfiguration('tvijo').get('telegram.enabled', false)) handlers.get('tvijo.startBot')().then(refreshStatus).catch(report);
 }

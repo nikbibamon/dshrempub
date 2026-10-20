@@ -11,8 +11,9 @@ function chatHtml(webview) {
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <style nonce="${nonce}">
 ${THEME_CSS}
+header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
 </style></head><body>
-<header><strong id="brand"><span id="brand-mark" aria-hidden="true">›_</span>DSHREM</strong><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="signin" type="button">Sign in</button><button id="new" class="icon" type="button" title="New session" aria-label="New session">＋</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings">⚙</button></header>
+<header><strong id="brand"><span id="brand-mark" aria-hidden="true">›_</span>DSHREM</strong><button id="pack-picker" type="button" hidden aria-haspopup="dialog"></button><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="signin" type="button">Sign in</button><button id="new" class="icon" type="button" title="New session" aria-label="New session">＋</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings">⚙</button></header>
 <nav aria-label="Workspace"><button id="tab-chat" type="button" aria-selected="true">Chat</button><button id="tab-context" type="button" aria-selected="false">Context</button><button id="tab-usage" type="button" aria-selected="false">Usage</button><button id="tab-terminal" type="button" aria-selected="false">Terminal</button></nav>
 <main id="messages" aria-live="polite"></main><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
@@ -431,6 +432,11 @@ ${THEME_CSS}
       }
       if (data.locale && data.locale !== locale) setLocale(data.locale);
       if (data.workflow && !data.options) { window.tvijoWorkflow = data.workflow; document.getElementById('workflow-label').textContent = data.workflow; }
+      const packPicker = document.getElementById('pack-picker');
+      packPicker.hidden = !data.signedIn || !data.pack;
+      packPicker.textContent = data.pack ? data.pack.label + ' ▾' : '';
+      packPicker.title = data.pack ? data.pack.summary : '';
+      packPicker.setAttribute('aria-label', (locale === 'ru' ? 'Выбрать пакет навыков: ' : 'Choose skill pack: ') + (data.pack?.label || ''));
       if (data.options) renderOptions(data.options);
       renderContext(data.context);
       if (data.error) showNotice(data.error.text, data.error.action);
@@ -496,6 +502,7 @@ ${THEME_CSS}
     if (event.key === 'Tab' && event.shiftKey) { event.preventDefault(); uiMode = uiMode === 'plan' ? 'agent' : 'plan'; updateMode(); saveState(); }
   });
   modeButton.addEventListener('click', () => { uiMode = uiMode === 'chat' ? 'agent' : uiMode === 'agent' ? 'plan' : 'chat'; updateMode(); saveState(); });
+  document.getElementById('pack-picker').addEventListener('click', () => post({type:'choosePack'}));
   document.getElementById('signin').addEventListener('click', () => post({type:lastSignedIn ? 'account' : 'account'}));
   document.getElementById('new').addEventListener('click', () => post({type:'new'}));
   document.getElementById('cancel').addEventListener('click', () => post({type:'cancel'}));

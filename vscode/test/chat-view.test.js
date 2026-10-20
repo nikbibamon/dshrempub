@@ -47,6 +47,25 @@ test('sidebar keeps a rejected question and prevents a duplicate submit', () => 
   assert.equal(view.element('send').disabled, false);
 });
 
+test('compact pack header has an accessible native-picker action and hides unavailable/signed-out packs', () => {
+  const view = sidebar();
+  const picker = view.element('pack-picker');
+  assert.equal(picker.hidden, true);
+  view.emit('window:message', { data: { type: 'state', signedIn: true, pack: { label: 'auto: TEST', summary: 'SYNTHETIC_SUMMARY' } } });
+  assert.equal(picker.hidden, false);
+  assert.equal(picker.textContent, 'auto: TEST ▾');
+  assert.equal(picker.attributes['aria-label'], 'Choose skill pack: auto: TEST');
+  view.emit('pack-picker:click', {});
+  assert.equal(view.outgoing.at(-1).type, 'choosePack');
+  assert.equal(view.outgoing.at(-1).scopeKey, 'tenant-a');
+  view.emit('window:message', { data: { type: 'state', locale: 'ru', signedIn: true, pack: { label: 'авто: ТЕСТ', summary: 'ТЕСТ' } } });
+  assert.equal(picker.attributes['aria-label'], 'Выбрать пакет навыков: авто: ТЕСТ');
+  view.emit('window:message', { data: { type: 'state', signedIn: true, pack: null } });
+  assert.equal(picker.hidden, true);
+  view.emit('window:message', { data: { type: 'state', signedIn: false, pack: { label: 'TEST' } } });
+  assert.equal(picker.hidden, true);
+});
+
 test('sidebar permits attachment-only questions and shows the image text boundary', () => {
   const view = sidebar();
   view.emit('window:message', { data: { type: 'state', messages: [], attachments: [{ id: 'image-1', name: 'screen.png', kind: 'image', size: 1024, preview: 'data:image/png;base64,AA==' }] } });

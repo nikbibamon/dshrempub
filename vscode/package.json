@@ -2,7 +2,7 @@
   "name": "tvijo-dshrem",
   "displayName": "Tvijo DSHREM",
   "description": "Managed coding and bounded reviews for shared projects with a per-task spending cap. Provider API credentials remain on the service.",
-  "version": "0.5.5",
+  "version": "0.6.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/nikbibamon/dshcode.git",
@@ -45,6 +45,11 @@
       ]
     },
     "commands": [
+      {
+        "command": "tvijo.choosePack",
+        "title": "Choose skill pack",
+        "category": "Tvijo"
+      },
       {
         "command": "tvijo.codingTask",
         "title": "Create isolated coding task",
@@ -264,6 +269,12 @@
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "tvijo.choosePack",
+          "when": "tvijo.hasPacks"
+        }
+      ],
       "editor/context": [
         {
           "command": "tvijo.ask",
@@ -304,6 +315,11 @@
     "configuration": {
       "title": "Tvijo DSHREM",
       "properties": {
+        "tvijo.pack": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Choose a server skill pack by ID. Empty selects automatically from root project markers, then engineer when available. Pack instructions are fetched after sign-in and are never stored in chat history. Explicit model choices take priority."
+        },
         "tvijo.service": {
           "type": "string",
           "default": "standard",

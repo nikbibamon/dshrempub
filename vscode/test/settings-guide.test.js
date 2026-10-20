@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const { settingsHtml, SETTINGS_HELP, GUIDE_ACTIONS } = require('../lib/settings-guide');
 const properties = require('../package.json').contributes.configuration.properties;
 test('guide covers every public configuration key in both languages', () => {
-  assert.equal(Object.keys(SETTINGS_HELP).length, 17);
+  assert.equal(Object.keys(SETTINGS_HELP).length, 18);
   assert.deepEqual(Object.keys(SETTINGS_HELP).sort(), Object.keys(properties).sort());
   for (const help of Object.values(SETTINGS_HELP)) { assert.ok(help.en.length > 60); assert.match(help.ru, /[а-я]/i); }
 });
@@ -50,9 +50,9 @@ test('DOM execution supports search, language, setting actions and safe refresh'
   const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)[1];
   const document = { documentElement: {}, getElementById: get, createElement: () => new Element() };
   vm.runInNewContext(script, { document, URL, acquireVsCodeApi: () => ({ postMessage: message => messages.push(message) }), window: { addEventListener: (_, fn) => { receive = fn; } } });
-  assert.equal(get('cards').children.length, 17);
+  assert.equal(get('cards').children.length, 18);
   get('cards').children[0].children.at(-1).handlers.click();
-  assert.equal(messages[0].key, 'tvijo.service');
+  assert.equal(messages[0].key, 'tvijo.pack');
   get('search').value = 'ocrLanguages'; get('search').handlers.input();
   assert.equal(get('cards').children.length, 1);
   get('language').handlers.click();

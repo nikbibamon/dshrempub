@@ -1,3 +1,12 @@
+## 0.6.0 — 2026-10-20
+
+- Server skill packs, cached in host memory after sign-in; unavailable services hide pack controls.
+- Compact EN/RU chat-header picker and native status-bar shortcut with today's known USD spend (— when unknown).
+- One new setting, `tvijo.pack`: automatic root-marker selection, then the served engineer pack, or an explicit choice.
+- Chat and Agent/Plan add pack guidance to one leading system message per request without storing it in local history. Explicit model choices take priority; shared-project Chat keeps quoted service routing.
+- No pack instructions are bundled in this public extension.
+- Tests: 266 passing (`npm test`).
+
 ## 0.5.5 — 2026-10-20
 
 - Review and swarm coding tasks quote the wider limits version: proposals up to 24 KiB
