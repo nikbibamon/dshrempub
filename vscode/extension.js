@@ -82,7 +82,7 @@ function activate(context) {
       vscode.commands.executeCommand('setContext', 'tvijo.hasPacks', available);
     }
     status.text = available ? packs.statusText(selection, accountSnapshot, uiLocale()) : auth ? '$(sparkle) Tvijo' : '$(account) Tvijo: sign in';
-    status.tooltip = available ? L('Choose skill pack · today’s spend (USD)', 'Выбрать пакет навыков · расход за сегодня (USD)') : auth ? L('Tvijo: account and credit', 'Tvijo: аккаунт и баланс') : L('Tvijo: sign in', 'Tvijo: войти');
+    status.tooltip = available ? L('Choose skill pack · remaining allowance today (USD)', 'Выбрать пакет навыков · остаток на сегодня (USD)') : auth ? L('Tvijo: account and credit', 'Tvijo: аккаунт и баланс') : L('Tvijo: sign in', 'Tvijo: войти');
     status.command = available ? 'tvijo.choosePack' : auth ? 'tvijo.account' : 'tvijo.signIn';
     status.accessibilityInformation = { label: status.text + '. ' + status.tooltip };
     status.show();
@@ -96,6 +96,7 @@ function activate(context) {
     const id = vscode.workspace.getConfiguration('tvijo').get('pack', '');
     const picked = await vscode.window.showQuickPick([
       { label: L('Automatic', 'Автоматически'), description: selection.auto ? packs.packLabel(selection, locale) : '', id: '', picked: !id },
+      { label: L('No pack', 'Без набора'), id: 'none', picked: id === 'none' },
       ...selection.catalogue.map(pack => ({ label: pack.title[locale], description: pack.summary[locale], id: pack.id, picked: pack.id === id }))
     ], { title: L('Skill pack', 'Пакет навыков'), placeHolder: L('Choose expert guidance for this project', 'Выберите экспертные инструкции для проекта'), matchOnDescription: true });
     if (!picked || !await isCurrentAuth(auth)) return;

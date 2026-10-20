@@ -36,6 +36,7 @@ function validateCatalogue(value) {
 }
 
 async function selectPack(packs, configured, root, stat = fs.stat) {
+  if (configured === 'none') return { pack: null, auto: false, none: true };
   if (configured) return { pack: packs.find(pack => pack.id === configured) || null, auto: false };
   if (root) {
     for (const pack of packs) {
@@ -51,11 +52,13 @@ async function selectPack(packs, configured, root, stat = fs.stat) {
 }
 
 function packLabel(selection, locale = 'en') {
+  if (selection?.none) return locale === 'ru' ? 'Без набора' : 'No pack';
   const title = selection?.pack?.title[locale === 'ru' ? 'ru' : 'en'];
   return title ? (selection.auto ? (locale === 'ru' ? 'авто: ' : 'auto: ') : '') + title : '';
 }
 
 function publicSelection(selection, locale) {
+  if (selection?.none) return { label: packLabel(selection, locale), summary: '' };
   return selection?.pack ? { label: packLabel(selection, locale), summary: selection.pack.summary[locale === 'ru' ? 'ru' : 'en'] } : null;
 }
 
@@ -75,17 +78,18 @@ function packModel(config, key, fallback, pack) {
   return explicit ? config.get(key, fallback) : (pack?.model || config.get(key, fallback));
 }
 
-function dailySpend(account) {
-  const value = account?.budget?.daily_spent_usd;
+function dailyRemaining(account) {
+  const value = account?.budget?.daily_remaining_usd;
   if ((typeof value !== 'number' && typeof value !== 'string') || (typeof value === 'string' && !value.trim())) return null;
   const amount = Number(value);
   return Number.isFinite(amount) && amount >= 0 ? amount : null;
 }
 
 function statusText(selection, account, locale) {
-  const amount = dailySpend(account);
-  const spend = amount === null ? '—' : amount > 0 && amount < 0.000001 ? '<$0.000001' : '$' + amount.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
-  return 'Tvijo · ' + (packLabel(selection, locale) || (locale === 'ru' ? 'Выбрать пакет' : 'Choose pack')) + ' · ' + spend;
+  const amount = dailyRemaining(account);
+  const dollars = amount === null ? null : amount > 0 && amount < 0.000001 ? '<$0.000001' : '$' + amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6, useGrouping: false });
+  const remaining = amount === null ? '—' : locale === 'ru' ? 'осталось ' + dollars + ' сегодня' : dollars + ' left today';
+  return 'Tvijo · ' + (packLabel(selection, locale) || (locale === 'ru' ? 'Выбрать пакет' : 'Choose pack')) + ' · ' + remaining;
 }
 
-module.exports = { createPackCache, selectPack, packLabel, publicSelection, packMessages, packModel, dailySpend, statusText };
+module.exports = { createPackCache, selectPack, packLabel, publicSelection, packMessages, packModel, dailyRemaining, statusText };

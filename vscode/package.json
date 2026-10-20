@@ -318,7 +318,7 @@
         "tvijo.pack": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Choose a server skill pack by ID. Empty selects automatically from root project markers, then engineer when available. Pack instructions are fetched after sign-in and are never stored in chat history. Explicit model choices take priority."
+          "markdownDescription": "Choose a server skill pack by ID. Empty selects automatically from root project markers, then engineer when available. Use `none` (No pack) to disable pack instructions and automatic suggestions. Pack instructions are fetched after sign-in and are never stored in chat history. Explicit model choices take priority."
         },
         "tvijo.service": {
           "type": "string",

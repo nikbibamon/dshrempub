@@ -21,3 +21,11 @@ Built with existing `scripts/package_vsix.py`:
 - Receipt: same path plus `.sha256.json`; 25 entries, 410,698 bytes. Archive/source hashes and relative dependencies verified; tests and local dependencies excluded.
 
 Deviations/risks: shared-project Chat retains existing quoted service routing. No live installed-host/model-answer smoke under the provider-call prohibition. Native Quick Pick/status behavior is host-mocked; Chromium validates the webview. Missing daily-spend data stays unknown. Endpoint failures stay hidden until sign-in/session reset. Baseline untracked files and local QA `vscode/node_modules/` are preserved and uncommitted. Browser plugin installation would improve future frontend QA.
+
+## Follow-up
+
+Corrected the status bar to use only `budget.daily_remaining_usd`: EN `$0.95 left today`, RU `осталось $0.95 сегодня`; missing/invalid values remain **—**. This supersedes the daily-spend field and examples above. Added **No pack / Без набора**, stored as `tvijo.pack = "none"`, with explicit labels, no automatic suggestions and no pack guidance in Chat or Agent/Plan. Documented `none`; `tvijo.pack` remains the only new setting.
+
+Validation: focused pack/extension tests **84/84**; full `nice -n 12 npm test` **269/269** (three additional tests), no failures or skips. `git diff --check` passed. All calls used local test doubles; no provider calls, push or publish.
+
+Rebuilt with `scripts/package_vsix.py --output /tmp/claude-tvijo-ext-0.6/tvijo-dshrem-0.6.0-follow-up.vsix`; receipt: `tvijo-dshrem-0.6.0-follow-up.vsix.sha256.json`. SHA256: `348ba9bf2ff1018dd411fb83f9806956e73a679da8787d570aa213d3ff888e74`. Verified all 25 archive entries, receipt hashes and packaged source bytes; 411,525 bytes. New VSIX/receipt remain local artifacts; original VSIX/receipt and all baseline untracked work are preserved.

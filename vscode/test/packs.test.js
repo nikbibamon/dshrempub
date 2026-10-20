@@ -87,6 +87,18 @@ test('explicit pack choice bypasses markers; an unknown saved ID does not invent
   assert.equal((await packs.selectPack(items, 'unknown', '/synthetic-root', stat)).pack, null);
 });
 
+test('none disables automatic selection even if the server serves a pack with that ID', async () => {
+  const selection = await packs.selectPack([synthetic('none', ['marker']), synthetic('engineer')], 'none', '/synthetic-root', () => assert.fail('must not check markers'));
+  assert.deepEqual(selection, { pack: null, auto: false, none: true });
+  const messages = [{ role: 'system', content: 'AGENT_RULES' }, { role: 'user', content: 'TEST' }];
+  assert.equal(packs.packMessages(messages, selection.pack), messages);
+  for (const [locale, label] of [['en', 'No pack'], ['ru', 'Без набора']]) {
+    assert.equal(packs.packLabel(selection, locale), label);
+    assert.deepEqual(packs.publicSelection(selection, locale), { label, summary: '' });
+    assert.equal(packs.statusText(selection, null, locale), 'Tvijo · ' + label + ' · —');
+  }
+});
+
 test('pack adds exactly one leading system message without mutating stored turns or duplicating agent rules', () => {
   const pack = synthetic('engineer');
   const messages = [{ role: 'system', content: 'SYNTHETIC_AGENT_PROTOCOL' }, { role: 'user', content: 'TEST' }, { role: 'assistant', content: 'TEST_REPLY' }];
@@ -116,15 +128,24 @@ test('explicit model choices including the default and auto override the pack in
   }
 });
 
-test('status bar never mistakes unknown, lifetime or missing spend for today’s zero', () => {
+test('status bar never mistakes unknown, lifetime or missing allowance for today’s zero', () => {
   const selection = { pack: synthetic('engineer'), auto: false };
-  for (const value of [undefined, null, '', ' ', false, true, 'unknown', -1, Infinity]) {
-    assert.equal(packs.statusText(selection, { budget: { daily_spent_usd: value, spent_usd: '8' } }), 'Tvijo · TEST engineer · —');
+  for (const value of [undefined, null, '', ' ', false, true, 'unknown', -1, '-1', Infinity, 'Infinity', NaN, [], {}]) {
+    for (const locale of ['en', 'ru']) {
+      assert.equal(packs.statusText(selection, { budget: { daily_remaining_usd: value, daily_spent_usd: '0', spent_usd: '8' } }, locale), 'Tvijo · ' + packs.packLabel(selection, locale) + ' · —');
+    }
   }
   assert.equal(packs.statusText(selection, null), 'Tvijo · TEST engineer · —');
-  assert.equal(packs.statusText(selection, { budget: { daily_spent_usd: '0' } }), 'Tvijo · TEST engineer · $0');
-  assert.equal(packs.statusText(selection, { budget: { daily_spent_usd: '0.012340' } }), 'Tvijo · TEST engineer · $0.01234');
-  assert.equal(packs.statusText(selection, { budget: { daily_spent_usd: 0.0000001 } }), 'Tvijo · TEST engineer · <$0.000001');
+  assert.equal(packs.statusText(selection, {}), 'Tvijo · TEST engineer · —');
+});
+
+test('status bar shows localized remaining allowance, including known zero and small amounts', () => {
+  const selection = { pack: synthetic('engineer'), auto: false };
+  for (const [value, dollars] of [['0.95', '$0.95'], ['0', '$0.00'], [0, '$0.00'], ['0.012340', '$0.01234'], [0.0000001, '<$0.000001']]) {
+    const account = { budget: { daily_remaining_usd: value, spent_usd: '8' } };
+    assert.equal(packs.statusText(selection, account, 'en'), 'Tvijo · TEST engineer · ' + dollars + ' left today');
+    assert.equal(packs.statusText(selection, account, 'ru'), 'Tvijo · ТЕСТ engineer · осталось ' + dollars + ' сегодня');
+  }
 });
 
 test('only localized public pack labels and summaries reach the webview selection', () => {
@@ -140,4 +161,5 @@ test('0.6 adds exactly one setting, tvijo.pack, with empty-string automatic defa
   assert.ok(original.every(key => Object.hasOwn(properties, key)));
   assert.equal(properties['tvijo.pack'].type, 'string');
   assert.equal(properties['tvijo.pack'].default, '');
+  assert.match(properties['tvijo.pack'].markdownDescription, /`none`/);
 });

@@ -215,17 +215,52 @@ test('Agent steps and finalization combine pack with tool rules in one system me
 
 test('native pack picker writes only tvijo.pack and localized header/status show the chosen pack', async () => {
   let choices;
-  const app = host({ packs: syntheticPacks, account: { budget: { daily_spent_usd: '0.01234' } }, pick: items => { choices = items; return items.find(item => item.id === 'engineer'); } });
+  const app = host({ packs: syntheticPacks, account: { budget: { daily_remaining_usd: '0.95', spent_usd: '8' } }, pick: items => { choices = items; return items.find(item => item.id === 'engineer'); } });
   try {
     await app.receive({ type: 'ready' });
     await app.receive({ type: 'choosePack' });
     assert.equal(choices[0].id, '');
-    assert.equal(choices[1].label, 'TEST PACK');
+    assert.equal(choices[1].label, 'No pack');
+    assert.equal(choices[1].id, 'none');
+    assert.equal(choices[2].label, 'TEST PACK');
     assert.deepEqual([...app.settings], [['pack', 'engineer']]);
-    assert.equal(app.status.text, 'Tvijo · TEST PACK · $0.01234');
+    assert.equal(app.status.text, 'Tvijo · TEST PACK · $0.95 left today');
     await app.receive({ type: 'locale', value: 'ru' });
-    assert.equal(app.status.text, 'Tvijo · ТЕСТ ПАКЕТ · $0.01234');
+    assert.equal(app.status.text, 'Tvijo · ТЕСТ ПАКЕТ · осталось $0.95 сегодня');
     assert.equal(app.posts.filter(item => item.type === 'state').at(-1).pack.label, 'ТЕСТ ПАКЕТ');
+    assert.equal(app.errors.length, 0);
+  } finally { app.close(); }
+});
+
+test('No pack picker persists none, localizes labels and sends Chat and Agent without pack guidance', async () => {
+  let choices;
+  const app = host({ packs: syntheticPacks, account: { budget: { daily_remaining_usd: '0.95' } }, pick: items => { choices = items; return items.find(item => item.id === 'none'); } });
+  try {
+    await app.receive({ type: 'ready' });
+    await app.receive({ type: 'choosePack' });
+    assert.deepEqual([...app.settings], [['pack', 'none']]);
+    assert.equal(app.status.text, 'Tvijo · No pack · $0.95 left today');
+    assert.deepEqual(app.posts.filter(item => item.type === 'state').at(-1).pack, { label: 'No pack', summary: '' });
+    await app.receive({ type: 'locale', value: 'ru' });
+    await app.receive({ type: 'choosePack' });
+    assert.equal(choices.find(item => item.id === 'none').label, 'Без набора');
+    assert.equal(choices.find(item => item.id === 'none').picked, true);
+    assert.equal(choices.find(item => item.id === '').picked, false);
+    assert.equal(app.status.text, 'Tvijo · Без набора · осталось $0.95 сегодня');
+    assert.deepEqual(app.posts.filter(item => item.type === 'state').at(-1).pack, { label: 'Без набора', summary: '' });
+    app.settings.set('workspaceContext', 'off');
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_CHAT' });
+    const chat = app.requests.filter(item => item.url.endsWith('/chat')).at(-1);
+    assert.ok(chat.body.messages.every(item => item.role !== 'system'));
+    app.chat('{"tool":"finish","answer":"SYNTHETIC_FINISH"}');
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_AGENT', agent: true });
+    const agent = app.requests.filter(item => item.url.endsWith('/chat')).at(-1);
+    assert.equal(agent.body.messages[0].role, 'system');
+    assert.match(agent.body.messages[0].content, /read_file/);
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_PLAN', agent: true, plan: true });
+    assert.ok(!JSON.stringify(app.requests).includes('SYNTHETIC_PACK_SENTINEL'));
+    assert.ok(app.requests.filter(item => item.url.endsWith('/tasks') && item.method === 'POST').every(item => item.body.model !== 'synthetic-model'));
+    assert.equal(app.settings.get('pack'), 'none');
     assert.equal(app.errors.length, 0);
   } finally { app.close(); }
 });

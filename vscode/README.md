@@ -13,11 +13,13 @@ service has no packs or cannot be reached, these controls stay hidden.
 `tvijo.pack` is the only new setting: empty means automatic. Automatic checks literal
 marker files in the first workspace root, then uses the served `engineer` pack when
 available. The picker shows `auto: <title>`; choose a pack to override it for the workspace.
+Choose **No pack** (**Без набора**) to store `none` and disable pack guidance and automatic suggestions.
 Guidance is added once per Chat or Agent/Plan request, never to stored local history.
 Your explicit `model` or `agentModel` choice wins; otherwise the pack recommends the model.
 Shared-project Chat keeps its server-quoted service routing.
 
-The status bar shows the pack and today's known USD spend, or **—** when unknown.
+The status bar shows the pack and today's remaining USD allowance from
+`budget.daily_remaining_usd` (for example, **$0.95 left today**), or **—** when unknown.
 No pack contents are bundled with the extension.
 
 ## What 0.5.5 changed
