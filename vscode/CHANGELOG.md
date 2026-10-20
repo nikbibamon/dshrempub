@@ -1,3 +1,20 @@
+## 0.5.4 — 2026-10-20
+
+- The agent now ends every run with an answer: at the step limit one extra call without
+  tools writes the reply from collected evidence, and the cost of that call is counted.
+  A raw `TOOL_RESULT` is no longer shown as the final answer.
+- Step limit is 12 by default (up to 30) instead of 6, so multi-file work and questions
+  fit in one run.
+- Large files are read from the start and report truncation instead of failing with
+  "File is too large to read".
+- A project is selected before a payer, so a BYOK connection cannot be attached to the
+  wrong project.
+- Settings & how it works: searchable EN/RU guide with current and default values for all
+  17 settings and a direct link to the native VS Code control.
+- Consistent sign-in state, expired Telegram permissions are not restored, and money is
+  never rendered with nine decimals.
+- Tests: 235 passing (`node --test test/*.test.js`).
+
 ## 0.5.3 — 2026-10-20
 
 - Searchable English/Russian Settings & how it works guide for every setting, with current/default values and direct native controls.

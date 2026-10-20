@@ -1,29 +1,141 @@
 # Tvijo DSHREM for VS Code
 
-## 0.4.9 — explicit payer and commercial readiness
+Version 0.5.4. A project-scoped chat, bounded agent and coding-review client for the
+Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
+stay on the service unless you explicitly connect your own provider (BYOK).
 
-**Tvijo: Connections** selects Managed or a validated, scoped BYOK connection for
-this project. Manage provider keys in the authenticated browser Connections page;
-a stored key remains unvalidated until a real customer receipt and custody review
-activate it. Creating a project key requires explicit `byok:execute` for BYOK;
-existing keys keep their scopes. BYOK supports Standard and single coding tasks.
-Review/swarm remain Managed-only; select Managed explicitly to use them.
+## What 0.5.4 changed
 
-Before a BYOK task, review its provider USD cap and separate fixed0.001TT service
-fee. Confirm your provider account, then the extension rechecks current account,
-project and connection epoch. No provider failure, revoked key, unknown cost or
-restart automatically switches to Managed or retries the request. The same task,
-thread and service receipt remain visible in the browser. Provider expense is
-separate from TT and model tokens; an estimate is not a provider invoice.
+- **The agent always ends with an answer.** When the step limit is reached, one extra
+  call without tools writes the reply from what was already collected; a raw
+  `TOOL_RESULT` is never shown as the answer.
+- **Large files are read, not refused.** Reads stream from the start up to 64 KiB and say
+  when the content was truncated, instead of failing with "file is too large".
+- **Step limit is 12 by default** (`tvijo.agentMaxSteps`, up to 30). A question that asks
+  for information finishes well before the limit.
+- **A project is chosen before a payer**, so a BYOK connection cannot be selected for a
+  project that has none.
+- **Settings & how it works** is searchable in English and Russian, with the current and
+  default value of every setting and a direct link to the native VS Code control.
+- Sign-in state is shown consistently, expired Telegram permissions are not restored, and
+  money never renders as nine decimals.
 
-**Tvijo: Buy credit** opens owner billing. Project API keys cannot purchase or
-cancel subscriptions. Checkout and finite subscription offers stay unavailable
-until a configured merchant and dated activation proof are verified. No payment
-is collected by an inactive button or redirect. Purchased period wallet credit
-rolls over without expiry; subscription entitlement has a finite paid boundary.
-See [PRIVACY.md](PRIVACY.md) for server custody and payment-data boundaries.
+## Start
 
-Earlier release sections below describe historical behavior.
+1. Install the `.vsix`, then **Developer: Reload Window**.
+2. **Tvijo: Sign in** — the panel shows an eight-character code; approve it in the browser
+   where you are already signed in. The token is stored in VS Code SecretStorage and is
+   valid only for the service URL it was issued for.
+3. Create a project and API key in [Connections](https://platform.tvijo.com/connections),
+   then **Tvijo: Sign in with project key** and **Tvijo: Open shared server thread**.
+4. Ask a question, or select code and press `Ctrl+Alt+T` (`Cmd+Alt+T` on macOS).
+
+Browser and editor share the same project, thread, task history and receipts. Chat
+questions stay in the sidebar; questions about a selection open beside your code.
+
+## Modes
+
+| Mode | Defaults | What it does |
+|---|---|---|
+| Chat | — | One question, one metered task. Answers cite the files you attached or added to your knowledge base. |
+| Agent (`/agent`) | `agentModel = ds41f`, `agentBudgetUsd = 2`, `agentMaxSteps = 12` | Bounded loop over the open workspace: list, read, search, edit and run commands. Every edit is shown as a diff and every command needs explicit confirmation. |
+| Plan (`/plan`) | same limits | The same loop with writes and commands disabled. Safe for a first inspection. |
+
+Commands never run silently: provider keys are removed from the command environment and
+destructive patterns are refused before a shell starts. Auto-apply and auto-run are off by
+default (`tvijo.agentAutoApply`, `tvijo.agentAutoRun`).
+
+## Coding tasks: single, review and swarm
+
+Create an isolated task, select the source files and the immutable test files, and enter
+atomic acceptance requirements. The service quotes the whole workflow once; every call
+shares that quote and the task ceiling.
+
+| Workflow | Calls | Proposal limit | Selected snapshot |
+|---|---|---|---|
+| single | 1 | the whole answer, `max_tokens` 2048 | up to 16 KiB of source |
+| review | 2 (proposer, reviewer) | 2048 bytes (1024 with documented requirements) | 16 KiB |
+| swarm | 3 (two proposers, reviewer) | 1024 bytes each | 16 KiB |
+
+The proposal limit is a transport budget, not a quality judgement: for a larger change use
+`single`. Python `unittest` and Node built-in tests run offline in a restricted sandbox;
+reported test counts and output are an untrusted report, not proof of runtime correctness.
+Apply requires a settled task, an accepted proposal and unchanged files and buffers — an
+unknown cost, a dirty buffer or a changed identity blocks it.
+
+## Models and routing
+
+The model list comes from the service; an unavailable route is refused, not substituted.
+For GLM (`glm53f`) the service uses OpenRouter as the primary route and DeepInfra as the
+paired route: a confirmed provider refusal (429 or 5xx) is retried at most twice on the
+same route, then once on the paired route under the same task id and USD ceiling. A
+timeout, an unknown outcome or a 402 is never retried, because it could spend twice.
+
+**BYOK** is explicit and never silently falls back to Managed. It is available for
+Standard and single coding tasks; review and swarm are Managed-only. The provider cap and
+the separate fixed 0.001 TT service fee are shown before the task starts.
+
+## Money
+
+Receipts use Tvijo Tokens (TT), an internal service unit; actual model tokens are shown
+separately. Credit is reserved before a call and unused reservation is released. An
+uncertain charge stays held and visible and blocks the next step until it is reconciled —
+it is never shown as zero. Provider expense (BYOK) is separate from TT and is not an
+invoice.
+
+New accounts receive a sponsored preview bounded by an account cap and a token allowance;
+preview reservations that were provably never granted are released automatically. When the
+preview ends, the panel says which limit was reached and offers a credit action.
+
+## Attachments, OCR, knowledge base, context
+
+- Up to four attachments, 2 MiB each and 4 MiB combined; text files 64 KiB each; attached
+  and extracted text together limited to 80 KiB.
+- Images use local Tesseract OCR only (`tvijo.ocrLanguages`, default `eng+rus`, one
+  thread, 20-second bound). Colours, charts, object identity and layout are not analysed.
+  PDF is not converted.
+- Credential-like files, detected secrets, binaries and paths outside an open workspace
+  folder are refused; symlinks are refused.
+- `tvijo.workspaceContext` (default `ask`, 48000 bytes) offers a bounded project block on
+  the first question; `/context` previews the exact bytes that will be sent.
+- The knowledge base is explicit: right-click a file → **Tvijo: Add file to my knowledge
+  base**. Nothing is uploaded until you confirm.
+
+## When it is not the right tool
+
+- Nothing runs or applies without confirmation, and nothing acts in the background.
+- One question is one task; a long conversation hits the per-task context bound, so start
+  a new conversation.
+- If a previous task may still hold credit, the next question is refused until it finishes
+  or you cancel it (**Tvijo: Cancel pending task**).
+- Local OCR is not visual reasoning: use it for text, not for screenshots of charts.
+- Unknown provider cost is not invented; the task stays frozen until reconciliation.
+
+## Install and requirements
+
+VS Code 1.90+ or a compatible editor that installs `.vsix` packages. The extension host
+runs the local terminal, OCR and the Telegram connector, so it must stay running for those
+features. A local service can be reached with `tvijo.apiBase`.
+
+## Privacy and license
+
+Read [PRIVACY.md](PRIVACY.md) before submitting private code. The extension is
+`UNLICENSED`: no license grant is made here, and a public licensing decision is pending.
+Installation does not issue credit.
+
+## Release history
+
+0.5.4 is the current release; 0.5.3 added the searchable settings guide; 0.5.2 fixed the
+sponsored-preview dead end and hardened the agent. Full history is in
+[CHANGELOG.md](CHANGELOG.md).
+
+---
+
+## Historical release notes (0.4.x and earlier — superseded)
+
+The sections below are kept as a record. They describe behaviour that no longer matches
+the current release; where they disagree with the sections above, the sections above and
+`CHANGELOG.md` win.
 
 
 ## 0.4.8 — shared projects and bounded coding review
