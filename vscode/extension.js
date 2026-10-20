@@ -12,7 +12,7 @@ const { ACTIONS, slashAction, fileReference } = require('./lib/actions');
 const { createBot } = require('./lib/telegram-bot');
 const { scopeKey, tenantState } = require('./lib/tenant-state');
 
-const { PROJECT_AUTH_KEY, AUTH_MODE, workspaceState, workspaceClient, sharedTaskCap, sharedTaskMicroCap } = require('./workspace');
+const { sharedThreadUrl, PROJECT_AUTH_KEY, AUTH_MODE, workspaceState, workspaceClient, sharedTaskCap, sharedTaskMicroCap } = require('./workspace');
 const coding = require('./lib/coding');
 const customerConnection = require('./lib/byok');
 const workspaceContext = require('./lib/workspace-context');
@@ -225,7 +225,7 @@ function activate(context) {
     const messages = history.map((item) => ({ role: item.role, content: item.display || item.content }));
     let options = null;
     if (signedIn) { try { options = chatOptions(auth); } catch { options = null; } }
-    await chatView.webview.postMessage({ type: 'state', scopeKey: scope ? currentViewScope(scope) : null, messages, signedIn, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length, account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
+    await chatView.webview.postMessage({ type: 'state', scopeKey: scope ? currentViewScope(scope) : null, messages, signedIn, sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length, account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'coding') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
       status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
@@ -535,6 +535,14 @@ function activate(context) {
     const project = data.projects?.find(item => item.id === data.project_id);
     if (typeof data.tenant_id !== 'string' || !data.tenant_id || !project) throw new core.ServiceError('account_unknown', 'The key did not identify an accessible project.');
     assertAuthAttempt(attempt, api.base);
+    const scope = scopeKey(api.base, data.tenant_id);
+    const threads = await workspaceClient(api, token.trim()).threads(project.id);
+    assertAuthAttempt(attempt, api.base);
+    let thread = shared.preferredThread(scope, project.id, threads.threads || []);
+    if (!thread) {
+      thread = await workspaceClient(api, token.trim()).createThread(project.id, 'VS Code conversation');
+      assertAuthAttempt(attempt, api.base);
+    }
     ensureIdle();
     sharedTaskCap({ kind: 'project', key_limits: data.key_limits });
     await commitAuthentication(attempt, api.base, async check => {
@@ -544,9 +552,11 @@ function activate(context) {
       const scope = scopeKey(api.base, data.tenant_id);
       switchIdentity({ token: token.trim(), base: api.base, tenant: data.tenant_id, scope });
       accountSnapshot = data;
-      await selectShared(scope, project); check();
+      await selectShared(scope, project, thread); check();
     });
     assertAuthAttempt(attempt, api.base);
+    const auth = await requireAuth();
+    await loadSharedThread(auth, shared.selection(auth.scope));
     await postChatState();
   });
   command('tvijo.chooseProject', async () => {
@@ -1489,7 +1499,12 @@ function activate(context) {
             const auth = await requireAuth();
             if (message.scopeKey !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account changed. This action was not sent.');
           }
-          if (message?.type === 'locale') {
+          if (message?.type === 'openSharedThread') {
+            const auth = await requireAuth();
+            if (message.scopeKey !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The shared thread changed.');
+            const url = sharedThreadUrl(shared.selection(auth.scope));
+            if (url) await vscode.env.openExternal(vscode.Uri.parse(url));
+          } else if (message?.type === 'locale') {
             await context.globalState.update(UI_LOCALE, message.value === 'ru' ? 'ru' : 'en');
             await postChatState();
           } else if (message?.type === 'setOption') {

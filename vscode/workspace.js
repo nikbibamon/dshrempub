@@ -35,7 +35,13 @@ function workspaceState(context) {
       selections.set(scope, value);
       epochs.set(scope, (epochs.get(scope) || 0) + 1);
       await context.workspaceState.update(`tvijo.workspace.v1.${scope}`, value);
+      if (project && thread) await context.workspaceState.update(`tvijo.workspace.thread.v1.${scope}.${project.id}`, thread.id);
       return value;
+    },
+    preferredThread(scope, projectId, threads) {
+      const selected = this.selection(scope);
+      const id = selected?.projectId === projectId && selected.threadId || context.workspaceState.get(`tvijo.workspace.thread.v1.${scope}.${projectId}`);
+      return threads.find(thread => thread.id === id) || threads[0] || null;
     },
     scope(scope) { const value = this.selection(scope); return viewScope(scope, value?.projectId, value?.threadId); },
     guard(scope) { const value = this.scope(scope), epoch = epochs.get(scope) || 0; return epoch ? createHash('sha256').update(JSON.stringify([value, epoch])).digest('hex') : value; },
@@ -43,6 +49,12 @@ function workspaceState(context) {
     remember(scope, selection, messages) { histories.set(viewScope(scope, selection.projectId, selection.threadId), messages); },
     matches(scope, selection) { const now = this.selection(scope); return now?.projectId === selection?.projectId && now?.threadId === selection?.threadId; }
   };
+}
+
+function sharedThreadUrl(selection) {
+  if (!selection?.projectId || !selection?.threadId) return null;
+  const query = new URLSearchParams({ project: selection.projectId, thread: selection.threadId });
+  return 'https://dsh.tvijo.com/?' + query;
 }
 
 function workspaceClient(api, token) {
@@ -98,4 +110,4 @@ function workspaceClient(api, token) {
     }
   };
 }
-module.exports = { PROJECT_AUTH_KEY, AUTH_MODE, viewScope, workspaceState, workspaceClient, sharedTaskCap, sharedTaskMicroCap };
+module.exports = { sharedThreadUrl, PROJECT_AUTH_KEY, AUTH_MODE, viewScope, workspaceState, workspaceClient, sharedTaskCap, sharedTaskMicroCap };

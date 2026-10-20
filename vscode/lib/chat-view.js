@@ -18,6 +18,7 @@ ${THEME_CSS}
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
 <div id="agent-log" role="log" aria-live="polite"></div>
 <div class="product-links"><button id="product-guide" type="button">Tvijo AI guide</button><button id="connections" type="button">Connections</button><button id="tasks" type="button">Server task history</button><button id="context-preview" type="button">Preview context</button><button id="quick-edit" type="button">Quick edit</button></div>
+<p id="shared-thread-note" hidden><a id="shared-thread-link" href="#"></a></p>
 <p id="history-note" class="mini-select">Chat stays in this workspace and is separate from Copilot. Submitted tasks also appear in server history.</p>
 <div id="account-status" role="status"><span class="dot">●</span><span id="connection-label">Limited free preview</span><span id="budget"></span></div>
 <form id="form"><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><p id="mode-help" role="note"></p><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
@@ -436,6 +437,12 @@ ${THEME_CSS}
       else if (data.pending) showNotice(t('pendingNotice'), 'cancel');
       else showNotice('');
       render(data.messages || []);
+      const sharedNote = document.getElementById('shared-thread-note');
+      sharedNote.hidden = !data.sharedThreadUrl;
+      const sharedLink = document.getElementById('shared-thread-link');
+      sharedLink.href = data.sharedThreadUrl || '#';
+      sharedLink.textContent = locale === 'ru' ? 'Этот диалог есть на dsh.tvijo.com' : 'This conversation is on dsh.tvijo.com';
+      sharedLink.onclick = event => { event.preventDefault(); post({type:'openSharedThread'}); };
       lastStatus = data.error ? '' : (data.status || '');
       state.textContent = lastStatus;
       if (!data.busy && !data.attaching) stopActivity();
