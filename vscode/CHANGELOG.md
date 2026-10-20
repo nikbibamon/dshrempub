@@ -1,3 +1,15 @@
+## 0.5.5 — 2026-10-20
+
+- Review and swarm coding tasks quote the wider limits version: proposals up to 24 KiB
+  (review) and 8 KiB per proposer (swarm), selected snapshots up to 56 KiB and 40 KiB,
+  `max_tokens` 8192. The plan carries its own limits version, so a 0.5.4 client keeps
+  quoting the previous 2 KiB/1 KiB tiers and stored tasks stay valid.
+- The Agent sends recent chat turns with the question in a bounded block, so a follow-up
+  question can refer to what was asked before.
+- With a project key, the shared server thread is selected by default and the chat shows
+  that the same conversation exists at dsh.tvijo.com, with a link to it.
+- Tests: 248 passing (`node --test test/*.test.js`).
+
 ## 0.5.4 — 2026-10-20
 
 - The agent now ends every run with an answer: at the step limit one extra call without

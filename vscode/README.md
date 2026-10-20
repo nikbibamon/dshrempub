@@ -1,24 +1,25 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.5.4. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.5.5. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
-## What 0.5.4 changed
+## What 0.5.5 changed
 
-- **The agent always ends with an answer.** When the step limit is reached, one extra
-  call without tools writes the reply from what was already collected; a raw
-  `TOOL_RESULT` is never shown as the answer.
-- **Large files are read, not refused.** Reads stream from the start up to 64 KiB and say
-  when the content was truncated, instead of failing with "file is too large".
-- **Step limit is 12 by default** (`tvijo.agentMaxSteps`, up to 30). A question that asks
-  for information finishes well before the limit.
-- **A project is chosen before a payer**, so a BYOK connection cannot be selected for a
-  project that has none.
-- **Settings & how it works** is searchable in English and Russian, with the current and
-  default value of every setting and a direct link to the native VS Code control.
-- Sign-in state is shown consistently, expired Telegram permissions are not restored, and
-  money never renders as nine decimals.
+- **Review and swarm accept real-sized changes.** Proposals grow from 2 KiB/1 KiB to
+  24 KiB (review) and 8 KiB per proposer (swarm); the selected snapshot grows from 16 KiB
+  to 56 KiB (review) and 40 KiB (swarm). The plan declares its own limits version, so an
+  installed 0.5.4 client keeps quoting the old tiers and is not broken by the change.
+- **The agent remembers the conversation.** Recent turns are sent with the question, in a
+  bounded block, so "what did I ask before" has an answer instead of "no history".
+- **The shared thread is used by default** when you sign in with a project key, and the
+  chat states that the same conversation is visible at dsh.tvijo.com with a link to it.
+- Agent still ends every run with an answer: at the step limit one extra call without
+  tools writes the reply, and a raw `TOOL_RESULT` is never shown as the answer.
+- Large files are read from the start up to 64 KiB with an explicit truncation note;
+  step limit is 12 by default (`tvijo.agentMaxSteps`, up to 30).
+- A project is chosen before a payer, settings are searchable in EN/RU, sign-in state is
+  consistent, and money never renders as nine decimals.
 
 ## Start
 
@@ -54,11 +55,12 @@ shares that quote and the task ceiling.
 | Workflow | Calls | Proposal limit | Selected snapshot |
 |---|---|---|---|
 | single | 1 | the whole answer, `max_tokens` 2048 | up to 16 KiB of source |
-| review | 2 (proposer, reviewer) | 2048 bytes (1024 with documented requirements) | 16 KiB |
-| swarm | 3 (two proposers, reviewer) | 1024 bytes each | 16 KiB |
+| review | 2 (proposer, reviewer) | 24 KiB (12 KiB with documented requirements) | up to 56 KiB |
+| swarm | 3 (two proposers, reviewer) | 8 KiB each | up to 40 KiB |
 
 The proposal limit is a transport budget, not a quality judgement: for a larger change use
-`single`. Python `unittest` and Node built-in tests run offline in a restricted sandbox;
+`single`. Review and swarm request the wider limits version; a quote without it keeps the
+previous 2 KiB/1 KiB tiers, so older clients and stored tasks stay valid. Python `unittest` and Node built-in tests run offline in a restricted sandbox;
 reported test counts and output are an untrusted report, not proof of runtime correctness.
 Apply requires a settled task, an accepted proposal and unchanged files and buffers — an
 unknown cost, a dirty buffer or a changed identity blocks it.
@@ -125,9 +127,9 @@ Installation does not issue credit.
 
 ## Release history
 
-0.5.4 is the current release; 0.5.3 added the searchable settings guide; 0.5.2 fixed the
-sponsored-preview dead end and hardened the agent. Full history is in
-[CHANGELOG.md](CHANGELOG.md).
+0.5.5 is the current release; 0.5.4 fixed the agent's final answer and large reads; 0.5.3
+added the searchable settings guide; 0.5.2 fixed the sponsored-preview dead end and
+hardened the agent. Full history is in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
