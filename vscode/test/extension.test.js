@@ -700,12 +700,13 @@ test('agent history trimming keeps system, original goal and first answer', asyn
     app.settings.set('agentMaxSteps', 10);
     await app.commands.get('tvijo.agent')();
     const chats = app.requests.filter(r => r.url.endsWith('/chat'));
-    assert.equal(chats.length, 10);
+    assert.equal(chats.length, 11);
     for (const chat of chats) {
       assert.equal(chat.body.messages[0].role, 'system');
       assert.equal(chat.body.messages[1].content, 'Account A editor question');
     }
-    assert.equal(chats.at(-1).body.messages[2].content, content);
+    assert.equal(chats.at(-2).body.messages[2].content, content);
+    assert.match(chats.at(-1).body.messages[0].content, /Tools are disabled/);
     assert.ok(chats.at(-1).body.messages.length <= 12);
   } finally { app.close(); }
 });

@@ -14,7 +14,7 @@ const TOOL_HELP = [
   '{"tool":"finish","answer":"what was done, what was checked, what remains"}'
 ].join('\n');
 
-function systemPrompt({ tree = '', planMode = false, step = 1, maxSteps = 6, budgetUsd = 2 }) {
+function systemPrompt({ tree = '', planMode = false, step = 1, maxSteps = 12, budgetUsd = 2 }) {
   return [
     'You are Tvijo Agent, a coding agent inside VS Code.',
     'Work only inside the opened workspace. Return exactly one JSON object per turn and nothing else.',
@@ -27,6 +27,7 @@ function systemPrompt({ tree = '', planMode = false, step = 1, maxSteps = 6, bud
     '- If a command fails, inspect the output and either fix the cause or finish with the exact blocker.',
     '- In plan mode, write_file, replace_in_file and run_command are refused; only inspect and finish.',
     '- Never claim a command or test passed unless the tool result says so.',
+    '- Answer in the user\'s language. For a question rather than a request to change code, gather the minimum context and finish by half the step limit (step ' + Math.max(1, Math.floor(maxSteps / 2)) + ').',
     '- Finish only with {"tool":"finish","answer":"..."} and include changed paths, checks, and remaining risks.',
     planMode ? 'MODE: PLAN ONLY — no writes, no commands.' : 'MODE: ACT — writes and commands need user approval unless explicitly auto-approved.',
     'Step ' + step + ' of at most ' + maxSteps + '. Local session budget: $' + budgetUsd + '.',
@@ -56,13 +57,15 @@ function costOf(answer) {
   return Number.isFinite(number) && number >= 0 ? number : 0;
 }
 
-async function runAgent({ goal, tree, planMode, maxSteps = 6, budgetUsd = 2, ask, tools, onEvent = () => {}, signal }) {
+async function runAgent({ goal, tree, planMode, maxSteps = 12, budgetUsd = 2, ask, tools, onEvent = () => {}, signal }) {
   if (!goal || !goal.trim()) throw new Error('A goal is required.');
-  const steps = Math.min(Math.max(Number(maxSteps) || 6, 1), 12);
+  const steps = Math.min(Math.max(Math.floor(Number(maxSteps)) || 12, 1), 30);
   const budget = Math.max(Number(budgetUsd) || 2, 0);
   const messages = [{ role: 'system', content: systemPrompt({ tree, planMode, step: 1, maxSteps: steps, budgetUsd: budget }) }, { role: 'user', content: goal.trim() }];
   let spent = 0;
   let parseFailures = 0;
+  const fallback = /[а-яё]/i.test(goal) ? 'Достигнут лимит шагов. Проверьте журнал действий и уточните вопрос: итоговый ответ не получен.' : 'Agent reached the step limit. Review the action log and narrow the question: a final answer was not received.';
+  const safeAnswer = value => typeof value === 'string' && value.trim() && !value.includes('TOOL_RESULT') ? value : fallback;
   for (let step = 1; step <= steps; step++) {
     if (signal?.aborted) { const stopped = new Error('Agent stopped by the user.'); stopped.code = 'agent_stopped'; throw stopped; }
     onEvent({ type: 'step', step, maxSteps: steps, spent });
@@ -82,12 +85,13 @@ async function runAgent({ goal, tree, planMode, maxSteps = 6, budgetUsd = 2, ask
         messages.push({ role: 'user', content: 'Return exactly one JSON object with a "tool" field and no prose or markdown.' });
         continue;
       }
-      onEvent({ type: 'final', text: answer.content, steps: step, spent });
-      return { text: answer.content, steps: step, spent, reason: 'answer' };
+      const text = safeAnswer(answer.content);
+      onEvent({ type: 'final', text, steps: step, spent });
+      return { text, steps: step, spent, reason: 'answer' };
     }
     parseFailures = 0;
     if (action.tool === 'finish') {
-      const text = typeof action.answer === 'string' && action.answer.trim() ? action.answer : answer.content;
+      const text = safeAnswer(action.answer);
       onEvent({ type: 'final', text, steps: step, spent });
       return { text, steps: step, spent, reason: 'finish' };
     }
@@ -103,12 +107,17 @@ async function runAgent({ goal, tree, planMode, maxSteps = 6, budgetUsd = 2, ask
     messages.push({ role: 'user', content: 'TOOL_RESULT ' + JSON.stringify(result).slice(0, 24000) });
     // Keep the bounded transcript small enough for the service. The oldest
     // tool exchange is dropped first; the goal and the latest result stay.
-    while (messages.length > 12) messages.splice(1, 2);
+    while (messages.length > 12) messages.splice(2, 2);
   }
-  // A step limit is a partial outcome, not a reason to discard everything the
-  // user already paid for. Return the last tool result with an explicit marker.
-  const lastResult = [...messages].reverse().find(item => item.role === 'user' && String(item.content).startsWith('TOOL_RESULT'));
-  const text = 'Agent reached the step limit (' + steps + '). No final finish was returned.\n\n' + (lastResult ? String(lastResult.content).slice(0, 2000) : 'No tool result is available.');
+  // The host uses the same metered route and remaining budget for this turn.
+  // No tools are offered or executed, even if the model returns an action.
+  if (signal?.aborted) throw Object.assign(new Error('Agent stopped by the user.'), { code: 'agent_stopped' });
+  if (spent >= budget) throw Object.assign(new Error('Local agent budget exhausted. No final call was started.'), { code: 'agent_budget', spent, budget });
+  const finalMessages = [{ role: 'system', content: 'Tools are disabled. Answer the user in the user\'s language using only the collected evidence. State briefly what is missing. Return plain text, no tool JSON or raw TOOL_RESULT.' }, ...messages.slice(1)];
+  const answer = await ask({ messages: finalMessages, step: steps + 1, signal, tools: false, finalization: true });
+  spent += costOf(answer);
+  if (spent > budget) throw Object.assign(new Error('Local agent budget exhausted.'), { code: 'agent_budget', spent, budget });
+  const text = parseAction(answer.content) ? fallback : safeAnswer(answer.content);
   onEvent({ type: 'final', text, steps, spent, partial: true });
   return { text, steps, spent, reason: 'step_limit', partial: true };
 }

@@ -2,7 +2,7 @@
   "name": "tvijo-dshrem",
   "displayName": "Tvijo DSHREM",
   "description": "Managed coding and bounded reviews for shared projects with a per-task spending cap. Provider API credentials remain on the service.",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "repository": {
     "type": "git",
     "url": "https://github.com/nikbibamon/dshcode.git",
@@ -418,10 +418,10 @@
         },
         "tvijo.agentMaxSteps": {
           "type": "number",
-          "default": 6,
+          "default": 12,
           "minimum": 1,
-          "maximum": 12,
-          "markdownDescription": "Caps model turns in one local Agent/Plan loop, including JSON repair turns. Lower it for small tasks. Reaching the limit may leave work partial; it is not a completion promise."
+          "maximum": 30,
+          "markdownDescription": "Caps tool steps in one local Agent/Plan loop, including JSON repair turns (default 12, maximum 30). At the limit, one additional metered turn without tools summarizes the collected evidence within the same session budget."
         },
         "tvijo.agentBudgetUsd": {
           "type": "number",

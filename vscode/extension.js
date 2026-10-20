@@ -284,7 +284,7 @@ function activate(context) {
     const guard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
     const api = core.createClient({ base: auth.api_base });
     const config = vscode.workspace.getConfiguration('tvijo');
-    const maxSteps = config.get('agentMaxSteps', 6);
+    const maxSteps = config.get('agentMaxSteps', 12);
     const budgetUsd = config.get('agentBudgetUsd', 2);
     const autoRun = !!config.get('agentAutoRun', false);
     const autoApply = !!config.get('agentAutoApply', false);
@@ -362,15 +362,15 @@ function activate(context) {
       });
       const result = await runAgent({
         goal, tree, planMode, maxSteps, budgetUsd, signal: abort.signal, tools,
-        ask: async ({ messages, step, signal }) => {
+        ask: async ({ messages, step, signal, finalization = false }) => {
           await guard();
           const remaining = Number(budgetUsd) - agentSpent;
           if (!Number.isFinite(remaining) || remaining <= 0) throw Object.assign(new Error('Agent budget exhausted'), { code: 'agent_budget', spent: agentSpent, budget: budgetUsd });
-          const bounded = [messages[0], { role: 'user', content: goal.trim() }];
-          if (firstAgentAnswer) bounded.push(firstAgentAnswer);
-          if (step > 1) exchanges.push(...messages.slice(-2));
+          const bounded = finalization ? [...messages] : [messages[0], { role: 'user', content: goal.trim() }];
+          if (!finalization && firstAgentAnswer) bounded.push(firstAgentAnswer);
+          if (!finalization && step > 1) exchanges.push(...messages.slice(-2));
           while (exchanges.length > 8) exchanges.splice(0, 2);
-          bounded.push(...exchanges);
+          if (!finalization) bounded.push(...exchanges);
           const idempotencyKey = randomUUID();
           await local.savePending(auth.scope, { idempotencyKey, apiBase: auth.api_base, tenantId: auth.tenant_id, createdAt: new Date().toISOString() });
           const answer = await api.ask({

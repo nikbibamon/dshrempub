@@ -85,15 +85,28 @@ async function readFile(root, relative, start, end) {
   const target = safePath(root, relative);
   const stat = await fs.lstat(target);
   if (stat.isSymbolicLink() || !stat.isFile()) throw new Error('Only regular files can be read.');
-  if (stat.size > MAX_READ * 4) throw new Error('File is too large to read; use search or a line range.');
-  const text = await fs.readFile(target, 'utf8');
-  if (start || end) {
-    const lines = text.split(/\r?\n/);
-    const from = Math.max(1, Number(start) || 1);
-    const to = Math.min(lines.length, Number(end) || from + 400);
-    return { path: relative, start: from, end: to, total: lines.length, content: lines.slice(from - 1, to).join('\n') };
-  }
-  return { path: relative, total: text.split(/\r?\n/).length, content: truncate(text) };
+  const from = Math.max(1, Math.floor(Number(start)) || 1);
+  const to = start || end ? Math.max(from, Math.floor(Number(end)) || from + 400) : Infinity;
+  const handle = await fs.open(target, 'r'), buffer = Buffer.alloc(MAX_READ), selected = [];
+  let line = 1, position = 0, stopped = false, count = 0;
+  try {
+    while (!stopped) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+      if (!bytesRead) break;
+      position += bytesRead;
+      for (let i = 0; i < bytesRead; i++) {
+        if (line >= from) {
+          if (count === MAX_READ || line > to) { stopped = true; break; }
+          selected.push(buffer[i]); count++;
+        }
+        if (buffer[i] === 10) line++;
+      }
+    }
+  } finally { await handle.close(); }
+  const truncated = stopped || position < stat.size;
+  const content = new TextDecoder('utf-8').decode(Uint8Array.from(selected), { stream: truncated });
+  return { path: relative, start: from, end: Math.min(line, to), total: truncated ? null : line, content,
+    bytes: stat.size, truncated, ...(truncated ? { note: 'File truncated, ' + stat.size + ' bytes; use start/end to read another line range.' } : {}) };
 }
 
 async function search(root, query, relative, max) {
