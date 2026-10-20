@@ -849,8 +849,17 @@ function activate(context) {
   command('tvijo.productGuide', () => vscode.env.openExternal(vscode.Uri.parse(publicSite() + '/workspace-guide')));
   command('tvijo.connections', async () => {
     ensureIdle();
-    const auth = await requireAuth(), project = shared.selection(auth.scope)?.projectId;
-    if (!project) throw new core.ServiceError('project_required', 'Choose a shared project before selecting its payer.');
+    let auth = await requireAuth();
+    let project = shared.selection(auth.scope)?.projectId;
+    if (!project) {
+      await vscode.commands.executeCommand('tvijo.chooseProject');
+      const selectedAuth = await requireAuth();
+      if (selectedAuth.scope !== auth.scope || selectedAuth.access_token !== auth.access_token) return;
+      auth = selectedAuth;
+      project = shared.selection(auth.scope)?.projectId;
+      if (!project) return;
+      ensureIdle();
+    }
     const value = await client().request('/projects/' + encodeURIComponent(project) + '/byok', { token: auth.access_token });
     if (!await isCurrentAuth(auth)) return;
     const connections = (Array.isArray(value.connections) ? value.connections : []).filter(c => c.execution_available === true && !c.revoked_at && c.project_id === project);

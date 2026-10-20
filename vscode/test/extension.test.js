@@ -79,6 +79,7 @@ function host(options = {}) {
       showWarningMessage: async (...args) => { if (options.onWarning) await options.onWarning(...args); return warningAnswer; },
       showTextDocument: async doc => { shown.push(doc); },
       showInputBox: async () => 'Account A editor question',
+      showQuickPick: async (choices, config) => options.pick?.(choices, config),
       get activeTextEditor() { return activeEditor; },
       withProgress: async (_options, fn) => fn({}, { onCancellationRequested() {} })
     }
@@ -97,12 +98,15 @@ function host(options = {}) {
     delete require.cache[require.resolve('../extension')];
     extension = require('../extension');
   } finally { Module._load = originalLoad; }
+  const projectFixtures = options.projects;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
     const body = options.body && JSON.parse(options.body);
     requests.push({ url, body, method: options.method, token: options.headers.authorization });
     if (blockedRequest && url.endsWith(blockedRequest.path) && options.method === blockedRequest.method) await new Promise(resolve => { releaseRequest = resolve; });
     if (url.endsWith('/account')) return Response.json({ tenant_id: options.headers.authorization === 'Bearer account-b' ? 'tenant-b' : 'tenant-a' });
+    if (url.endsWith('/projects') && projectFixtures) return Response.json({ projects: projectFixtures });
+    if (url.endsWith('/byok') && projectFixtures) return Response.json({ connections: [] });
     if (url.endsWith('/auth/logout')) return Response.json({ revoked: true });
     if (url.endsWith('/tasks') && options.method === 'POST') {
       if (blockGrant) await new Promise((resolve) => { release = resolve; });
@@ -836,5 +840,21 @@ test('Telegram startup obeys the current service allowlist, including explicit r
     app.settings.set('telegram.allowedServices', ['selected.service']);
     await app.commands.get('tvijo.startBot')();
     assert.deepEqual(app.botAdapter().allowedServices, ['selected.service']);
+  } finally { app.close(); }
+});
+
+for (const cancel of [false, true]) test('SPEC-053 B6 payer opens project selection first; cancelled=' + cancel, async () => {
+  const picks = [];
+  const app = host({ projects: [{ id: 'project-demo', name: 'Demo project', role: 'owner' }], pick: (choices, config) => {
+    picks.push(config.title);
+    return cancel ? undefined : choices[0];
+  }});
+  try {
+    await app.commands.get('tvijo.connections')();
+    assert.equal(app.executed.filter(x => x.id === 'tvijo.chooseProject').length, 1);
+    assert.equal(picks[0], 'Tvijo shared project');
+    assert.equal(app.requests.filter(x => x.url.endsWith('/byok')).length, cancel ? 0 : 1, JSON.stringify({errors:app.errors,picks,requests:app.requests.map(x=>x.url)}));
+    assert.equal(picks.length, cancel ? 1 : 2);
+    assert.deepEqual(app.errors, []);
   } finally { app.close(); }
 });
