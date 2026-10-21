@@ -25,7 +25,7 @@ function sidebar(initialState = {}) {
   const html = chatHtml({ cspSource: 'vscode-webview:' });
   const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
   assert.ok(script, 'webview script exists');
-  vm.runInNewContext(script, { document, window, acquireVsCodeApi: () => ({ postMessage: (message) => outgoing.push(message), getState: () => savedState, setState: (next) => { savedState = next; } }) });
+  vm.runInNewContext(script, { document, window, URL, acquireVsCodeApi: () => ({ postMessage: (message) => outgoing.push(message), getState: () => savedState, setState: (next) => { savedState = next; } }) });
   listeners.get('window:message')({ data: { type: 'state', scopeKey: 'tenant-a', messages: [], signedIn: true, attachments: [] } });
   return { element, outgoing, created, state: () => savedState, emit: (key, event) => {
     if (event?.data?.type === 'state' && event.data.scopeKey === undefined) event = { data: { ...event.data, scopeKey: 'tenant-a' } };
@@ -45,6 +45,37 @@ test('sidebar keeps a rejected question and prevents a duplicate submit', () => 
   view.emit('window:message', { data: { type: 'submission', ok: false, question: 'Why is this slow?' } });
   assert.equal(question.value, 'Why is this slow?');
   assert.equal(view.element('send').disabled, false);
+});
+
+test('assistant Markdown renders while user text and receipt footer stay plain', () => {
+  const view = sidebar();
+  view.emit('window:message',{data:{type:'state',signedIn:true,messages:[{role:'user',content:'**plain user**'},{role:'assistant',content:'# Title\n**bold**\n```js\nlet x = 1;\n```',footer:'Task test · spent — · held —'}]}});
+  assert.ok(view.created.some(node => node.tag === 'h1'));
+  assert.ok(view.created.some(node => node.tag === 'strong' && node.children.length));
+  assert.ok(view.created.some(node => node.textContent === '**plain user**'));
+  assert.ok(view.created.some(node => node.className === 'task-footer' && node.textContent === 'Task test · spent — · held —'));
+});
+
+test('Agent map opens, updates only its scope, localizes and closes to chat', () => {
+  const {buildAgentMap} = require('../lib/agent-map');
+  const view = sidebar();
+  view.emit('agent-map-button:click',{});
+  assert.equal(view.element('agent-map').hidden,false);
+  assert.equal(view.element('messages').hidden,true);
+  assert.equal(view.outgoing.at(-1).type,'agentMap');
+  const model = buildAgentMap({title:'PRIVATE_A',tasks:[{id:'test',status:'completed'}]});
+  view.emit('window:message',{data:{type:'agentMap',scopeKey:'tenant-a',model}});
+  assert.ok(view.created.some(node => node.textContent === 'PRIVATE_A'));
+  const count = view.created.length;
+  view.emit('window:message',{data:{type:'agentMap',scopeKey:'tenant-b',model}});
+  assert.equal(view.created.length,count);
+  view.emit('lang:click',{});
+  assert.equal(view.element('map-title').textContent,'Карта агентов');
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-b',signedIn:true,messages:[]}});
+  assert.equal(view.element('map-details').children.some(node => node.textContent === 'PRIVATE_A'),false);
+  view.emit('map-close:click',{});
+  assert.equal(view.element('agent-map').hidden,true);
+  assert.equal(view.element('messages').hidden,false);
 });
 
 test('compact pack header has an accessible native-picker action and hides unavailable/signed-out packs', () => {

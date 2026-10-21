@@ -1,8 +1,33 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.6.0. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.6.1. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
+
+## Markdown answers
+
+Assistant replies support headings, bold/italic, inline code, fenced code (language label
+and **Copy**), lists, blockquotes, tables, horizontal rules and highlighted links. User
+messages stay plain; task receipt footers remain visible. Raw HTML tags are dropped,
+model images never load, and HTTP/HTTPS/mailto links open through VS Code after a click.
+Rendering is bounded at 120,000 characters, 4,000 lines and 8,000 DOM nodes; open the
+answer in an editor to read longer replies. The strict content security policy is retained.
+
+## Agent map
+
+Click **⑂ Agent map** (**Карта агентов**) in the header. The current request is on the
+left; executed tasks, Agent model steps/tools and available council or coding
+review/swarm execution records extend right. Select a node for task ID, route, receipt
+fields and a short last message. Arrow keys move between nodes; Enter/Space select;
+Escape returns to chat. The canvas scrolls horizontally in narrow sidebars.
+
+While open, the map refreshes every two seconds using existing task reads. Data stays
+scoped to the signed-in account, project and thread. Reopened conversations use server
+history only where task IDs or thread IDs establish that relationship. Quotes alone do
+not create execution branches. Missing aliases, timestamps, token counts and spending
+show **—**; known service credits (TT) and USD keep separate units. No new server API is
+required. Some servers expose branch receipts only after completion; those branches
+appear when supplied. Local execution trees are kept in host memory for the session.
 
 ## Skill packs
 

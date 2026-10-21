@@ -22,6 +22,7 @@ function host(options = {}) {
   const errors = [];
   const panels = [];
   const external = [];
+  const copied = [];
   let grantError = options.grantError;
   let warningAnswer = 'Forget request';
   let chatContent = options.chatContent || 'Test answer';
@@ -52,7 +53,7 @@ function host(options = {}) {
   };
   const vscode = {
     Uri, Position, Range, WorkspaceEdit, FileType: { File: 1, Directory: 2, SymbolicLink: 64 }, StatusBarAlignment: { Right: 1 }, ProgressLocation: { Notification: 1 }, ViewColumn: { Beside: 2 }, ConfigurationTarget: { Global: 1 },
-    env: { clipboard: { writeText: async () => {} }, openExternal: async uri => { external.push(uri.fsPath); } },
+    env: { clipboard: { writeText: async value => { copied.push(value); } }, openExternal: async uri => { external.push(uri.fsPath); } },
     commands: { registerCommand: (id, fn) => { commands.set(id, fn); return disposable; }, executeCommand: async (id, ...args) => { executed.push({ id, args }); return commands.get(id)?.(...args); } },
     workspace: {
       getConfiguration: () => ({ get: (key, fallback) => key === 'apiBase' ? base : (settings.has(key) ? settings.get(key) : fallback), inspect: key => ({ globalValue: settings.get(key) }), update: async (key, value) => { settings.set(key, value); } }),
@@ -117,11 +118,11 @@ function host(options = {}) {
       if (grantError) return Response.json(grantError.body, { status: grantError.status });
       return Response.json({ id: 'task-test' });
     }
-    if (url.endsWith('/tasks') && options.method === 'GET') return Response.json({ tasks: [{ title: 'Account A private server task' }] });
+    if (url.endsWith('/tasks') && options.method === 'GET') return Response.json({ tasks: optionsHost.tasks || [{ title: 'Account A private server task' }] });
     if (url.includes('/tasks/by-idempotency/')) return Response.json(lookup);
     if (url.endsWith('/tasks/task-test') || url.endsWith('/tasks/task-test/cancel')) return Response.json(taskSnapshot);
     if (url.endsWith('/workspace/usage')) return Response.json({ account: { tenant_id: 'test-tenant', budget: { spent_usd: '0', held_usd: '0', remaining_usd: '.05' } }, scope: { loaded_tasks: 0, total_account_tasks: 0 }, tasks: [] });
-    if (url.endsWith('/chat')) return Response.json({ choices: [{ message: { content: chatContent } }], task: chatCost === null ? null : { spent_usd: '0.001', held_usd: '0' }, evidence: [] });
+    if (url.endsWith('/chat')) return Response.json({ choices: [{ message: { content: chatContent } }], ...optionsHost.chatExecution, task: chatCost === null ? null : { spent_usd: '0.001', held_usd: '0' }, evidence: [] });
     throw new Error('unexpected test URL');
   };
   extension.activate(context);
@@ -130,7 +131,7 @@ function host(options = {}) {
     onDidDispose: (fn) => { disposal = fn; }
   });
   const { tenantState, scopeKey } = require('../lib/tenant-state');
-  return { context, posts, docs, shown, requests, commands, executed, errors, panels, external, base, local: tenantState(context), scope: tenant => scopeKey(base, tenant), receive: (message) => receive(message),
+  return { context, posts, docs, shown, requests, commands, executed, errors, panels, external, copied, base, local: tenantState(context), scope: tenant => scopeKey(base, tenant), receive: (message) => receive(message),
     botAdapter: () => botAdapter, settings, status, Uri, Position, Range,
     grantError: value => { grantError = value; }, lookup: value => { lookup = value; }, warning: value => { warningAnswer = value; }, chat: value => { chatContent = value; }, editor: value => { activeEditor = value; }, applied: () => appliedEdit, taskSnapshot: value => { taskSnapshot = value; },
     blockResponse: (requestPath, method = 'GET') => { blockedRequest = { path: requestPath, method }; }, responseWaiting: () => !!releaseRequest,
@@ -141,6 +142,119 @@ function host(options = {}) {
 
 // Deliberately meaningless catalogue: no product pack content belongs in tests.
 const syntheticPacks = { schema: 'tvijo.skill_packs/v1', packs: [{ id: 'engineer', title: { en: 'TEST PACK', ru: 'ТЕСТ ПАКЕТ' }, summary: { en: 'Synthetic summary', ru: 'Тестовое описание' }, model: 'synthetic-model', markers: [], instructions: 'SYNTHETIC_PACK_SENTINEL', checklist: { en: [], ru: [] } }] };
+
+test('Markdown host actions validate URLs, code bounds and exact account scope', async () => {
+  const app = host();
+  try {
+    await app.receive({type:'ready'});
+    const scopeKey = app.posts.filter(item => item.type === 'state').at(-1).scopeKey;
+    for (const url of ['javascript:evil','data:text/html,evil','command:evil','file:///etc/passwd']) await app.receive({type:'openExternal',scopeKey,url});
+    assert.equal(app.external.length,0);
+    for (const url of ['https://example.com/path','http://localhost/','mailto:test@example.com']) await app.receive({type:'openExternal',scopeKey,url});
+    assert.equal(app.external.length,3);
+    await app.receive({type:'openExternal',scopeKey:'other-account',url:'https://evil.test'});
+    await app.receive({type:'openExternal',url:'https://evil.test'});
+    assert.equal(app.external.length,3);
+    await app.receive({type:'copyCode',scopeKey,text:'const x = 1;'});
+    await app.receive({type:'copyCode',scopeKey,text:'x'.repeat(120001)});
+    await app.receive({type:'copyCode',scopeKey:'other-account',text:'wrong'});
+    assert.deepEqual(app.copied,['const x = 1;']);
+  } finally { app.close(); }
+});
+
+test('Agent map polls a running task read-only and retains its completed receipt and footer', async () => {
+  const app = host({taskSnapshot:{status:'running'},chatExecution:{model:'synthetic-a', usage:{total_tokens:17},calls:[{model:'synthetic-b',outcome:'success',tokens_in:5,tokens_out:12}]}});
+  try {
+    await app.receive({type:'ready'});
+    const scopeKey = app.posts.filter(item => item.type === 'state').at(-1).scopeKey;
+    app.blockResponse('/tasks/task-test/chat','POST');
+    const asking = app.receive({type:'ask',scopeKey,question:'Synthetic map request'});
+    for (let attempt=0;attempt<100 && !app.responseWaiting();attempt++) await new Promise(resolve => setTimeout(resolve,5));
+    assert.equal(app.responseWaiting(),true);
+    const before = app.requests.length;
+    await app.receive({type:'agentMap',scopeKey,refresh:true});
+    const running = app.posts.filter(item => item.type === 'agentMap').at(-1).model;
+    assert.equal(running.status,'running'); assert.equal(running.children[0].status,'running');
+    assert.equal(running.children[0].tokens,'—'); assert.equal(running.children[0].spend,'—');
+    assert.ok(app.requests.slice(before).every(item => item.method === 'GET'));
+    app.releaseResponse(); await asking;
+    const done = app.posts.filter(item => item.type === 'agentMap').at(-1).model;
+    assert.equal(done.status,'done'); assert.equal(done.children[0].model,'synthetic-a');
+    assert.equal(done.children[0].tokens,'17'); assert.equal(done.children[0].children[0].model,'synthetic-b');
+    const message = app.posts.filter(item => item.type === 'state').at(-1).messages.at(-1);
+    assert.match(message.footer,/Task task-test · spent 0.001 USD · held 0 USD/);
+    assert.doesNotMatch(message.content,/Task task-test/);
+    await app.receive({type:'new',scopeKey});
+    assert.equal(app.posts.filter(item => item.type === 'state').at(-1).agentMap.children.length,0);
+  } finally { app.releaseResponse(); app.close(); }
+});
+
+test('Agent map history is restricted to task IDs in the current conversation', async () => {
+  const app = host({tasks:[{id:'included',title:'This conversation',status:'completed'},{id:'excluded',title:'Other conversation',status:'completed'}]});
+  try {
+    await app.receive({type:'ready'});
+    const scopeKey = app.posts.filter(item => item.type === 'state').at(-1).scopeKey;
+    await app.local.saveHistory(app.scope('tenant-a'),[{role:'assistant',content:'old answer',taskId:'included'}]);
+    await app.receive({type:'agentMap',scopeKey,refresh:true});
+    const map = app.posts.filter(item => item.type === 'agentMap').at(-1).model;
+    assert.deepEqual(map.children.map(item => item.taskId),['included']);
+    const before = app.requests.length;
+    await app.receive({type:'agentMap',scopeKey:'other-account',refresh:true});
+    assert.ok(!app.requests.slice(before).some(item => item.url.endsWith('/tasks')));
+  } finally { app.close(); }
+});
+
+test('a delayed map history response cannot replace a newer request map', async () => {
+  const app = host({tasks:[{id:'old',title:'Old task',status:'completed'}]});
+  try {
+    await app.receive({type:'ready'});
+    const scopeKey = app.posts.filter(item => item.type === 'state').at(-1).scopeKey;
+    await app.local.saveHistory(app.scope('tenant-a'),[{role:'assistant',content:'old answer',taskId:'old'}]);
+    app.blockResponse('/tasks');
+    const refresh = app.receive({type:'agentMap',scopeKey,refresh:true});
+    for (let attempt=0;attempt<100 && !app.responseWaiting();attempt++) await new Promise(resolve => setTimeout(resolve,5));
+    await app.receive({type:'ask',scopeKey,question:'New request'});
+    app.releaseResponse(); await refresh;
+    const map = app.posts.filter(item => item.type === 'agentMap').at(-1).model;
+    assert.equal(map.title,'New request'); assert.equal(map.children[0].taskId,'task-test');
+    assert.ok(!map.children.some(item => item.taskId === 'old'));
+  } finally { app.releaseResponse(); app.close(); }
+});
+
+test('Agent map includes actual Agent turns, their model aliases and executed local tools', async () => {
+  const app = host({chatContent:JSON.stringify({tool:'read_file',path:'README.md'})});
+  try {
+    app.settings.set('workspaceContext','off'); app.settings.set('agentMaxSteps',1);
+    await app.receive({type:'ready'});
+    const scopeKey = app.posts.filter(item => item.type === 'state').at(-1).scopeKey;
+    await app.receive({type:'ask',scopeKey,question:'Inspect the README',agent:true});
+    const map = app.posts.filter(item => item.type === 'agentMap').at(-1).model;
+    assert.equal(map.status,'done');
+    assert.equal(map.children[0].model,'ds41f');
+    const tool = map.children.flatMap(task => task.children).find(child => child.title === 'read_file');
+    assert.ok(tool); assert.equal(tool.status,'done'); assert.equal(tool.taskId,'task-test');
+    assert.equal(tool.tokens,'—'); assert.equal(tool.spend,'—');
+    assert.deepEqual(app.local.history(app.scope('tenant-a')).at(-1).taskIds,['task-test']);
+  } finally {app.close();}
+});
+
+test('map history started before a grant cannot erase tasks added to that same request', async () => {
+  const app = host({tasks:[{id:'unrelated',status:'completed'}]});
+  try {
+    await app.receive({type:'ready'});
+    const scopeKey = app.posts.filter(item => item.type === 'state').at(-1).scopeKey;
+    app.block();
+    const asking = app.receive({type:'ask',scopeKey,question:'Current request'});
+    for (let attempt=0;attempt<100 && !app.requests.some(item => item.method === 'POST' && item.url.endsWith('/tasks'));attempt++) await new Promise(resolve => setTimeout(resolve,5));
+    app.blockResponse('/tasks');
+    const refresh = app.receive({type:'agentMap',scopeKey,refresh:true});
+    for (let attempt=0;attempt<100 && !app.responseWaiting();attempt++) await new Promise(resolve => setTimeout(resolve,5));
+    app.unblock(); await asking;
+    app.releaseResponse(); await refresh;
+    const map = app.posts.filter(item => item.type === 'agentMap').at(-1).model;
+    assert.equal(map.title,'Current request'); assert.equal(map.children[0].taskId,'task-test');
+  } finally {app.unblock();app.releaseResponse();app.close();}
+});
 
 test('pack header/status hide on 404 and sign-out, cache once, and never expose instructions', async () => {
   for (const catalogue of [undefined, syntheticPacks]) {

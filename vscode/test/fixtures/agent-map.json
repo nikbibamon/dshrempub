@@ -1,0 +1,26 @@
+{
+  "title": "Synthetic request",
+  "status": "completed",
+  "startedAt": "2026-10-21T10:00:00Z",
+  "endedAt": "2026-10-21T10:00:04Z",
+  "tasks": [
+    {
+      "id": "council-task", "model": "auto", "status": "completed",
+      "usage": {"total_tokens": 34}, "budget": {"spent_usd": "0.012"},
+      "calls": [
+        {"model": "synthetic-a", "provider": "test", "tokens_in": 10, "tokens_out": 20, "outcome": "success", "duration_ms": 1250},
+        {"model": "synthetic-b", "outcome": "failed", "cost_usd": "0.002", "tokens_in": null, "tokens_out": 4}
+      ]
+    },
+    {
+      "id": "coding-task", "workflow": "review", "status": "completed",
+      "receipt": {"tariff_version": "synthetic", "debited_micro_tvijo": 12000, "held_micro_tvijo": 0},
+      "agent_tree": [
+        {"id": "proposal-1", "parent_id": "coding-task", "role": "proposer", "status": "completed", "model_alias": "synthetic-a", "request_hash": "synthetic-hash", "last_message": "Short proposal"},
+        {"id": "judge", "parent_id": "coding-task", "role": "judge", "status": "completed", "attempt": 1}
+      ],
+      "workflow_plan": {"nodes": [{"id": "never-executed"}]}
+    },
+    {"id": "cancelled-task", "status": "cancelled", "tokens": null, "spent_usd": false}
+  ]
+}

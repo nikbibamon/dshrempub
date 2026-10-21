@@ -1,3 +1,16 @@
+## 0.6.1 — 2026-10-21
+
+- Assistant Markdown: headings, emphasis, inline/fenced code with language labels and Copy,
+  lists, quotes, tables, rules and highlighted links. Raw HTML is dropped; model images
+  never load. Only HTTP/HTTPS/mailto links open, after a click through the extension host.
+  Strict CSP remains; rendering has finite input, node and nesting limits. Receipt footers
+  remain visible even when the Markdown body is truncated.
+- Compact EN/RU **Agent map / Карта агентов** header button: scrollable horizontal tree,
+  receipt details, keyboard navigation and live polling through existing read endpoints.
+  Shows executed tasks, local Agent steps/tools, council calls and coding review/swarm
+  execution records when supplied. Unknown metrics stay **—**; TT and USD remain distinct.
+- Version 0.6.1; public-repository links point to nikbibamon/dshrempub.
+
 ## 0.6.0 — 2026-10-20
 
 - Server skill packs, cached in host memory after sign-in; unavailable services hide pack controls.

@@ -2,6 +2,9 @@
 
 const { randomBytes } = require('node:crypto');
 const { THEME_CSS, COPY } = require('./product-theme');
+const { renderMarkdown, safeExternalUrl } = require('./markdown');
+const { renderAgentMap, buildAgentMap } = require('./agent-map');
+const { CHAT_CSS } = require('./chat-presentation');
 
 function chatHtml(webview) {
   const nonce = randomBytes(16).toString('base64');
@@ -11,11 +14,12 @@ function chatHtml(webview) {
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <style nonce="${nonce}">
 ${THEME_CSS}
+${CHAT_CSS}
 header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
 </style></head><body>
-<header><strong id="brand"><span id="brand-mark" aria-hidden="true">›_</span>DSHREM</strong><button id="pack-picker" type="button" hidden aria-haspopup="dialog"></button><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="signin" type="button">Sign in</button><button id="new" class="icon" type="button" title="New session" aria-label="New session">＋</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings">⚙</button></header>
+<header><strong id="brand"><span id="brand-mark" aria-hidden="true">›_</span>DSHREM</strong><button id="pack-picker" type="button" hidden aria-haspopup="dialog"></button><button id="agent-map-button" type="button" aria-expanded="false" aria-controls="agent-map">⑂ Agent map</button><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="signin" type="button">Sign in</button><button id="new" class="icon" type="button" title="New session" aria-label="New session">＋</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings">⚙</button></header>
 <nav aria-label="Workspace"><button id="tab-chat" type="button" aria-selected="true">Chat</button><button id="tab-context" type="button" aria-selected="false">Context</button><button id="tab-usage" type="button" aria-selected="false">Usage</button><button id="tab-terminal" type="button" aria-selected="false">Terminal</button></nav>
-<main id="messages" aria-live="polite"></main><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
+<main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
 <div id="agent-log" role="log" aria-live="polite"></div>
 <div class="product-links"><button id="product-guide" type="button">Tvijo AI guide</button><button id="connections" type="button">Connections</button><button id="tasks" type="button">Server task history</button><button id="context-preview" type="button">Preview context</button><button id="quick-edit" type="button">Quick edit</button></div>
@@ -28,6 +32,10 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
 <div id="notice" role="alert"><p id="notice-text"></p><button id="notice-action" type="button">Resolve task</button></div>
 <script nonce="${nonce}">
   const COPY = ${JSON.stringify(COPY)};
+  const safeExternalUrl = ${safeExternalUrl.toString()};
+  const renderMarkdown = ${renderMarkdown.toString()};
+  const renderAgentMap = ${renderAgentMap.toString()};
+  const buildAgentMap = ${buildAgentMap.toString()};
   const vscode = acquireVsCodeApi();
   const messages = document.getElementById('messages');
   const state = document.getElementById('state');
@@ -66,6 +74,40 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   let lastUsageScope = null;
   let pending = false;
   let scopeKey = null;
+  let mapOpen = false;
+  let mapModel = buildAgentMap();
+  let mapSelection = () => 'request';
+  let mapTimer = null;
+  function drawMap() {
+    const active = document.activeElement;
+    const focusedId = active?.getAttribute?.('data-map-id');
+    const canvas = document.getElementById('map-canvas'), details = document.getElementById('map-details');
+    const left = canvas.scrollLeft, top = canvas.scrollTop, detailTop = details.scrollTop;
+    const hadTree = canvas.querySelector?.('.map-children');
+    mapSelection = renderAgentMap(document, canvas, details, mapModel, locale, mapSelection());
+    canvas.scrollLeft = left || 0; canvas.scrollTop = top || 0; details.scrollTop = detailTop || 0;
+    if (!hadTree && mapModel.children.length) {
+      const root = canvas.querySelector?.('.map-node');
+      if (root) canvas.scrollTop = Math.max(0, root.offsetTop - canvas.clientHeight / 2 + root.offsetHeight / 2);
+    }
+    if (focusedId) for (const button of canvas.querySelectorAll('button')) if (button.getAttribute('data-map-id') === focusedId) { button.focus({preventScroll:true}); break; }
+  }
+  function mapVisibility(open) {
+    mapOpen = open;
+    document.getElementById('agent-map').hidden = !open;
+    document.getElementById('agent-map-button').setAttribute('aria-expanded', String(open));
+    if (mapTimer) clearTimer(mapTimer);
+    mapTimer = null;
+    if (open) {
+      messages.hidden = true; document.getElementById('context-panel').className = '';
+      drawMap();
+      if (scopeKey) {
+        post({type:'agentMap', refresh:true});
+        mapTimer = setTimer(() => { if (!document.hidden && scopeKey) post({type:'agentMap'}); }, 2000);
+      }
+      document.getElementById('map-close').focus();
+    }
+  }
   const queue = [];
   const saved = vscode.getState?.();
   const drafts = saved?.drafts && typeof saved.drafts === 'object' ? { ...saved.drafts } : {};
@@ -216,6 +258,12 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   }
   function setLocale(next) {
     locale = next; document.documentElement.lang = locale;
+    document.getElementById('agent-map-button').textContent = locale === 'ru' ? '⑂ Карта агентов' : '⑂ Agent map';
+    document.getElementById('map-title').textContent = locale === 'ru' ? 'Карта агентов' : 'Agent map';
+    document.getElementById('map-canvas').setAttribute('aria-label', locale === 'ru' ? 'Карта агентов' : 'Agent map');
+    document.getElementById('map-close').textContent = locale === 'ru' ? 'Вернуться к чату' : 'Back to chat';
+    document.getElementById('map-hint').textContent = locale === 'ru' ? 'Только выполненные шаги · — нет данных · ← → ↑ ↓ переход, Enter подробности' : 'Executed steps only · — unknown · Arrow keys navigate, Enter shows details';
+    if (mapOpen) drawMap();
     document.getElementById('lang').textContent = locale === 'en' ? 'EN / RU' : 'RU / EN';
     document.getElementById('tab-chat').textContent = t('chat');
     document.getElementById('tab-context').textContent = t('context');
@@ -273,6 +321,7 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
     document.getElementById('connection-label').textContent = lastSignedIn ? t('ready') : t('limited');
   }
   function setTab(tab) {
+    mapVisibility(false);
     for (const name of ['chat','context','terminal','usage']) document.getElementById('tab-' + name).setAttribute('aria-selected', String(name === tab));
     messages.hidden = tab !== 'chat';
     document.getElementById('context-panel').className = tab === 'context' || tab === 'terminal' || tab === 'usage' ? 'visible' : '';
@@ -357,9 +406,12 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
       const block = document.createElement('article');
       block.className = 'message ' + (item.role === 'assistant' ? 'assistant' : 'user');
       const role = document.createElement('div'); role.className = 'role'; role.textContent = item.role === 'assistant' ? t('assistant') : t('user');
-      const content = document.createElement('div'); content.textContent = item.content || '';
+      const content = document.createElement('div');
+      if (item.role === 'assistant') renderMarkdown(document, content, item.content, { post, copyLabel:t('copy'), plainLabel:locale === 'ru' ? 'текст' : 'text', truncatedLabel:locale === 'ru' ? 'Ответ сокращён; полный текст доступен в редакторе.' : 'Answer truncated; full text is available in the editor.' });
+      else content.textContent = item.content || '';
       block.append(role, content); messages.append(block);
       if (item.role === 'assistant') {
+        if (typeof item.footer === 'string') { const footer = document.createElement('div'); footer.className = 'task-footer'; footer.textContent = item.footer.slice(0, 4000); block.append(footer); }
         const actions = document.createElement('div'); actions.className = 'answer-actions';
         for (const [type, label] of [['copy',t('copy')],['openAnswer',t('openAnswer')]]) {
           const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
@@ -416,6 +468,10 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   }
   window.addEventListener('message', event => {
     const data = event.data;
+    if (data.type === 'agentMap') {
+      if (data.scopeKey !== scopeKey) return;
+      mapModel = data.model || buildAgentMap(); if (mapOpen) drawMap(); return;
+    }
     if (data.type === 'agent') {
       if (data.scopeKey !== undefined && data.scopeKey !== scopeKey) return;
       renderAgentEvent(data.event);
@@ -426,6 +482,8 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
       if (scopeKey !== nextScope) {
         if (scopeKey) drafts[scopeKey] = question.value;
         scopeKey = nextScope;
+        mapModel = buildAgentMap(); mapSelection = () => 'request';
+        if (mapOpen) { setTab('chat'); drawMap(); }
         question.value = scopeKey ? (drafts[scopeKey] || '') : '';
         submitting = false; uploading = false; queue.length = 0;
         saveState();
@@ -438,6 +496,7 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
       packPicker.title = data.pack ? data.pack.summary : '';
       packPicker.setAttribute('aria-label', (locale === 'ru' ? 'Выбрать пакет навыков: ' : 'Choose skill pack: ') + (data.pack?.label || ''));
       if (data.options) renderOptions(data.options);
+      if (data.agentMap) { mapModel = data.agentMap; if (mapOpen) drawMap(); }
       renderContext(data.context);
       if (data.error) showNotice(data.error.text, data.error.action);
       else if (data.pending) showNotice(t('pendingNotice'), 'cancel');
@@ -502,6 +561,9 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
     if (event.key === 'Tab' && event.shiftKey) { event.preventDefault(); uiMode = uiMode === 'plan' ? 'agent' : 'plan'; updateMode(); saveState(); }
   });
   modeButton.addEventListener('click', () => { uiMode = uiMode === 'chat' ? 'agent' : uiMode === 'agent' ? 'plan' : 'chat'; updateMode(); saveState(); });
+  document.getElementById('agent-map-button').addEventListener('click', () => { if (mapOpen) setTab('chat'); else mapVisibility(true); });
+  document.getElementById('map-close').addEventListener('click', () => { setTab('chat'); document.getElementById('agent-map-button').focus(); });
+  document.getElementById('agent-map').addEventListener('keydown', event => { if (event.key === 'Escape') { setTab('chat'); document.getElementById('agent-map-button').focus(); } });
   document.getElementById('pack-picker').addEventListener('click', () => post({type:'choosePack'}));
   document.getElementById('signin').addEventListener('click', () => post({type:lastSignedIn ? 'account' : 'account'}));
   document.getElementById('new').addEventListener('click', () => post({type:'new'}));

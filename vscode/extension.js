@@ -7,6 +7,8 @@ const { constants } = require('node:fs');
 const core = require('./lib/client');
 const packs = require('./lib/packs');
 const { chatHtml } = require('./lib/chat-view');
+const { buildAgentMap } = require('./lib/agent-map');
+const { safeExternalUrl } = require('./lib/markdown');
 const { settingsHtml, GUIDE_ACTIONS } = require('./lib/settings-guide');
 const files = require('./lib/attachments');
 const { ACTIONS, slashAction, fileReference } = require('./lib/actions');
@@ -26,6 +28,71 @@ const CONTEXT_CONSENT = 'tvijo.contextConsent';
 
 function activate(context) {
   let chatView = null;
+  const agentMaps = new Map();
+  function mapSession(auth) {
+    const key = auth.viewScope || currentViewScope(auth.scope);
+    if (!agentMaps.has(key)) {
+      if (agentMaps.size >= 8) agentMaps.delete(agentMaps.keys().next().value);
+      agentMaps.set(key, { title:'Conversation', tasks:[] });
+    }
+    return agentMaps.get(key);
+  }
+  function beginMap(auth, title) {
+    mapSession(auth);
+    const session = { title:title.slice(0, 100), status:'running', startedAt:Date.now(), tasks:[] };
+    agentMaps.set(auth.viewScope || currentViewScope(auth.scope), session);
+    return session;
+  }
+  async function postMap(auth) {
+    if (!chatView || !await isCurrentAuth(auth)) return;
+    await chatView.webview.postMessage({type:'agentMap', scopeKey:auth.viewScope || currentViewScope(auth.scope), model:buildAgentMap(mapSession(auth))});
+  }
+  async function mapTask(auth, id, data) {
+    if (!id || !await isCurrentAuth(auth)) return;
+    const session = mapSession(auth);
+    const previous = session.tasks.find(item => item.id === id);
+    const known = Object.fromEntries(Object.entries(data).filter(([,value]) => value !== undefined));
+    if (previous) Object.assign(previous, known);
+    else { session.tasks.push({...known, id}); if (session.tasks.length > 80) session.tasks.shift(); }
+    await postMap(auth);
+  }
+  async function mapAnswer(auth, answer) {
+    await mapTask(auth, answer.taskId, {...answer.execution, content:answer.content?.slice(0, 300), cost:answer.cost ?? undefined, receipt:answer.receipt ?? undefined, usage:answer.usage ?? undefined, status:'completed', endedAt:Date.now()});
+  }
+  async function finishMap(auth, status) {
+    if (!await isCurrentAuth(auth)) return;
+    const session = mapSession(auth); session.status = status; session.endedAt = Date.now();
+    for (const task of session.tasks) if (task.status === 'running') { task.status = status; task.endedAt = session.endedAt; }
+    await postMap(auth);
+  }
+  async function refreshMap(auth, history = false) {
+    const session = mapSession(auth);
+    if (session.polling) return;
+    session.polling = true;
+    try {
+      const api = core.createClient({base:auth.api_base});
+      const selected = shared.selection(auth.scope);
+      if (history && !session.tasks.length) {
+        const result = await api.request('/tasks' + (selected ? '?project_id=' + encodeURIComponent(selected.projectId) : ''), {token:auth.access_token});
+        if (!await isCurrentAuth(auth) || mapSession(auth) !== session) return;
+        if (session.tasks.length) { await postMap(auth); return; }
+        const ids = new Set(historyFor(auth.scope).flatMap(item => item.taskIds || [item.taskId || item.task_id]).filter(Boolean));
+        session.tasks = (result.tasks || []).filter(item => ids.has(item.id) || (selected?.threadId && item.thread_id === selected.threadId)).slice(0, 80);
+        const pending = local.pending(auth.scope);
+        if (pending?.taskId && (!selected || pending.threadId === selected.threadId) && !session.tasks.some(item => item.id === pending.taskId)) session.tasks.push({id:pending.taskId, title:pending.request?.title || pending.taskId, status:'running', startedAt:pending.createdAt});
+      }
+      for (const task of session.tasks.filter(item => ['running','active','pending','queued'].includes(item.status)).slice(0, 10)) {
+        try {
+          const snapshot = await api.request('/tasks/' + encodeURIComponent(task.id), {token:auth.access_token});
+          if (!await isCurrentAuth(auth) || mapSession(auth) !== session) return;
+          // A delayed poll must not overwrite a newer answer's execution receipt.
+          if (!['running','active','pending','queued'].includes(task.status)) continue;
+          Object.assign(task, snapshot.task || snapshot, {id:task.id});
+        } catch { /* Retain the last receipt; missing data remains unknown. */ }
+      }
+      await postMap(auth);
+    } finally { session.polling = false; }
+  }
   let pendingDraft = null;
   let busy = false;
   let attaching = false;
@@ -44,7 +111,7 @@ function activate(context) {
   let agentAbort = null;
   let agentRunning = false;
   const customCommands = new Map();
-  if (vscode.workspace.onDidChangeWorkspaceFolders) context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { workspaceEpoch++; codingReview = null; refreshStatus(); }));
+  if (vscode.workspace.onDidChangeWorkspaceFolders) context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { workspaceEpoch++; codingReview = null; agentMaps.clear(); refreshStatus(); }));
   const handlers = new Map();
   let customerBot = null;
   let accountSnapshot = null;
@@ -264,7 +331,11 @@ function activate(context) {
     const pending = scope ? local.pending(scope) : null;
     const legacy = scope ? local.legacyPending(scope) : null;
     const recovery = !!(pending || (legacy && (!legacy.apiBase || legacy.apiBase === client().base)));
-    const messages = history.map((item) => ({ role: item.role, content: item.display || item.content }));
+    const messages = history.map(item => {
+      const content = item.display || item.content;
+      const boundary = item.role === 'assistant' && typeof content === 'string' ? content.lastIndexOf('\n---\nTask ') : -1;
+      return boundary < 0 ? {role:item.role, content} : {role:item.role, content:content.slice(0,boundary), footer:content.slice(boundary + 5)};
+    });
     let options = null;
     let pack = null;
     if (signedIn) {
@@ -275,7 +346,7 @@ function activate(context) {
       updatePackStatus(selection, auth);
       try { options = chatOptions(auth, selection.pack); } catch { options = null; }
     } else updatePackStatus(null, null);
-    await chatView.webview.postMessage({ type: 'state', scopeKey: scope ? currentViewScope(scope) : null, messages, signedIn, pack, sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length, account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
+    await chatView.webview.postMessage({ type: 'state', scopeKey: scope ? currentViewScope(scope) : null, messages, signedIn, pack, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length, account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'coding') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
       status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
@@ -289,6 +360,20 @@ function activate(context) {
   }
 
   async function postAgentEvent(auth, event) {
+    const session = agentMaps.get(auth?.viewScope);
+    if (session && ['action','result'].includes(event.type) && await isCurrentAuth(auth) && mapSession(auth) === session) {
+      const tasks = session.tasks;
+      const task = [...tasks].reverse().find(item => item.title === 'Agent step ' + event.step);
+      if (task) {
+        task.local_steps ||= [];
+        const id = 'tool-' + event.step;
+        let tool = task.local_steps.find(item => item.id === id);
+        if (!tool) { tool = {id, task_id:task.id, title:event.action?.tool || 'Tool', startedAt:Date.now()}; task.local_steps.push(tool); }
+        Object.assign(tool, {status:event.type === 'action' ? 'running' : event.result?.ok === false ? 'failed' : 'completed', last_message:JSON.stringify(event.result || event.action).slice(0,300)});
+        if (event.type === 'result') tool.endedAt = Date.now();
+        await postMap(auth);
+      }
+    }
     if (!chatView) return;
     await chatView.webview.postMessage({ type: 'agent', scopeKey: auth?.viewScope || null, event });
   }
@@ -343,6 +428,7 @@ function activate(context) {
     const startedAt = Date.now();
     const abort = new AbortController();
     agentAbort = abort; agentRunning = true; busy = true; lastError = null; lastAgentOutcome = null;
+    beginMap(auth, goal.trim());
     await postChatState();
     try {
       const { pack } = await currentPack(auth);
@@ -431,12 +517,13 @@ function activate(context) {
             token: auth.access_token, messages: packs.packMessages(bounded, pack), maxUsd: Math.min(1, Math.floor(remaining * 1e9) / 1e9), idempotencyKey,
             title: 'VS Code agent step ' + step + ': ' + goal.trim().slice(0, 50),
             maxTokens: 2048, model: agentModel, mode: 'single', method: config.get('reasoningMethod', 'evidence-first'), signal,
-            onGrant: async grant => { await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
+            onGrant: async grant => { await mapTask(auth, grant.id, {...grant, title:'Agent step ' + step, model:grant.model || agentModel, status:'running', startedAt:Date.now()}); await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
           }).catch(async error => {
             const pending = local.pending(auth.scope, idempotencyKey);
             if (error.definitiveGrantRefusal && !pending?.taskId) await local.savePending(auth.scope, undefined, idempotencyKey);
             throw error;
           });
+          await mapAnswer(auth, answer);
           try { if (!core.pendingBlocks(await api.taskState(auth.access_token, answer.taskId))) await local.savePending(auth.scope, undefined, idempotencyKey); } catch { /* Keep the journal until settlement is known. */ }
           await guard();
           const cost = Number(answer?.cost?.spent_usd ?? answer?.cost?.budget?.spent_usd ?? answer?.cost?.spent);
@@ -448,14 +535,16 @@ function activate(context) {
         },
         onEvent: event => postAgentEvent(auth, event)
       });
+      await finishMap(auth, 'completed');
       const history = local.history(agentScope);
-      await local.saveHistory(agentScope, [...history, { role: 'user', content: goal.trim(), display: goal.trim() }, { role: 'assistant', content: result.text, display: result.text }].slice(-40));
+      await local.saveHistory(agentScope, [...history, { role: 'user', content: goal.trim(), display: goal.trim() }, { role: 'assistant', content: result.text, display: result.text, taskIds:mapSession(auth).tasks.map(task => task.id) }].slice(-40));
       await metrics.record({ event: 'agent', outcome: result.reason === 'step_limit' ? 'partial' : 'completed', mode: planMode ? 'plan' : 'agent', model: agentModel, steps: result.steps, cost_usd: result.spent, duration_ms: Date.now() - startedAt });
       lastAgentOutcome = { scope: currentViewScope(auth.scope), text: result.partial
         ? L('Step limit reached (' + result.steps + '). Partial result: review the log and narrow the next task.', 'Лимит шагов достигнут (' + result.steps + '). Частичный результат: проверьте журнал и уточните следующую задачу.')
         : L('Agent finished in ' + result.steps + ' steps.', 'Агент завершил за ' + result.steps + ' шагов.') };
       await postChatState(lastAgentOutcome.text);
     } catch (error) {
+      await finishMap(auth, abort.signal.aborted ? 'cancelled' : 'failed');
       if (abort.signal.aborted) {
         lastError = null;
         await postChatState(L('Agent stopped.', 'Агент остановлен.'));
@@ -1157,6 +1246,7 @@ function activate(context) {
     const previous = historyFor(auth.scope);
     if (previous.length) await local.archiveHistory(auth.scope, randomUUID(), previous);
     await local.saveHistory(auth.scope, []);
+    agentMaps.delete(currentViewScope(auth.scope));
     attachments = [];
     await postChatState();
     vscode.window.showInformationMessage('Tvijo: new conversation started.');
@@ -1250,6 +1340,7 @@ function activate(context) {
     if (!question?.trim()) return;
     const startedAt = Date.now();
     busy = true;
+    let mapAuth = null;
     try {
     lastError = null; lastAgentOutcome = null;
     await postChatState();
@@ -1259,6 +1350,7 @@ function activate(context) {
     let selectionState = shared.selection(auth.scope);
     if (selectionState && !selectionState.threadId) { await createSharedThread(auth); selectionState = shared.selection(auth.scope); }
     auth.viewScope = currentViewScope(auth.scope);
+    mapAuth = auth; beginMap(auth, question.trim());
     const editor = vscode.window.activeTextEditor;
     const config = vscode.workspace.getConfiguration('tvijo');
     let selection = null;
@@ -1337,13 +1429,14 @@ function activate(context) {
           token: auth.access_token, messages, idempotencyKey, signal: abort.signal,
           model: grantRequest.model, mode: grantRequest.mode, method: grantRequest.method,
           title: `VS Code: ${question.trim().slice(0, 80)}`,
-          onGrant: async (grant) => { taskId = grant.id; await postActivity('model', L('Model is working…', 'Модель работает…')); await local.savePending(auth.scope, { idempotencyKey, request: grantRequest, apiBase: auth.api_base, tenantId: auth.tenant_id, projectId: selectionState?.projectId, threadId: selectionState?.threadId, taskId: grant.id, createdAt: new Date().toISOString() }); }
+          onGrant: async (grant) => { taskId = grant.id; await mapTask(auth, grant.id, {...grant, title:question.trim().slice(0,100), model:grant.model || grantRequest.model, status:'running', startedAt:Date.now()}); await postActivity('model', L('Model is working…', 'Модель работает…')); await local.savePending(auth.scope, { idempotencyKey, request: grantRequest, apiBase: auth.api_base, tenantId: auth.tenant_id, projectId: selectionState?.projectId, threadId: selectionState?.threadId, taskId: grant.id, createdAt: new Date().toISOString() }); }
         });
       }); } catch (error) {
         const pending = local.pending(auth.scope, idempotencyKey);
         if (error.definitiveGrantRefusal && pending?.idempotencyKey === idempotencyKey && !pending.taskId) await local.savePending(auth.scope, undefined, idempotencyKey);
         throw error;
       }
+      await mapAnswer(auth, answer); await finishMap(auth, 'completed');
       await metrics.record({ event: 'ask', outcome: 'completed', mode: 'chat', model: config.get('model', 'coding'), method: config.get('reasoningMethod', 'evidence-first'), context: !!lastContextSummary, attachments: sentAttachments.length, task_id: answer.taskId, cost_usd: Number(answer.cost?.spent_usd || 0), duration_ms: Date.now() - startedAt });
       await postActivity('settle', L('Checking the task receipt…', 'Проверяю квитанцию задачи…'));
       let reconciled = false;
@@ -1351,7 +1444,7 @@ function activate(context) {
       if (reconciled) await local.savePending(auth.scope, undefined, idempotencyKey);
       const formatted = core.formatAnswer({ question: question.trim(), answer });
       const userDisplay = question.trim() + (sentAttachments.length ? '\n\nAttached: ' + sentAttachments.map((item) => `${item.name}${item.kind === 'image' ? ' (image text)' : ''}`).join(', ') : '');
-      const stored = [...history, { role: 'user', content, display: userDisplay }, { role: 'assistant', content: answer.content, display: formatted }].slice(-40);
+      const stored = [...history, { role: 'user', content, display: userDisplay }, { role: 'assistant', content: answer.content, display: formatted, taskId:answer.taskId }].slice(-40);
       if (selectionState) {
         const thread = await workspaceClient(api, auth.access_token).thread(selectionState.projectId, selectionState.threadId);
         shared.remember(auth.scope, selectionState, thread.messages || []);
@@ -1364,6 +1457,7 @@ function activate(context) {
         await showPrivateDocument('markdown', formatted, auth, { viewColumn: vscode.ViewColumn.Beside });
       }
     } catch (error) {
+      if (mapAuth) await finishMap(mapAuth, activeAbort?.signal.aborted ? 'cancelled' : 'failed');
       await metrics.record({ event: 'ask', outcome: 'error', mode: 'chat', model: vscode.workspace.getConfiguration('tvijo').get('model', 'coding'), error_code: error?.code || 'unknown', duration_ms: Date.now() - startedAt });
       throw error;
     } finally {
@@ -1382,6 +1476,7 @@ function activate(context) {
   async function previewCoding(review) {
     await review.guard();
     coding.validateArtifact(review.artifact, review.snapshot);
+    await mapTask(review.auth, review.artifact.task_id, {...review.artifact, status:review.artifact.financial_status});
     const summary = coding.evidenceText(review.artifact);
     await showPrivateDocument('markdown', summary, review.auth);
     await review.guard();
@@ -1473,20 +1568,24 @@ function activate(context) {
     const metadata = { idempotencyKey, apiBase:auth.api_base, tenantId:auth.tenant_id, projectId:selected.projectId, threadId:selected.threadId, kind:'coding', workflow:workflowChoice.workflow, createdAt:new Date().toISOString() };
     await codingChecked(guard, local.savePending(auth.scope, metadata));
     busy = true;
+    beginMap(auth, prompt.trim());
     try {
       const artifact = await vscode.window.withProgress({location:vscode.ProgressLocation.Notification,title:'Tvijo coding: proposal and isolated tests',cancellable:true}, async (_progress, token) => {
         const abort = new AbortController(); activeAbort = abort;
         token.onCancellationRequested(() => { abort.abort(); const pending = local.pending(auth.scope,idempotencyKey); if (pending?.taskId) api.cancel(auth.access_token,pending.taskId).catch(() => {}); });
         return coding.codingClient(api,auth.access_token).run({snapshot,...workflowChoice,payer,projectId:selected.projectId,threadId:selected.threadId,prompt:prompt.trim(),maxMicroTvijo:sharedTaskMicroCap(auth),idempotencyKey,guard:async()=>{await guard();if(byokSelection.get(auth,selected.projectId)!==payer)throw new core.ServiceError('payer_changed','The selected payer changed before dispatch.');},signal:abort.signal,
-          journal: value => local.savePending(auth.scope,{...metadata,...value}),
+          journal: async value => { await local.savePending(auth.scope,{...metadata,...value}); if (value.taskId) await mapTask(auth,value.taskId,{title:workflowChoice.workflow, status:'running', startedAt:Date.now()}); },
           onQuote: async quote => { await confirmByok(auth,selected.projectId,payer,quote); void vscode.window.showInformationMessage('Tvijo ' + workflowChoice.workflow + ' ceiling (' + coding.workflowLimits(workflowChoice.workflow).max_calls + ' calls maximum, sequential): ' + core.formatTvijo(quote.ceiling_micro_tvijo) + ' Tvijo Tokens; tariff ' + quote.tariff_version + (quote.workflow_plan ? '; quoted proposal limits: ' + quote.workflow_plan.nodes.filter(node => node.role === 'proposer').map(node => node.output_bytes_max + ' bytes').join(', ') : '') + '.'); } });
       });
       await guard();
       const state = await codingChecked(guard, api.taskState(auth.access_token,artifact.task_id));
       if (!core.pendingBlocks(state)) await codingChecked(guard, local.savePending(auth.scope,undefined,idempotencyKey));
+      await mapTask(auth, artifact.task_id, {...artifact, status:artifact.financial_status, endedAt:Date.now()});
+      await finishMap(auth, 'completed');
       busy = false;
       await previewCoding({auth,snapshot,artifact,guard});
     } catch (error) {
+      await finishMap(auth, activeAbort?.signal.aborted ? 'cancelled' : 'failed');
       const pending = local.pending(auth.scope,idempotencyKey);
       if (error.definitiveGrantRefusal && !pending?.taskId) await local.savePending(auth.scope,undefined,idempotencyKey);
       throw error;
@@ -1549,11 +1648,23 @@ function activate(context) {
       view.webview.html = chatHtml(view.webview).replaceAll('Chat stays in this workspace and is separate from Copilot. Submitted tasks also appear in server history.', 'Use Commands to choose a shared project and server thread. Shared messages are available in your browser.');
       const listener = view.webview.onDidReceiveMessage(async (message) => {
         try {
-          if (['ask', 'attach', 'removeAttachment', 'previewAttachment', 'copy', 'openAnswer', 'new', 'cancel', 'workspace', 'selection', 'path', 'clearAttachments', 'tasks', 'usage', 'workflow', 'setOption', 'quickEdit', 'choosePack'].includes(message?.type) && message.scopeKey !== undefined) {
+          if (['ask', 'attach', 'removeAttachment', 'previewAttachment', 'copy', 'openAnswer', 'new', 'cancel', 'workspace', 'selection', 'path', 'clearAttachments', 'tasks', 'usage', 'workflow', 'setOption', 'quickEdit', 'choosePack', 'copyCode', 'openExternal', 'agentMap'].includes(message?.type) && message.scopeKey !== undefined) {
             const auth = await requireAuth();
             if (message.scopeKey !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account changed. This action was not sent.');
           }
-          if (message?.type === 'openSharedThread') {
+          if (['agentMap','openExternal','copyCode'].includes(message?.type)) {
+            const auth = await requireAuth();
+            if (message.scopeKey !== currentViewScope(auth.scope)) return;
+          }
+          if (message?.type === 'agentMap') {
+            const auth = await requireAuth(); auth.viewScope = currentViewScope(auth.scope);
+            await refreshMap(auth, message.refresh === true);
+          } else if (message?.type === 'openExternal') {
+            const url = safeExternalUrl(message.url);
+            if (url) await vscode.env.openExternal(vscode.Uri.parse(url));
+          } else if (message?.type === 'copyCode') {
+            if (typeof message.text === 'string' && message.text.length <= 120000) await vscode.env.clipboard.writeText(message.text);
+          } else if (message?.type === 'openSharedThread') {
             const auth = await requireAuth();
             if (message.scopeKey !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The shared thread changed.');
             const url = sharedThreadUrl(shared.selection(auth.scope));

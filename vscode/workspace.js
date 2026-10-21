@@ -85,7 +85,7 @@ function workspaceClient(api, token) {
       const response = await request(`/tasks/${segment(grant.id)}/chat`, { method: 'POST', signal, timeoutMs: 210000, body: { messages, max_tokens: 2048 } });
       const content = response?.choices?.[0]?.message?.content;
       if (typeof content !== 'string') throw new core.ServiceError('no_output', 'The service returned no assistant text.');
-      return { taskId: grant.id, content, usage: response.usage ?? null, receipt: response.receipt ?? null, byok: byok.publicReceipt(response.byok), cost: response.task ?? null, evidence: Array.isArray(response.evidence) ? response.evidence : [] };
+      return { taskId: grant.id, content, execution: { model:response.model_alias ?? response.model ?? response.task?.model_alias ?? response.task?.model, route:response.route ?? response.task?.route, calls:response.calls ?? response.task?.calls, agent_tree:response.agent_tree ?? response.task?.agent_tree }, usage: response.usage ?? null, receipt: response.receipt ?? null, byok: byok.publicReceipt(response.byok), cost: response.task ?? null, evidence: Array.isArray(response.evidence) ? response.evidence : [] };
     },
     projects: () => request('/projects'),
     threads: projectId => request(threadPath(projectId)),
@@ -106,7 +106,7 @@ function workspaceClient(api, token) {
       const response = await request(`/tasks/${segment(grant.id)}/chat`, { method: 'POST', signal, timeoutMs: 210000, body: { messages, max_tokens: 2048 } });
       const content = response?.choices?.[0]?.message?.content;
       if (typeof content !== 'string') throw new core.ServiceError('no_output', 'The service returned no assistant text.');
-      return { taskId: grant.id, content, usage: response.usage || null, cost: response.task || null, evidence: Array.isArray(response.evidence) ? response.evidence : [] };
+      return { taskId: grant.id, content, execution: { model:response.model_alias ?? response.model ?? response.task?.model_alias ?? response.task?.model, route:response.route ?? response.task?.route, calls:response.calls ?? response.task?.calls, agent_tree:response.agent_tree ?? response.task?.agent_tree }, usage: response.usage || null, cost: response.task || null, evidence: Array.isArray(response.evidence) ? response.evidence : [] };
     }
   };
 }

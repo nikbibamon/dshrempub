@@ -51,3 +51,10 @@ Knowledge base upload is explicit: `dsh kb add FILE` accepts one UTF-8 regular f
 ## License
 
 The package metadata is `UNLICENSED`. A public licensing decision is pending. No license grant is made here. A possible future 1–2 year/$1M threshold and all other licensing terms remain undecided.
+
+## VS Code extension 0.6.1
+
+Assistant replies now render safe Markdown with code-copy controls and highlighted
+links. The EN/RU Agent map shows the current request and actual task/agent/workflow
+execution receipts in a live, keyboard-accessible horizontal tree. Missing metrics stay
+**—**. See [the extension README](vscode/README.md) for controls and data limits.
