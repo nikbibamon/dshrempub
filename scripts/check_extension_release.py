@@ -6,14 +6,85 @@ Use --asset-dir to verify a prepared download directory before publication.
 """
 import argparse
 import hashlib
+from io import BytesIO
 import json
 from pathlib import Path
 import re
+import stat
 import xml.etree.ElementTree as ET
 import zipfile
 
 CATALOG = Path(__file__).resolve().parents[1] / 'releases/tvijo-extension.json'
 PUBLIC_FIELDS = {'schema', 'as_of', 'product', 'latest_version', 'channel', 'publication', 'package', 'links', 'features', 'releases', 'limits', 'verification'}
+VSIX_NAMESPACE = 'http://schemas.microsoft.com/developer/vsx-schema/2011'
+
+
+def check_archive(archive, version, editor_requirement):
+    """Bind installer metadata and runtime to the exact bytes whose digest was checked."""
+    with zipfile.ZipFile(BytesIO(archive)) as z:
+        entries = {}
+        for info in z.infolist():
+            name = info.orig_filename
+            parts = name.rstrip('/').split('/')
+            if (name != info.filename or not name or name.startswith('/') or '\\' in name
+                    or name != '/'.join(parts) + ('/' if info.is_dir() else '')
+                    or any(part in ('', '.', '..') or ':' in part or part.endswith(('.', ' '))
+                           or re.fullmatch(r'(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?', part, re.I)
+                           for part in parts)
+                    or any(ord(char) < 32 or ord(char) == 127 for char in name)):
+                raise ValueError('Unsafe VSIX archive path')
+            canonical = '/'.join(parts).casefold()
+            if canonical in entries:
+                raise ValueError('Duplicate or ambiguous VSIX archive path')
+            mode = stat.S_IFMT(info.external_attr >> 16)
+            if mode not in (0, stat.S_IFREG, stat.S_IFDIR) or (mode == stat.S_IFDIR and not info.is_dir()):
+                raise ValueError('VSIX archive contains a non-regular entry')
+            if info.flag_bits & 1:
+                raise ValueError('Encrypted VSIX entry')
+            entries[canonical] = info
+        for name in entries:
+            parts = name.split('/')
+            if any('/'.join(parts[:index]) in entries and not entries['/'.join(parts[:index])].is_dir()
+                   for index in range(1, len(parts))):
+                raise ValueError('VSIX file conflicts with a directory')
+
+        def read_file(name, maximum):
+            info = entries.get(name.casefold())
+            if info is None or info.filename != name or info.is_dir() or not 0 < info.file_size <= maximum:
+                raise ValueError('Missing, empty or oversized VSIX file: ' + name)
+            return z.read(info)
+
+        meta = json.loads(read_file('extension/package.json', 1024 * 1024))
+        if not isinstance(meta, dict) or meta.get('name') != 'tvijo-dshrem' or meta.get('publisher') != 'tvijo':
+            raise ValueError('Unexpected VSIX extension identity')
+        if (meta.get('version') != version or not isinstance(meta.get('engines'), dict)
+                or meta['engines'].get('vscode') != editor_requirement):
+            raise ValueError('VSIX version/editor requirement mismatch')
+        if meta.get('main') != './extension.js':
+            raise ValueError('Unexpected VSIX runtime entrypoint')
+        read_file('extension/extension.js', 16 * 1024 * 1024)
+
+        manifest = ET.fromstring(read_file('extension.vsixmanifest', 1024 * 1024))
+        ns = {'v': VSIX_NAMESPACE}
+        if manifest.tag != '{' + VSIX_NAMESPACE + '}PackageManifest':
+            raise ValueError('Unexpected VSIX manifest schema')
+        metadata = manifest.findall('v:Metadata', ns)
+        if len(metadata) != 1:
+            raise ValueError('Missing or duplicate VSIX metadata')
+        identities = metadata[0].findall('v:Identity', ns)
+        if (len(identities) != 1 or identities[0].get('Id') != meta['name']
+                or identities[0].get('Publisher') != meta['publisher']
+                or identities[0].get('Version') != version):
+            raise ValueError('VSIX manifest identity/version mismatch')
+        flags = metadata[0].findall('v:GalleryFlags', ns)
+        if len(flags) != 1 or flags[0].text != 'Public':
+            raise ValueError('VSIX is not Public')
+        engines = metadata[0].findall("v:Properties/v:Property[@Id='Microsoft.VisualStudio.Code.Engine']", ns)
+        if len(engines) != 1 or engines[0].get('Value') != editor_requirement:
+            raise ValueError('VSIX manifest editor requirement mismatch')
+        assets = manifest.findall("v:Assets/v:Asset[@Type='Microsoft.VisualStudio.Code.Manifest']", ns)
+        if len(assets) != 1 or assets[0].get('Path') != 'extension/package.json':
+            raise ValueError('VSIX manifest package asset mismatch')
 
 
 def check(catalog, vsix, copies=(), asset_dir=None):
@@ -43,14 +114,7 @@ def check(catalog, vsix, copies=(), asset_dir=None):
     archive = Path(vsix).read_bytes()
     if len(archive) != expected['bytes'] or hashlib.sha256(archive).hexdigest() != expected['sha256']:
         raise ValueError('VSIX digest or size mismatch')
-    with zipfile.ZipFile(vsix) as z:
-        meta = json.loads(z.read('extension/package.json'))
-        manifest = ET.fromstring(z.read('extension.vsixmanifest'))
-        flags = manifest.find('.//{*}GalleryFlags')
-        if meta['version'] != version or meta['engines']['vscode'] != expected['editor_requirement']:
-            raise ValueError('VSIX version/editor requirement mismatch')
-        if flags is None or flags.text != 'Public':
-            raise ValueError('VSIX is not Public')
+    check_archive(archive, version, expected['editor_requirement'])
     for copy in copies:
         if Path(copy).read_bytes() != raw:
             raise ValueError('Catalog drift: ' + str(copy))
