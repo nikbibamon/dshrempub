@@ -1783,3 +1783,21 @@ test('explicit hard-denied commands are refused before confirmation or a model t
     assert.match(app.errors.at(-1),/Command refused/);
   }finally{app.close();}
 });
+
+test('an approved explicit local command updates observed session and map without any model task',async()=>{
+  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'host-command-map-'));
+  const app=host({root});
+  try{
+    app.warning('Run command');
+    await app.receive({type:'ask',question:'!printf bounded'});
+    const state=app.posts.filter(x=>x.type==='state').at(-1);
+    assert.equal(app.requests.filter(x=>x.url.endsWith('/tasks')).length,0);
+    assert.equal(state.runSession.agents,0);
+    assert.equal(state.runSession.status,'completed');
+    assert.ok(Number.isFinite(state.runSession.elapsedMs));
+    assert.equal(state.agentMap.commands.length,1);
+    assert.equal(state.agentMap.commands[0].status,'done');
+    assert.ok(!JSON.stringify(state.agentMap.commands).includes('bounded'));
+    assert.equal(app.errors.length,0);
+  }finally{app.close();}
+});

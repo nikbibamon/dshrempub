@@ -334,6 +334,7 @@ async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
     ({ start, end } = fallback.match); matchKind = 'eol';
   }
   const content = previous.slice(0, start) + action.new + previous.slice(end);
+  if(content===previous) return {ok:true,unchanged:true,path:action.path};
   if (Buffer.byteLength(content, 'utf8') > MAX_READ * 2) throw new Error('Refusing to write more than 128 KiB in one step.');
   const approved = await confirm({ path: action.path, absolute: target, previous, content, operation: 'replace_in_file', matchKind });
   if (!approved) return { ok: false, refused: true, path: action.path };

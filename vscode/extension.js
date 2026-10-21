@@ -76,6 +76,25 @@ function activate(context) {
     if (!view || !await isCurrentAuth(auth) || view!==chatView) return;
     await view.webview.postMessage({type:'agentMap', scopeKey:auth.viewScope || currentViewScope(auth.scope), model:buildAgentMap(mapSession(auth))});
   }
+  function observeCommand(auth, sessionSnapshot) {
+    return event => {
+          if (agentMaps.get(auth.viewScope || currentViewScope(auth.scope)) !== sessionSnapshot) return;
+          const session = sessionSnapshot;
+          session.commands ||= [];
+          let row = session.commands.find(item => item.id === event.id);
+          if (!row) { row = {id:event.id, title:'run_command', status:'running'}; session.commands.push(row); }
+          if (event.startedAt !== undefined && event.startedAt !== null) row.startedAt = event.startedAt;
+          if (event.endedAt !== undefined && event.endedAt !== null) row.endedAt = event.endedAt;
+          if (event.type === 'start') row.status = 'running';
+          else if (event.type === 'timeout') row.stopRequested = true;
+          else if (event.type === 'cancel_requested') row.stopRequested = true;
+          else if (event.type === 'error' || event.type === 'exit') row.status = event.status;
+          if (session.commands.length > 40) session.commands.splice(0, session.commands.length - 40);
+          void postMap(auth).catch(()=>{});
+          void postRunSession(auth).catch(()=>{});
+    };
+  }
+
   async function mapTask(auth, id, data) {
     if (!id || !await isCurrentAuth(auth)) return;
     const session = mapSession(auth);
@@ -542,21 +561,7 @@ function activate(context) {
       const commandSession = mapSession(auth);
       const tools = createTools({
         root: folder.uri.fsPath, guard, signal:abort.signal,
-        onCommandLifecycle: event => {
-          if (agentMaps.get(auth.viewScope || currentViewScope(auth.scope)) !== commandSession) return;
-          const session = commandSession;
-          session.commands ||= [];
-          let row = session.commands.find(item => item.id === event.id);
-          if (!row) { row = {id:event.id, title:'run_command', status:'running'}; session.commands.push(row); }
-          if (event.startedAt !== undefined && event.startedAt !== null) row.startedAt = event.startedAt;
-          if (event.endedAt !== undefined && event.endedAt !== null) row.endedAt = event.endedAt;
-          if (event.type === 'start') row.status = 'running';
-          else if (event.type === 'timeout') row.stopRequested = true;
-          else if (event.type === 'cancel_requested') row.stopRequested = true;
-          else if (event.type === 'error' || event.type === 'exit') row.status = event.status;
-          if (session.commands.length > 40) session.commands.splice(0, session.commands.length - 40);
-          void postMap(auth);
-        },
+        onCommandLifecycle: observeCommand(auth,commandSession),
         confirmRun: async info => {
           if (planMode) return false;
           await guard();
@@ -709,22 +714,27 @@ function activate(context) {
     if (answer !== run) return;
     await commandGuard();
     ensureIdle();
-    const tools = createTools({ root: folder.uri.fsPath, guard:commandGuard, confirmRun: async () => true, confirmWrite: async () => false });
+    const commandSession=beginMap(auth,'Local command');
+    commandSession.localOnlyCommand=true;
+    const tools = createTools({ root: folder.uri.fsPath, guard:commandGuard, onCommandLifecycle:observeCommand(auth,commandSession), confirmRun: async () => true, confirmWrite: async () => false });
     const startedAt = Date.now();
     const terminalCaptureEpoch = terminalCaptures.epoch;
     busy = true;
     try {
+      await postChatState();
       await postActivity('model', L('Running your command…', 'Выполняю вашу команду…'));
       const result = await tools.execute({ tool: 'run_command', command, commandDecision });
       if (terminalCaptureEpoch === terminalCaptures.epoch && (vscode.workspace.workspaceFolders || []).some(item => path.resolve(item.uri.fsPath) === path.resolve(folder.uri.fsPath))) {
         terminalCaptures.recordDirect({ root: folder.uri.fsPath, cwd: folder.uri.fsPath, output: [result.stdout, result.stderr].filter(Boolean).join('\n[stderr]\n'), source: 'Extension shell output' });
       }
+      await finishMap(auth,result.ok?'completed':result.cancelled?'cancelled':'failed');
       await metrics.record({ event: 'shell', outcome: result.ok ? 'completed' : 'error', exit_code: result.exitCode, duration_ms: Date.now() - startedAt });
       const text = '# Shell command\n\n$ ' + command + '\n\n' + (result.stdout || '') + (result.stderr ? '\n[stderr]\n' + result.stderr : '') + '\n[exit ' + result.exitCode + (result.timedOut ? ', timeout' : '') + ']';
-      const auth = await requireAuth();
+      await commandGuard();
       await showPrivateDocument('markdown', text, auth);
       await postChatState(L('Command finished with exit ' + result.exitCode + '.', 'Команда завершилась с кодом ' + result.exitCode + '.'));
     } catch (error) {
+      await finishMap(auth,'failed');
       await metrics.record({ event: 'shell', outcome: 'error', error_code: error?.code || 'unknown', duration_ms: Date.now() - startedAt });
       throw error;
     } finally { busy = false; await postActivity('done', ''); await postChatState(); }

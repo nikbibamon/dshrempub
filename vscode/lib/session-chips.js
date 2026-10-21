@@ -50,7 +50,7 @@ function viewState(session, now = Date.now()) {
     startedAt: timestamp(session.startedAt ?? session.started_at),
     endedAt: timestamp(session.endedAt ?? session.ended_at),
     elapsedMs: elapsedMs(session, now),
-    agents: status === 'unknown' ? null : status === 'running' ? (countRunningAgents(session) || null) : countRunningAgents(session)
+    agents: status === 'unknown' ? null : status === 'running' ? (countRunningAgents(session) || (session.localOnlyCommand===true?0:null)) : countRunningAgents(session)
   };
 }
 

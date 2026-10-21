@@ -494,3 +494,5 @@ sandbox. Cancellation reports observed child exits and leaves descendant status 
 Replacement first requires a unique exact match. A unique whole-line LF/CRLF match
 can be proposed for a multiline block, with explicit diff confirmation in every mode.
 Indentation differences produce a reread hint; the extension does not normalize them.
+
+Edit proposals also bind the original disk identity and editor version. Binary, invalid UTF-8, oversized and hard-linked write targets are refused. A concurrent change invalidates the proposal. Explicit local commands appear in the same observed session and command map without creating a model task.

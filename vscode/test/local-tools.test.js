@@ -129,3 +129,10 @@ test('a checkpoint-time user rewrite remains intact and prevents direct write',a
   await assert.rejects(tools.execute({tool:'replace_in_file',path:'source.js',old:'const old = 1;',new:'const next = 2;'}),/File changed/);
   assert.equal(await fs.readFile(target,'utf8'),'USER_CHANGED_DURING_CHECKPOINT');
 });
+
+test('an exact no-op replacement creates no approval, checkpoint or Apply',async()=>{
+  const root=await workspace();let effects=0;
+  const tools=createTools({root,confirmWrite:async()=>{effects++;return true;},beforeWrite:()=>{effects++;},applyWrite:async()=>{effects++;}});
+  const result=await tools.execute({tool:'replace_in_file',path:'source.js',old:'const old = 1;',new:'const old = 1;'});
+  assert.equal(result.unchanged,true);assert.equal(effects,0);
+});
