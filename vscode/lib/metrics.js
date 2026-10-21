@@ -8,11 +8,12 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 
-function createMetrics({ context, version = 'unknown' } = {}) {
+function createMetrics({ context, version = 'unknown', telemetryEnabled = () => true } = {}) {
   const dir = context?.globalStorageUri?.fsPath || path.join(os.tmpdir(), 'tvijo-metrics');
   const file = path.join(dir, 'events.jsonl');
   async function record(event) {
     try {
+      if (typeof telemetryEnabled !== 'function' || telemetryEnabled() !== true) return;
       await fs.mkdir(dir, { recursive: true, mode: 0o700 });
       const row = { ts: new Date().toISOString(), version, ...event };
       await fs.appendFile(file, JSON.stringify(row) + '\n', { mode: 0o600 });

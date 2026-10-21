@@ -12,6 +12,8 @@ test('guide covers every public configuration key in both languages', () => {
 test('only fixed commands and HTTPS destinations are exposed', () => {
   for (const value of Object.values(GUIDE_ACTIONS)) assert.match(value, /^(tvijo\.[A-Za-z]+|workbench\.action\.openSettings|https:\/\/(tvijo\.com|dsh\.tvijo\.com|platform\.tvijo\.com))$/);
   assert.equal(GUIDE_ACTIONS.terminal, 'tvijo.terminal');
+  assert.equal(GUIDE_ACTIONS.dataPrivacy, 'tvijo.dataPrivacy');
+  assert.equal(GUIDE_ACTIONS.resources, 'tvijo.resources');
 });
 test('nonce CSP, injection resistance and endpoint credential redaction', () => {
   const attack = '</script><img src=x onerror=alert(1)>';

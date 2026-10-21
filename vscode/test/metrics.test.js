@@ -57,3 +57,20 @@ test('metrics never throw when the storage path is unusable', async () => {
     await fs.rm(base, { recursive: true, force: true });
   }
 });
+
+test('telemetry capability is checked at each record and disabled mode preserves existing log', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tvijo-metrics-telemetry-'));
+  try {
+    const file = path.join(dir, 'events.jsonl');
+    await fs.writeFile(file, '{"event":"prior"}\n');
+    let enabled = false;
+    const metrics = createMetrics({context:{globalStorageUri:{fsPath:dir}}, telemetryEnabled:()=>enabled});
+    await metrics.record({event:'disabled'});
+    assert.equal(await fs.readFile(file,'utf8'), '{"event":"prior"}\n');
+    enabled = true;
+    await metrics.record({event:'enabled'});
+    enabled = false;
+    await metrics.record({event:'disabled-again'});
+    assert.deepEqual((await fs.readFile(file,'utf8')).trim().split('\n').map(line=>JSON.parse(line).event), ['prior','enabled']);
+  } finally { await fs.rm(dir,{recursive:true,force:true}); }
+});

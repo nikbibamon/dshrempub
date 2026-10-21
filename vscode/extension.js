@@ -31,6 +31,8 @@ const conversationExport = require('./lib/export-conversation');
 const { createTools, safePath, autoCommand, analyzeCommand, assertWriteSnapshot } = require('./lib/local-tools');
 const diagnosticsFeedback = require('./lib/diagnostics-feedback');
 const { createMetrics } = require('./lib/metrics');
+const dataPrivacy = require('./lib/data-privacy');
+const resourceHub = require('./lib/resource-hub');
 const { createCheckpoints } = require('./lib/checkpoints');
 const { createRunJournal } = require('./lib/run-journal');
 const { createFullAccess } = require('./lib/full-access');
@@ -208,7 +210,7 @@ function activate(context) {
   let authCommits = Promise.resolve();
   const local = tenantState(context);
   const shared = workspaceState(context);
-  const metrics = createMetrics({ context, version: context.extension?.packageJSON?.version || 'unknown' });
+  const metrics = createMetrics({ context, version: context.extension?.packageJSON?.version || 'unknown', telemetryEnabled: () => vscode.env.isTelemetryEnabled === true });
   // The webview owns the language toggle; the host needs the same choice for
   // command-palette prompts and notifications, which cannot read webview state.
   const UI_LOCALE = 'tvijo.uiLocale';
@@ -1438,7 +1440,7 @@ function activate(context) {
     await openChat();
   });
   command('tvijo.commands', async () => {
-    const picked = await vscode.window.showQuickPick([...ACTIONS.map(([id, label, description]) => ({ id, label, description })), ...sharedCommands.map(([id, label]) => ({ id, label }))], { title: 'Tvijo commands', placeHolder: 'Attach context, manage tasks, or check your account' });
+    const picked = await vscode.window.showQuickPick([...ACTIONS.map(([id, label, description]) => ({ id, label, description })), ...sharedCommands.map(([id, label]) => ({ id, label })), {id:'tvijo.dataPrivacy', label:L('Data & privacy','Данные и конфиденциальность')}, {id:'tvijo.resources', label:L('Resources','Материалы')}], { title: L('Tvijo commands','Команды Tvijo'), placeHolder: L('Attach context, manage tasks, or check your account','Добавьте контекст, управляйте задачами или проверьте аккаунт') });
     if (picked) await handlers.get(picked.id)();
   });
   command('tvijo.terminal', async () => {
@@ -1450,6 +1452,32 @@ function activate(context) {
   command('tvijo.learn', () => vscode.env.openExternal(vscode.Uri.parse(new URL('/learn', client().base).toString())));
   command('tvijo.feedback', () => vscode.env.openExternal(vscode.Uri.parse(new URL('/feedback', client().base).toString())));
   command('tvijo.nativeSettings', () => vscode.commands.executeCommand('workbench.action.openSettings', '@ext:tvijo.tvijo-dshrem'));
+  async function showDataPrivacy() {
+    const epoch = authAttempt;
+    let auth = null;
+    let parsed = { valid: false, preferences: dataPrivacy.unknownPreferences() };
+    try {
+      auth = await requireAuth();
+      const api = core.createClient({ base: auth.api_base });
+      const response = await api.request('/data-preferences', { token: auth.access_token });
+      if (epoch !== authAttempt || !await isCurrentAuth(auth)) return;
+      parsed = dataPrivacy.parsePreferences(response);
+    } catch { if (epoch !== authAttempt) return; }
+    if (auth && (epoch !== authAttempt || !await isCurrentAuth(auth))) return;
+    const unknown = L('Unknown (not available from the service)','Неизвестно (данные сервиса недоступны)');
+    const names = {history:L('Private history','Личная история'),security:L('Security','Безопасность'),improve:L('Product improvement','Улучшение продукта'),training:L('Training datasets','Наборы данных для обучения'),stats:L('Anonymous statistics','Анонимная статистика'),showcase:L('Publishing an example','Публикация примера'),email:L('Product news by email','Новости продукта по почте')};
+    const states = {on:L('On — reported by the service','Включено — данные сервиса'),off:L('Off — reported by the service','Выключено — данные сервиса'),ask:L('No choice recorded','Выбор не записан'),always:L('Always on','Всегда включено'),never:L('Never allowed','Никогда не разрешено'),unknown};
+    const items = parsed.preferences.map(item => ({label:names[item.purpose],description:states[item.state] || unknown}));
+    items.push({label:L('Refresh','Обновить'), action:'refresh'}, {label:L('Open authenticated Tvijo site settings','Открыть настройки Tvijo в браузере'), action:'settings'});
+    const picked = await vscode.window.showQuickPick(items, { title:L('Data & privacy','Данные и конфиденциальность'), placeHolder:L('Read-only server preferences. This extension does not change consent.','Настройки сервера только для чтения. Расширение не меняет согласия.') });
+    if (picked?.action === 'refresh') return showDataPrivacy();
+    if (picked?.action === 'settings') await vscode.env.openExternal(vscode.Uri.parse('https://dsh.tvijo.com/account#data-privacy'));
+  }
+  command('tvijo.dataPrivacy', showDataPrivacy);
+  command('tvijo.resources', async () => {
+    const picked = await vscode.window.showQuickPick(resourceHub.choices(uiLocale()), { title:L('Resources','Материалы'), placeHolder:L('Open a verified Tvijo resource','Откройте проверенный ресурс Tvijo') });
+    if (picked && resourceHub.RESOURCES.some(item => item.url === picked.url)) await vscode.env.openExternal(vscode.Uri.parse(picked.url));
+  });
   const settingProperties = () => require('./package.json').contributes.configuration.properties;
   function settingsValues() {
     const config = vscode.workspace.getConfiguration('tvijo');
@@ -1671,7 +1699,7 @@ function activate(context) {
     const knownSecrets = [auth.access_token, auth.refresh_token, storageUri?.fsPath, storageUri?.toString?.()].filter(Boolean);
     await showPrivateDocument('markdown', conversationExport.exportConversation(history, { knownSecrets }), auth);
   });
-  command('tvijo.help', () => showDocument('markdown', '# Tvijo DSHREM\n\nClick **Attach** to choose a file on your computer, paste a PNG/JPG screenshot, or drop a file into the chat. Use **Workspace** or `/attach path/to/file` for files on the SSH host. Select code and click **Selection** to attach only those lines.\n\nImages use local text extraction (OCR); the model does not see visual layout. Files are context for the next question. Knowledge-base uploads are a separate, confirmed action. Nothing is sent to the model until **Ask**. Each question has a $1 cap. Chat answers questions and suggests changes. Use Create isolated coding task to explicitly upload selected source and immutable tests, run a bounded offline test profile, review concrete diffs and explicitly apply unchanged targets.\n\n' + ACTIONS.map(([, label, detail]) => `- **${label}**${detail ? ` — ${detail}` : ''}`).join('\n')));
+  command('tvijo.help', () => showDocument('markdown', '# Tvijo DSHREM\n\nClick **Attach** to choose a file on your computer, paste a PNG/JPG screenshot, or drop a file into the chat. Use **Workspace** or `/attach path/to/file` for files on the SSH host. Select code and click **Selection** to attach only those lines.\n\nImages use local text extraction (OCR); the model does not see visual layout. Files are context for the next question. Knowledge-base uploads are a separate, confirmed action. Nothing is sent to the model until **Ask**. Each question has a $1 cap. Chat answers questions and suggests changes. Use Create isolated coding task to explicitly upload selected source and immutable tests, run a bounded offline test profile, review concrete diffs and explicitly apply unchanged targets.\n\n' + L('Use **Tvijo: Data & privacy** for read-only server preferences and **Tvijo: Resources** for verified public links. Both are in Settings and how it works and All commands.','Используйте **Tvijo: Data & privacy** для просмотра настроек сервера и **Tvijo: Resources** для проверенных ссылок. Обе команды доступны в настройках и списке всех команд.') + '\n\n' + ACTIONS.map(([, label, detail]) => `- **${label}**${detail ? ` — ${detail}` : ''}`).join('\n')));
 
   command('tvijo.signIn', async () => {
     ensureIdle();

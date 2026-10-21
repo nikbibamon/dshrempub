@@ -67,7 +67,7 @@ function host(options = {}) {
   };
   const vscode = {
     Uri, Position, Range, WorkspaceEdit, FileType: { File: 1, Directory: 2, SymbolicLink: 64 }, StatusBarAlignment: { Right: 1 }, ProgressLocation: { Notification: 1 }, ViewColumn: { Beside: 2 }, ConfigurationTarget: { Global: 1 },
-    env: { clipboard: { writeText: async value => { copied.push(value); } }, openExternal: async uri => { external.push(uri.fsPath); } },
+    env: { get isTelemetryEnabled() { return options.telemetryEnabled !== false; }, clipboard: { writeText: async value => { copied.push(value); } }, openExternal: async uri => { external.push(uri.fsPath); } },
     commands: { registerCommand: (id, fn) => { commands.set(id, fn); return disposable; }, executeCommand: async (id, ...args) => { executed.push({ id, args }); return commands.get(id)?.(...args); } },
     workspace: {
       isTrusted:options.workspaceTrusted !== false,
@@ -136,6 +136,7 @@ function host(options = {}) {
     requests.push({ url, body, method: options.method, token: options.headers.authorization });
     if (blockedRequest && url.endsWith(blockedRequest.path) && options.method === blockedRequest.method) await new Promise(resolve => { releaseRequest = resolve; });
     if (url.endsWith('/account')) return Response.json({ tenant_id: options.headers.authorization === 'Bearer account-b' ? 'tenant-b' : 'tenant-a', ...optionsHost.account });
+    if (url.endsWith('/data-preferences')) return optionsHost.preferences === 'error' ? Response.json({error:'unavailable'},{status:503}) : Response.json(optionsHost.preferences ?? {preferences:[{purpose:'analytics',state:'denied'}]});
     if (url.endsWith('/packs')) return optionsHost.packs ? Response.json(optionsHost.packs) : Response.json({}, { status: 404 });
     if (url.endsWith('/projects') && projectFixtures) return Response.json({ projects: projectFixtures });
     if (url.endsWith('/byok') && projectFixtures) return Response.json({ connections: [] });
@@ -1573,6 +1574,54 @@ test('settings guide works signed out, targets native settings, rejects arbitrar
     assert.equal(app.panels.length, 1);
     assert.equal(panel.revealed, 1);
     assert.equal(app.requests.filter(r => r.url.endsWith('/tasks') && r.method === 'POST').length, 0);
+  } finally { app.close(); }
+});
+
+test('Data & privacy uses authenticated server data and keeps malformed or unavailable preferences unknown', async () => {
+  const app = host({ preferences:{preferences:[{purpose:'analytics',state:'on'}]} });
+  let shown;
+  app.vscode.window.showQuickPick = async items => { shown = items; return undefined; };
+  try {
+    await app.commands.get('tvijo.dataPrivacy')();
+    assert.ok(app.requests.some(request=>request.url.endsWith('/data-preferences') && request.method === 'GET' && request.token === 'Bearer test-token'));
+    assert.equal(shown[0].label,'Private history');
+    assert.equal(shown.filter(item=>item.description?.startsWith('Unknown')).length,7);
+    assert.match(shown[0].description,/Unknown/);
+    assert.equal(shown.some(item=>/Granted|Denied/.test(item.description || '')),false);
+    assert.ok(shown.some(item=>item.action === 'refresh'));
+  } finally { app.close(); }
+
+  const unavailable = host({preferences:'error'});
+  unavailable.vscode.window.showQuickPick = async items => { shown = items; return undefined; };
+  try {
+    await unavailable.commands.get('tvijo.dataPrivacy')();
+    assert.match(shown[0].description,/Unknown/);
+  } finally { unavailable.close(); }
+});
+
+test('Data & privacy discards a response after the account/service epoch changes', async () => {
+  const app = host({preferences:{preferences:[{purpose:'analytics',state:'granted'}]}});
+  let picked = false;
+  app.vscode.window.showQuickPick = async () => { picked = true; return undefined; };
+  try {
+    app.blockResponse('/data-preferences');
+    const pending = app.commands.get('tvijo.dataPrivacy')();
+    while (!app.responseWaiting()) await new Promise(resolve=>setImmediate(resolve));
+    app.configurationChanged();
+    app.releaseResponse();
+    await pending;
+    assert.equal(picked,false);
+  } finally { app.close(); }
+});
+
+test('Resources opens only a fixed verified item selected from the bilingual hub', async () => {
+  const app = host();
+  let choices;
+  app.vscode.window.showQuickPick = async items => { choices = items; return items[0]; };
+  try {
+    await app.commands.get('tvijo.resources')();
+    assert.equal(choices.length,6);
+    assert.deepEqual(app.external,['https://tvijo.com/en/learn']);
   } finally { app.close(); }
 });
 

@@ -1,3 +1,10 @@
+## 0.10.0 — 2026-10-21
+
+- Add read-only Data & privacy view using authenticated server preferences; unavailable, malformed and changed-account responses stay unknown.
+- Add bilingual Resources picker with the verified public Learn, Knowledge base, Policies and Changelog links.
+- Respect VS Code telemetry capability for every local metadata log write; existing log contents remain intact.
+- Candidate prepared for independent backend, test and native-host acceptance. No package build or release verification is claimed.
+
 ## 0.9.3 — 2026-10-21
 
 - Add per-folder Full access through native consent bound to host-local identity; refuse it in untrusted workspaces.

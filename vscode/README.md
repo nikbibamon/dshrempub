@@ -421,7 +421,20 @@ and pre-fills a read-only plan request you can edit before sending.
 
 **Local usage metrics** (`/metrics`) shows a summary of the extension's own metadata
 log: event counts, outcomes, spend and duration. It stores no prompts, file contents,
-command output or credentials.
+command output or credentials. Writes follow VS Code's live telemetry setting; when
+telemetry is disabled, new rows are not recorded and existing rows are preserved.
+
+## Data, privacy and resources
+
+Use **Tvijo: Data & privacy** for a read-only view of preferences returned by the
+authenticated service. It reads `GET /data-preferences`; until that endpoint and its
+response contract are available, states remain **Unknown**. This extension does not
+grant or change consent. Use **Tvijo: Resources** for the verified Learn, Knowledge
+base, Axes skills, privacy, terms and changelog pages. These commands are also in
+**Settings and how it works** and **All commands**.
+
+Version 0.10.0 is a prepared candidate. Backend integration, full test-suite and native
+host acceptance are pending; this note does not claim a published or installable release.
 
 ## Commands
 
