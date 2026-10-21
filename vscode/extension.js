@@ -26,6 +26,7 @@ const captures = require('./lib/context-captures');
 const terminalContext = require('./lib/terminal-context');
 const conversationExport = require('./lib/export-conversation');
 const { createTools, safePath, autoCommand } = require('./lib/local-tools');
+const diagnosticsFeedback = require('./lib/diagnostics-feedback');
 const { createMetrics } = require('./lib/metrics');
 const { createCheckpoints } = require('./lib/checkpoints');
 const AUTH_KEY = 'tvijo.auth';
@@ -479,6 +480,7 @@ function activate(context) {
     const startedAt = Date.now();
     const terminalCaptureEpoch = terminalCaptures.epoch;
     const abort = new AbortController();
+    let diagnosticsTracker = null;
     agentAbort = abort; agentRunning = true; busy = true; lastError = null; lastAgentOutcome = null;
     beginMap(auth, goal.trim());
     await postChatState();
@@ -514,6 +516,8 @@ function activate(context) {
       let firstAgentAnswer = null;
       const exchanges = [];
       const writeVersions = new Map();
+      diagnosticsTracker = diagnosticsFeedback.createTracker(vscode);
+      const applyStartedAt = new Map();
       const rewindRunId = randomUUID();
       let rewindStep = 1;
       const checkpointWrite = file => captureRewind({root:folder.uri.fsPath, runId:rewindRunId, step:rewindStep, model:agentModel, title:goal, files:[file]});
@@ -549,6 +553,7 @@ function activate(context) {
             await guard();
             safePath(folder.uri.fsPath, absolute);
             if (!await vscode.workspace.applyEdit(edit)) throw new core.ServiceError('file_changed', 'The new file could not be created.');
+            applyStartedAt.set(path.resolve(absolute), diagnosticsTracker.markApply());
             return;
           }
           const document = await vscode.workspace.openTextDocument(uri);
@@ -557,8 +562,31 @@ function activate(context) {
           await guard();
           if (document.version !== version || document.getText() !== previous) throw new core.ServiceError('file_changed', 'Editor content changed.');
           await quickEdit.apply(vscode, document, content, () => checkpointWrite({absolute,content,document}));
+          applyStartedAt.set(path.resolve(absolute), diagnosticsTracker.markApply());
         }
       });
+      const executeTool = tools.execute.bind(tools);
+      tools.execute = async (action, toolContext = {}) => {
+        const result = await executeTool(action, toolContext);
+        if (!result?.ok || result.unchanged || !['write_file', 'replace_in_file'].includes(action?.tool) || typeof result.path !== 'string') return result;
+        await guard();
+        if (abort.signal.aborted) return result;
+        let absolute;
+        try { absolute = safePath(folder.uri.fsPath, result.path); } catch { return result; }
+        const uri = vscode.Uri.file(absolute);
+        if (uri.scheme !== 'file' || path.resolve(uri.fsPath) !== path.resolve(absolute) ||
+            !vscode.workspace.getWorkspaceFolder(uri)) return result;
+        const document = await vscode.workspace.openTextDocument(uri);
+        await guard();
+        if (abort.signal.aborted || document?.uri?.scheme !== 'file' || path.resolve(document.uri.fsPath) !== path.resolve(absolute) ||
+            !Number.isInteger(document.version) || document.version < 0) return result;
+        const feedback = await diagnosticsFeedback.collect({
+          vscode, root: folder.uri.fsPath, tracker: diagnosticsTracker, signal: abort.signal, guard,
+          changedFiles: [{ uri: document.uri, version: document.version, startedAt: applyStartedAt.get(path.resolve(absolute)) }]
+        });
+        if (feedback) result.diagnostics_feedback = feedback;
+        return result;
+      };
       const result = await runAgent({
         goal: modelGoal, tree, history: agentHistory, planMode, maxSteps, budgetUsd, signal: abort.signal, tools,
         ask: async ({ messages, step, signal, finalization = false }) => {
@@ -620,6 +648,7 @@ function activate(context) {
       lastError = { text: localizedMessage(error), action: typeof error?.code === 'string' && error.code.startsWith('context_budget') ? 'context' : null };
       throw error;
     } finally {
+      diagnosticsTracker?.dispose();
       agentAbort = null; agentRunning = false; busy = false;
       await postActivity('done', '');
       await postChatState();

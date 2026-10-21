@@ -28,6 +28,7 @@ function host(options = {}) {
   let grantError = options.grantError;
   let warningAnswer = 'Forget request';
   let chatContent = options.chatContent || 'Test answer';
+  let chatIndex = 0;
   const chatCost = options.chatCost;
   let activeEditor = null;
   let appliedEdit = null;
@@ -37,6 +38,7 @@ function host(options = {}) {
   let receive;
   let disposal;
   let workspaceChangeListener = null;
+  const diagnosticsChangeListeners = [];
   const configurationChangeListeners = [];
   let release;
   let blockGrant = false;
@@ -44,6 +46,7 @@ function host(options = {}) {
   let blockedRequest;
   let releaseRequest;
   const disposable = { dispose() {} };
+  function fireDiagnostics(uris) { for (const listener of diagnosticsChangeListeners) listener({ uris }); }
   const root = options.root || path.resolve(__dirname, '../..');
   const storage = require('node:fs').mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'rewind-host-'));
   const settings = new Map();
@@ -77,11 +80,11 @@ function host(options = {}) {
         stat: async () => ({ type: 1 }),
         readFile: async () => Buffer.from('Demo project README\n')
       },
-      applyEdit: async edit => { if (options.applyEdit) return options.applyEdit(edit); return true; },
+      applyEdit: async edit => { if (options.applyEdit) return options.applyEdit(edit, { fireDiagnostics }); return true; },
       get textDocuments() { return activeEditor ? [activeEditor.document] : []; },
-      openTextDocument: async (doc) => { docs.push(doc); return doc?.fsPath && activeEditor?.document?.uri?.fsPath === doc.fsPath ? activeEditor.document : doc; }
+      openTextDocument: async (doc) => { docs.push(doc); if (options.documentFor) return options.documentFor(doc); return doc?.fsPath && activeEditor?.document?.uri?.fsPath === doc.fsPath ? activeEditor.document : doc; }
     },
-    languages: { getDiagnostics: () => options.diagnostics || [] },
+    languages: { onDidChangeDiagnostics: fn => { diagnosticsChangeListeners.push(fn); return disposable; }, getDiagnostics: uri => options.diagnosticsFor ? options.diagnosticsFor(uri) : (options.diagnostics || []) },
     DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2 },
     window: {
       createWebviewPanel: () => {
@@ -139,7 +142,7 @@ function host(options = {}) {
     if (url.includes('/tasks/by-idempotency/')) return Response.json(lookup);
     if (url.endsWith('/tasks/task-test') || url.endsWith('/tasks/task-test/cancel')) return Response.json(taskSnapshot);
     if (url.endsWith('/workspace/usage')) return Response.json({ account: { tenant_id: 'test-tenant', budget: { spent_usd: '0', held_usd: '0', remaining_usd: '.05' } }, scope: { loaded_tasks: 0, total_account_tasks: 0 }, tasks: [] });
-    if (url.endsWith('/chat')) return Response.json({ choices: [{ message: { content: chatContent } }], ...optionsHost.chatExecution, task: chatCost === null ? null : { spent_usd: '0.001', held_usd: '0' }, evidence: [] });
+    if (url.endsWith('/chat')) { const content = optionsHost.chatSequence?.[chatIndex++] || chatContent; return Response.json({ choices: [{ message: { content } }], ...optionsHost.chatExecution, task: chatCost === null ? null : { spent_usd: '0.001', held_usd: '0' }, evidence: [] }); }
     throw new Error('unexpected test URL');
   };
   extension.activate(context);
@@ -151,6 +154,7 @@ function host(options = {}) {
   return { vscode, context, posts, docs, shown, warnings, requests, commands, executed, errors, panels, external, copied, base, local: tenantState(context), scope: tenant => scopeKey(base, tenant), receive: (message) => receive(message), workspaceChanged: () => { if (!workspaceChangeListener) return false; workspaceChangeListener({}); return true; }, configurationChanged: () => { for (const listener of configurationChangeListeners) listener({ affectsConfiguration: key => key === 'tvijo.apiBase' }); return configurationChangeListeners.length; },
     storage, botAdapter: () => botAdapter, settings, status, Uri, Position, Range,
     grantError: value => { grantError = value; }, lookup: value => { lookup = value; }, warning: value => { warningAnswer = value; }, chat: value => { chatContent = value; }, editor: value => { activeEditor = value; }, applied: () => appliedEdit, taskSnapshot: value => { taskSnapshot = value; },
+    fireDiagnostics,
     blockResponse: (requestPath, method = 'GET') => { blockedRequest = { path: requestPath, method }; }, responseWaiting: () => !!releaseRequest,
     releaseResponse: () => { blockedRequest = null; releaseRequest?.(); },
     block: () => { blockGrant = true; }, unblock: () => release?.(),
@@ -340,6 +344,95 @@ test('Agent steps and finalization combine pack with tool rules in one system me
     app.chat('{"tool":"finish","answer":"SYNTHETIC_FINISH"}');
     await app.receive({ type: 'ask', question: 'SYNTHETIC_GOAL_B', agent: true });
     assert.equal(app.requests.filter(item => item.url.endsWith('/tasks')).at(-1).body.model, 'auto');
+    assert.equal(app.errors.length, 0);
+  } finally { app.close(); }
+});
+
+test('successful Agent apply sends bounded diagnostics for that changed file to the next outbound step', async () => {
+  const root = path.join(process.env.TVIJO_TEST_ARTIFACTS, 'agent-diagnostics-workspace');
+  const file = path.join(root, 'src', 'changed.js');
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, 'const oldValue = 1;\n');
+  let content = 'const oldValue = 1;\n';
+  let version = 4;
+  let app;
+  const appOptions = {
+    root,
+    chatSequence: [
+      '{"tool":"replace_in_file","path":"src/changed.js","old":"oldValue","new":"newValue"}',
+      '{"tool":"finish","answer":"Reviewed diagnostics"}'
+    ],
+    diagnosticsFor: uri => uri.fsPath === file ? [
+      { severity: 0, message: 'SYNTHETIC_CHANGED_ERROR', source: 'test-provider', range: { start: { line: 2, character: 3 } } },
+      { severity: 2, message: 'SYNTHETIC_INFORMATION_OMIT' }
+    ] : [{ severity: 0, message: 'SYNTHETIC_UNRELATED_ERROR' }],
+    applyEdit: async (edit, { fireDiagnostics }) => {
+      const operation = edit.operations[0];
+      content = operation.text;
+      version++;
+      await fs.writeFile(file, content);
+      setTimeout(() => fireDiagnostics([operation.uri]), 5);
+      return true;
+    }
+  };
+  app = host(appOptions);
+  try {
+    app.settings.set('workspaceContext', 'off');
+    app.settings.set('agentMaxSteps', 2);
+    app.warning('Write file');
+    app.editor({ document: { uri: app.Uri.file(file), get version() { return version; }, languageId: 'javascript', fileName: file, getText: () => content, positionAt: offset => new app.Position(0, offset) } });
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_DIAGNOSTICS_GOAL', agent: true });
+    const chats = app.requests.filter(item => item.url.endsWith('/chat'));
+    assert.equal(chats.length, 2);
+    const nextTurn = chats[1].body.messages.map(message => message.content).join('\n');
+    assert.match(nextTurn, /SYNTHETIC_CHANGED_ERROR/);
+    assert.doesNotMatch(nextTurn, /SYNTHETIC_UNRELATED_ERROR|SYNTHETIC_INFORMATION_OMIT/);
+    const toolResult=chats[1].body.messages.find(message=>message.content.startsWith('TOOL_RESULT '));
+    const feedback=JSON.parse(toolResult.content.slice('TOOL_RESULT '.length)).diagnostics_feedback;
+    const row=JSON.parse(feedback.split('\n')[2]);
+    assert.equal(row.documentVersion,5);
+    assert.match(row.freshness,/observed after edit; provider document version unknown/);
+    assert.ok(Buffer.byteLength(JSON.stringify({diagnostics_feedback:feedback}),'utf8')<=8192);
+    assert.equal(app.errors.length, 0);
+  } finally { app.close(); }
+});
+
+test('successful new Agent file apply also sends only that file diagnostics to the next outbound step', async () => {
+  const root = path.join(process.env.TVIJO_TEST_ARTIFACTS, 'agent-diagnostics-new-file-workspace-' + process.pid + '-' + Date.now());
+  const file = path.join(root, 'src', 'created.js');
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  let version = 0;
+  let app;
+  const docFor = uri => ({ uri, get version() { return version; }, languageId: 'javascript', fileName: file, getText: () => 'const fresh = true;\n' });
+  app = host({
+    root,
+    chatSequence: ['{"tool":"write_file","path":"src/created.js","content":"const fresh = true;\\n"}', '{"tool":"finish","answer":"Created"}'],
+    documentFor: docFor,
+    diagnosticsFor: uri => uri.fsPath === file ? [{ severity: 1, message: 'SYNTHETIC_NEW_FILE_WARNING' }] : [{ severity: 0, message: 'SYNTHETIC_UNRELATED_ERROR' }],
+    applyEdit: async (edit, { fireDiagnostics }) => {
+      const inserted = edit.operations.find(operation => operation.kind === 'insert');
+      await fs.writeFile(file, inserted.text);
+      version++;
+      setTimeout(() => fireDiagnostics([edit.operations[0].uri]), 5);
+      return true;
+    }
+  });
+  try {
+    app.settings.set('workspaceContext', 'off');
+    app.settings.set('agentMaxSteps', 2);
+    app.warning('Write file');
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_NEW_FILE_DIAGNOSTICS_GOAL', agent: true });
+    const chats = app.requests.filter(item => item.url.endsWith('/chat'));
+    assert.equal(chats.length, 2);
+    const nextTurn = chats[1].body.messages.map(message => message.content).join('\n');
+    assert.match(nextTurn, /SYNTHETIC_NEW_FILE_WARNING/);
+    assert.doesNotMatch(nextTurn, /SYNTHETIC_UNRELATED_ERROR/);
+    const toolResult=chats[1].body.messages.find(message=>message.content.startsWith('TOOL_RESULT '));
+    const feedback=JSON.parse(toolResult.content.slice('TOOL_RESULT '.length)).diagnostics_feedback;
+    const row=JSON.parse(feedback.split('\n')[2]);
+    assert.equal(row.documentVersion,1);
+    assert.match(row.freshness,/observed after edit; provider document version unknown/);
+    assert.ok(Buffer.byteLength(JSON.stringify({diagnostics_feedback:feedback}),'utf8')<=8192);
     assert.equal(app.errors.length, 0);
   } finally { app.close(); }
 });

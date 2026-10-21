@@ -1,3 +1,12 @@
+## 0.7.3 — 2026-10-21
+
+- SPEC-215 slice 4: after each successful Agent write or replacement, attach Error/Warning
+  diagnostics for that changed file to the next agent step. Feedback records the actual
+  document version, freshness and truncation, with a 20-diagnostic per-file cap and an
+  8 KiB serialized limit. Empty snapshots do not claim tests or compilation passed.
+- Diagnostics are untrusted tool data; no buffer is saved and no new setting is added.
+- Version 0.7.3. No provider or server route changes.
+
 ## 0.7.2 — 2026-10-21
 
 - Add the shared `+` and slash action registry for workspace file attachment/mentions,

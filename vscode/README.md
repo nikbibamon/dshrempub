@@ -1,6 +1,6 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.7.2. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.7.3. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
@@ -14,11 +14,17 @@ sending; ambiguous names require a picker. File references are attached as clear
 labelled, untrusted context. Nothing is sent until you submit the message.
 
 Problems includes only current Error and Warning diagnostics with safe workspace
-paths. Terminal output is available only when this host observed shell integration
-output for the active workspace terminal. It keeps a bounded in-memory tail, strips
+paths. Terminal output uses observed shell integration output for the active workspace
+terminal, or the most recent extension command output in that workspace. It keeps a bounded in-memory tail, strips
 terminal control sequences, and is never persisted. Both captures are labelled
 untrusted and previewable/removable before sending. Agent and Plan runs include the
 explicit attachments selected when the run starts.
+
+After a successful Agent write or replacement, the next Agent step receives the changed
+file's current Error and Warning diagnostics, limited to 20 per file and 8 KiB serialized.
+Feedback includes the actual document version and whether a diagnostics update was observed
+after the edit. It is untrusted tool data; an empty snapshot does not mean compilation passed.
+Agent edits remain unsaved buffers.
 
 Markdown export includes conversation display text only and redacts known auth
 tokens and common credential patterns. Credential detection is best effort; review
