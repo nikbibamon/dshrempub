@@ -152,3 +152,30 @@ a synthetic loopback service, not live inference. Native host exited0; screensho
 and JSON receipt are retained privately. The corrected archive was separately
 installed on the operator VSCodeServer; listed version0.7.0 confirmed.331extension
 tests plus9root tests passed independently; EN/RU280/640px browser checks passed.
+
+## 0.7.1
+
+SPEC215slice2 adds an explicit Chat/Manual/Edit automatically/Plan/Auto picker,
+with EN/RU names, keyboard navigation and normal Shift+Tab focus. Two existing
+approval settings plus the existing Agent/Plan control implement the presets;
+ordinary-chat routing and QuickEdit stay unchanged. Custom approval combinations
+remain visible. No new settings.
+
+Permission changes are scoped and idle-only, verify fresh effective settings,
+restore only their unchanged writes on failure, preserve concurrent values and
+block submission while pending. Custom false/true never auto-applies files.
+Auto retains the exact command allowlist and asks before wholesale replacement.
+Plan rejects shell/write slash bypasses. A second idle check closes an auth-await
+race between Agent startup and a permission update.
+
+Independent validation:348extension tests and9root tests passed; EN/RU280/640px
+Playwright mode, keyboard, delayed-ack/draft, Custom and overflow checks passed
+without remote requests or console errors. Official nativeVSCode1.142.0 installed
+the VSIX in an isolated profile, exercised all four real mode choices and verified
+actual approval values plus unchanged council/QuickEdit settings, then performed
+Agent/edit/save/Rewind and original SHA256 recovery. The service was synthetic;
+no live-provider claim. OperatorVSCodeServer installation and version0.7.1 verified.
+
+VSIX SHA256:551182554a095f7ac03f188540bb3a7fd4e97bce32a82ca6e22b8655c027c48b.
+31entries match source/receipt, GalleryFlags Public, private absent, zero pack
+text/host-path/key-pattern hits. All baseline artifacts remain preserved.
