@@ -2,6 +2,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
+const path = require('node:path');
+const os = require('node:os');
 const { runAgent } = require('../lib/agent');
 const { createTools } = require('../lib/local-tools');
 
@@ -24,7 +26,7 @@ test('SPEC-053 six reads finalize once without tools, raw tool result or lost co
 });
 
 test('SPEC-053 400 KiB read returns first 64 KiB and a usable late line range', async () => {
-  const dir = await fs.mkdtemp('/mnt/HC_Volume_107088246/aios-artifacts/053-read-');
+  const dir = await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || os.tmpdir(), '053-read-'));
   await fs.writeFile(dir + '/large.txt', ('a'.repeat(99) + '\n').repeat(4096));
   const tools = createTools({ root: dir });
   const first = await tools.execute({ tool: 'read_file', path: 'large.txt' });

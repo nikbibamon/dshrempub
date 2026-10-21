@@ -302,7 +302,7 @@ private knowledge base, and every question runs as one task with a hard 1 USD ca
 ## Attach images and files
 
 Use **Attach** for files on your computer, or paste/drop a PNG/JPG screenshot into
-the chat. Use **Workspace** for files on the extension host (including SSH: biba2),
+the chat. Use **Workspace** for files on the extension host (including a remote SSH host),
 **Path** or `/attach path/to/file` for a workspace path, and **Selection** for selected
 code. Workspace files also have **Tvijo: Attach workspace file** in their context menu.
 Sending a standalone absolute/relative file path, `file://` link or Markdown file link
@@ -313,8 +313,8 @@ Ask sends them with your question; with no question text, Ask explains the attac
 
 Images use **local OCR text extraction**, not visual reasoning. The preview shows the
 original, but the model receives extracted text only. Colours, charts, object identity
-and visual layout are not analysed. Tesseract must be installed on the extension host;
-it is installed on SSH: biba2. `tvijo.ocrLanguages` defaults to `eng+rus`; use `eng`
+and visual layout are not analysed. Tesseract must be installed on the extension host.
+`tvijo.ocrLanguages` defaults to `eng+rus`; use `eng`
 on hosts with only English OCR data. OCR uses one thread with a 20-second bound.
 
 Attach up to four files, at most 2 MiB each and 4 MiB combined. Text files are limited

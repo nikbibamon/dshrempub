@@ -14,13 +14,13 @@ The build host currently has no stored publisher credential. Local installation 
 cd vscode
 npm test                                   # node --test
 npx @vscode/vsce package --no-dependencies --allow-missing-repository
-cp tvijo-dshrem-0.5.1.vsix /mnt/HC_Volume_107088246/aios-runtime/tvijo-dshrem/downloads/
+cp tvijo-dshrem-0.5.1.vsix '<downloads-dir>/'
 sha256sum tvijo-dshrem-0.5.1.vsix          # must match SHA256SUMS-0.5.1.json
 curl -sS https://dsh.tvijo.com/api/dshrem/v1/health
 curl -sS -o /dev/null -w '%{http_code}\n' https://dsh.tvijo.com/downloads/tvijo-dshrem-0.5.1.vsix
 ```
 
-Copying a VSIX into `downloads/` is not a deployment by itself: the gateway
-allowlist in `ai_os/dshrem_gateway/app.py` must list the exact filenames, and the
-service must be restarted before `/download` serves them.
+Copying a VSIX into `<downloads-dir>/` is not a deployment by itself. Configure
+the download service to serve the exact versioned filenames and apply that
+deployment separately.
 

@@ -54,7 +54,7 @@ function extractImageText(bytes, languages = 'eng+rus') {
       child.kill('SIGKILL');
       finish(new core.ServiceError('ocr_timeout', 'Image text extraction exceeded 20 seconds. Crop the screenshot and attach it again.'));
     }, 20_000);
-    child.on('error', () => finish(new core.ServiceError('ocr_unavailable', 'Image text extraction needs Tesseract on the extension host. On SSH: biba2 it is installed; other hosts may need Tesseract and the configured languages.')));
+    child.on('error', () => finish(new core.ServiceError('ocr_unavailable', 'Image text extraction needs Tesseract and the configured languages on the extension host.')));
     child.stdin.on('error', () => { /* Exit/error handlers report failed input without exposing it. */ });
     child.stdout.on('data', (chunk) => {
       size += chunk.length;

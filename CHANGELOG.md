@@ -4,6 +4,8 @@ Extension release notes. The detailed history is in [vscode/CHANGELOG.md](vscode
 
 ## 0.8.4 — 2026-10-21
 
+- Fix a remaining test fixture path for clean CI hosts and check tracked files for private host markers outside changelog history.
+- Use generic extension-host guidance for OCR and a configurable download-directory placeholder in release instructions.
 - Make root and extension `npm test` create isolated artifact and temporary directories automatically.
 - Run suites sequentially with a 60-second test timeout and a nine-minute overall deadline; retain fixtures for inspection.
 - Add dependency-free CI checks on Node 22 and 24 using synthetic replies and local fixtures, with read-only repository permission.
