@@ -1,6 +1,6 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.8.0. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.8.3. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
@@ -524,3 +524,20 @@ full project lint. Mac/Windows automatic checks await executable and process-tre
 
 Folder rule approvals now also bind to a host-local identity. Review earlier approved rules
 again after upgrading; global context consent continues to be separate.
+
+
+## Plan inspection (0.8.3)
+
+Plan can request `plan_inspect` with `pwd`, `buffer_status` or `buffer_diff_stat`.
+The selected workspace is shown as `.`. Status lists only safe open dirty-buffer
+paths and versions without reading their source. Diff stats compare those buffers
+with their disk files, return approximate changed-line spans, and omit raw source.
+These summaries are not Git status, staged changes or a minimal diff. Inspection
+is bounded to 20 buffers, 128 KiB per file, 1 MiB of input and 7.5 KiB of results;
+partial results include skipped reasons.
+
+Plan file search is literal, including regex punctuation. It reads disk, which
+may differ from unsaved buffers. Hidden, excluded, secret-like and symlink paths
+are skipped, with file, depth, input and output limits. Act search keeps its
+existing behavior. Plan does not start shell commands, Git or search processes;
+write and replace tools remain disabled. No new setting or model call is added.

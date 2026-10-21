@@ -146,3 +146,26 @@ test('private Tvijo configuration is unavailable through agent tools',async()=>{
   }
   assert.equal(await fs.readFile(path.join(root,'.tvijo','rules.md'),'utf8'),'PRIVATE_RULES_CANARY\n');
 });
+
+
+test('Plan inspection accepts only fixed operations and cannot authorize writes or commands', async () => {
+  const root = await workspace(); let effects = 0; const operations = [];
+  const tools = createTools({root, confirmRun:async()=>{effects++;return true;},confirmWrite:async()=>{effects++;return true;},planInspect:async operation=>{operations.push(operation);return {operation,scope:'open dirty buffers',files:[]};}});
+  for (const operation of ['pwd','buffer_status','buffer_diff_stat']) assert.equal((await tools.execute({tool:'plan_inspect',operation},{planMode:true})).ok,true);
+  for (const action of [{tool:'plan_inspect',operation:'git status'},{tool:'plan_inspect',operation:'pwd',command:'echo bad'}]) await assert.rejects(tools.execute(action,{planMode:true}),/Unknown Plan/);
+  for (const action of [{tool:'run_command',command:'echo forbidden'},{tool:'write_file',path:'source.js',content:'bad'},{tool:'replace_in_file',path:'source.js',old:'old',new:'bad'}]) assert.equal((await tools.execute(action,{planMode:true})).reason,'plan_mode');
+  assert.equal(effects,0); assert.deepEqual(operations,['pwd','buffer_status','buffer_diff_stat']);
+  assert.equal((await createTools({root}).execute({tool:'plan_inspect',operation:'pwd'},{planMode:true})).reason,'plan_inspection_unavailable');
+});
+
+test('Plan search treats regex syntax literally without invoking rg', async () => {
+  const root = await workspace(); const bin = path.join(root,'owned-bin'); await fs.mkdir(bin);
+  const marker=path.join(root,'rg-invoked'); await fs.writeFile(path.join(bin,'rg'),'#!/bin/sh\nprintf invoked > "'+marker+'"\n',{mode:0o700});
+  await fs.writeFile(path.join(root,'literal.txt'),'bracket [ stays literal\n');
+  const previous=process.env.PATH; process.env.PATH=bin;
+  try {
+    const result=await createTools({root}).execute({tool:'search',path:'literal.txt',query:'['},{planMode:true});
+    assert.equal(result.mode,'literal'); assert.match(result.matches[0].text,/bracket/);
+    await assert.rejects(fs.stat(marker),{code:'ENOENT'});
+  } finally {process.env.PATH=previous;}
+});

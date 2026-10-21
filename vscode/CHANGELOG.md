@@ -1,3 +1,10 @@
+## 0.8.3 — 2026-10-21
+
+- Add fixed Plan operations for the selected workspace and open dirty-buffer status or approximate changed-line spans.
+- Keep buffer status metadata-only; cap diff inspection and omit raw source from its results.
+- Use bounded built-in literal file search in Plan, with partial/truncation markers and no search subprocess.
+- Keep Plan writes and shell commands disabled. Buffer summaries describe unsaved editor state, not Git or staged changes; search reads disk.
+
 ## 0.8.2 — 2026-10-21
 
 - Add separately approved fixed Python AST / Node syntax checks for unsaved Tvijo edits on Linux extension hosts.

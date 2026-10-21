@@ -1863,3 +1863,27 @@ test('approved Python syntax checks reach the next Agent turn from the unsaved b
     assert.equal(app.requests.filter(x=>x.url.endsWith('/tasks')&&x.method==='POST').length,2);assert.equal(app.errors.length,0);
   }finally{app.close();}
 });
+
+
+test('Plan sends scoped dirty-buffer summaries and literal disk search while refusing every write and command',async()=>{
+  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'native-plan-host-'));
+  const file=path.join(root,'source.py'),before='value = 1\n',dirty='value = (\n'; await fs.writeFile(file,before);
+  const stat=await fs.stat(file,{bigint:true});let applies=0;
+  const actions=[{tool:'run_command',command:'echo forbidden'},{tool:'write_file',path:'source.py',content:'forbidden'},
+    {tool:'plan_inspect',operation:'buffer_status'},{tool:'plan_inspect',operation:'buffer_diff_stat'},
+    {tool:'search',path:'source.py',query:'value = '},{tool:'finish',answer:'Read-only inspection completed'}];
+  const app=host({root,chatSequence:actions.map(JSON.stringify),applyEdit:async()=>{applies++;return true;}});
+  try{
+    app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',8);
+    app.editor({document:{uri:app.Uri.file(file),version:11,isDirty:true,lineCount:2,getText:()=>dirty,offsetAt:()=>dirty.length}});
+    await app.receive({type:'ask',question:'Inspect changes without executing or writing',agent:true,plan:true});
+    const chats=app.requests.filter(x=>x.url.endsWith('/chat'));assert.equal(chats.length,6);
+    const results=chats.map(x=>x.body.messages.filter(m=>m.content?.startsWith('TOOL_RESULT ')).at(-1)).filter(Boolean).map(m=>JSON.parse(m.content.slice(12)));
+    assert.equal(results[0].reason,'plan_mode');assert.equal(results[1].reason,'plan_mode');
+    assert.deepEqual(results[2].files,[{path:'source.py',version:11,dirty:true}]);
+    assert.equal(results[3].files[0].approximate,true);assert.equal(results[3].files[0].addedLines,1);assert.equal(results[3].files[0].removedLines,1);
+    assert.equal(results[4].mode,'literal');assert.equal(results[4].matches[0].text,'value = 1');
+    assert.equal(applies,0);assert.equal(await fs.readFile(file,'utf8'),before);assert.equal((await fs.stat(file,{bigint:true})).mtimeNs,stat.mtimeNs);
+    assert.equal(app.errors.length,0);
+  }finally{app.close();}
+});

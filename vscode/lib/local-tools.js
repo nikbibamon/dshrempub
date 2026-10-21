@@ -10,6 +10,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { analyzeCommand, isCommandDecision, BLOCKED_COMMAND } = require('./command-policy');
+const planSearch = require('./plan-search');
 
 const MAX_READ = 64 * 1024;
 const MAX_OUTPUT = 8 * 1024;
@@ -356,7 +357,7 @@ async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
   return { ok: true, path: action.path, bytes: Buffer.byteLength(content, 'utf8') };
 }
 
-function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {} }) {
+function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {}, planInspect = null }) {
   return {
     root,
     async execute(action, context = {}) {
@@ -366,7 +367,14 @@ function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite =
       switch (action.tool) {
         case 'list_dir': return { ok: true, entries: await listDirectory(root, action.path) };
         case 'read_file': return { ok: true, ...(await readFile(root, action.path, action.start, action.end)) };
-        case 'search': return { ok: true, ...(await search(root, action.query, action.path, action.max)) };
+        case 'search': return { ok: true, ...(context.planMode
+          ? await planSearch.search({root,query:action.query,relative:action.path || '.',max:action.max,guard,signal:context.signal || signal,safePath,secretFile:SECRET_FILE,excludedDirs:EXCLUDED_DIRS})
+          : await search(root, action.query, action.path, action.max)) };
+        case 'plan_inspect': {
+          if(Object.keys(action).some(key=>!['tool','operation'].includes(key)) || !['pwd','buffer_status','buffer_diff_stat'].includes(action.operation))throw new Error('Unknown Plan inspection operation or parameters.');
+          if(typeof planInspect!=='function')return {ok:false,refused:true,reason:'plan_inspection_unavailable'};
+          const value=await planInspect(action.operation,{signal:context.signal || signal});await guard();return {ok:true,...value};
+        }
         case 'write_file': return await writeFile(root, action, confirmWrite, applyWrite, beforeWrite, 'write_file');
         case 'replace_in_file': return await replaceInFile(root, action, confirmWrite, applyWrite, beforeWrite);
         case 'run_command': await guard(); return await runCommand(root, action, confirmRun, { signal:context.signal || signal, onLifecycle:onCommandLifecycle, guard });

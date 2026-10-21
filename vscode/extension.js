@@ -21,6 +21,7 @@ const coding = require('./lib/coding');
 const customerConnection = require('./lib/byok');
 const {createRulesHost} = require('./lib/rules-host');
 const {createSyntaxHost} = require('./lib/syntax-host');
+const planInspection = require('./lib/plan-inspect');
 const quickEdit = require('./lib/quick-edit');
 const { runAgent } = require('./lib/agent');
 const modePresets = require('./lib/modes');
@@ -585,7 +586,8 @@ function activate(context) {
       const checkpointWrite = file => captureRewind({root:folder.uri.fsPath, runId:rewindRunId, step:rewindStep, model:agentModel, title:goal, files:[file]});
       const commandSession = mapSession(auth);
       const tools = createTools({
-        root: folder.uri.fsPath, guard, signal:abort.signal,
+        root: folder.uri.fsPath,
+        planInspect:(operation,{signal}) => planInspection.inspect({vscode,root:folder.uri.fsPath,operation,guard,signal}), guard, signal:abort.signal,
         onCommandLifecycle: observeCommand(auth,commandSession),
         confirmRun: async info => {
           if (planMode) return false;
@@ -2003,7 +2005,7 @@ function activate(context) {
   command('tvijo.agentPlan', async () => {
     const goal = await vscode.window.showInputBox({
       title: L('Agent plan (read-only)', 'План агента (только чтение)'),
-      prompt: L('What should the agent inspect? Writes and commands are disabled.', 'Что должен изучить агент? Запись и команды отключены.'),
+      prompt: L('Inspect files and open buffer summaries. Plan uses bounded literal search; writes and shell commands are disabled.', 'Изучить файлы и сводки открытых буферов. В Plan поиск буквальный и ограниченный; запись и команды shell отключены.'),
       ignoreFocusOut: true
     });
     if (goal?.trim()) await runAgentFlow(goal.trim(), { planMode: true });

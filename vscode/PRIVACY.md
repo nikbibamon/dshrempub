@@ -183,3 +183,14 @@ Rule approvals also use a small host-local identity marker outside the project, 
 Sync, to prevent identical file URIs on different extension hosts sharing an approval. The marker
 and interpreter approval data are not conversation context or exports. Old rule approvals are
 retained locally but do not authorize the new host-bound scope.
+
+
+## Plan buffer summaries (0.8.3)
+
+When the model requests a Plan inspection, the next normal Agent step may receive
+safe relative paths, document versions and approximate line counts for open dirty
+buffers in the selected workspace. The summary omits raw source. Plan search may
+send bounded matching snippets from disk as untrusted tool results; disk and
+unsaved buffers can differ. Plan does not launch a search subprocess or shell.
+The existing file reads, context consent, task reservations and provider custody
+continue to apply. No additional automatic model request is introduced.
