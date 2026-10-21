@@ -147,3 +147,12 @@ test('buffer status reads metadata only, including for large dirty buffers', asy
   assert.deepEqual(result.files, [{ path: 'new.js', version: 1, dirty: true }]);
   assert.equal(dirty.reads(), 0);
 });
+
+
+test('diff inspection passes a real host Position to offsetAt', async t => {
+  const root = await workspace(t); await put(root,'typed.js','old\n');
+  const dirty = document(root,'typed.js','new\n'); class Position { constructor(line,character){this.line=line;this.character=character;} }
+  dirty.doc.offsetAt = position => { assert.ok(position instanceof Position); return 4; };
+  const result=await inspect({vscode:{...vscode([dirty.doc]),Position},root,operation:'buffer_diff_stat'});
+  assert.equal(result.files[0].addedLines,1); assert.equal(result.files[0].removedLines,1);
+});

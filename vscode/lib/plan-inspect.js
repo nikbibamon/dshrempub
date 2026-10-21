@@ -121,10 +121,11 @@ async function readDisk(root, filename, maxBytes, signal, guard, onRead) {
   }
 }
 
-function bufferText(document) {
+function bufferText(document, Position) {
   if (typeof document.getText !== 'function') return null;
   if (typeof document.lineCount === 'number' && typeof document.offsetAt === 'function') {
-    const end = document.offsetAt({ line: document.lineCount, character: 0 });
+    const position = typeof Position === 'function' ? new Position(document.lineCount, 0) : { line: document.lineCount, character: 0 };
+    const end = document.offsetAt(position);
     if (!Number.isFinite(end) || end > MAX_FILE_BYTES) return null;
   }
   const text = document.getText();
@@ -177,7 +178,7 @@ async function inspect({ vscode, root, operation, guard = async () => {}, signal
       }
       result.files.push(row); continue;
     }
-    const text = bufferText(document);
+    const text = bufferText(document, vscode && vscode.Position);
     if (text === null) {
       result.partial = true;
       result.skipped.push({ reason: 'oversized_or_unavailable_buffer' });
