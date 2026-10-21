@@ -75,3 +75,52 @@ Branches appear only when existing responses expose execution records, sometimes
 completion. Local trees are session-memory data; reopened history requires matching task
 or thread IDs. Installed-host/provider smoke was not run. No provider calls, push or
 publish. Baseline untracked work and prior VSIX artifacts are preserved.
+
+## 0.7.0
+
+Implemented SPEC-215 slice 1 on `claude/tvijo-ext-0.6`; implementation commit `04f4dd9`.
+
+Rewind saves previous disk bytes/absence and editor input before Agent write/replace,
+new-file Apply, Quick Edit and reviewed proposal Apply. Local global storage is capped
+at seven days and 50 MiB, pruning oldest first; unavailable storage blocks edits.
+Workspace, symlink, hard-link and checksum guards protect capture/restore. Recovery
+bytes, hashes and storage paths stay out of requests, exports and usage logs.
+
+EN/RU header **… → Rewind…**, **Tvijo: Rewind** and `/rewind` show recent runs,
+then step time/files/requested model. Restore undoes the chosen step and later edits
+in that run. Changed disk/editor content offers Overwrite or Skip; new-file deletion
+always asks. Concurrent edits stop recovery; partial progress is reported. Completion
+adds a local chat note. Agent Map has both visible scrollbars and retains details.
+
+```text
+[ … ] -> [ Rewind… ]
+  Recent runs
+  [ Fix the project       2 steps > ]
+    Step 1 · time · model
+    src/app.js, src/styles.css
+    [ Rewind to before step 1 ]
+      Changed file? [Overwrite] [Skip]
+      New file?     [Delete]    [Skip]
+  Chat: Rewound to step 1: 2 files restored
+```
+
+Validation: baseline **297/297**, final **327/327** extension tests (30 added), plus
+**9/9** root tests; no failures/skips. Three-file SHA256 equality, BOM/CRLF/binary
+bytes, all write paths, prompts, concurrent edits, TTL/size, persistence and outbound
+isolation passed. `git diff --check` passed. Playwright used a synthetic VS Code bridge
+at `about:blank`, EN/RU **280/640 px**; Browser plugin unavailable. Identity, meaningful
+content, overlay absence, console health, screenshots, run/step/restore interaction,
+empty state, map reachability and page overflow checks all passed; zero remote requests.
+Evidence: `.qa-070/`.
+
+Built with `scripts/package_vsix.py`: `tvijo-dshrem-0.7.0.vsix`, **476,304 bytes**,
+30 entries; `GalleryFlags=Public`, no `private` field. Source/archive hashes, runtime
+imports, unchanged settings and exclusion of tests/dependencies/QA/skill text verified.
+Receipt: `tvijo-dshrem-0.7.0.vsix.sha256.json`.
+
+SHA256: `496a18979c70a71c885e6119a702e96694357fe6131e54df1c69813b2a2a6111`
+
+Limits: shell/external writes are not checkpointed; first workspace folder; native
+host prompts are mocked. No installed-host/provider smoke, installation, push or
+publication under the worktree-only constraint. Baseline untracked work and prior
+artifacts remain preserved. README and CHANGELOG updated; no new settings.
