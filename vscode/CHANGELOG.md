@@ -1,3 +1,16 @@
+## 0.7.1 — 2026-10-21
+
+- Add a compact English/Russian Chat and Agent preset picker: Manual, Edit automatically,
+  Plan and Auto. The host validates scope and idle state, updates both existing approval
+  settings, then verifies their effective values before reporting success.
+- Preserve ordinary-chat `agentMode` routing and Quick Edit `autoApply`. Show externally
+  configured false/true approval flags as Custom. Snapshot the selected approval flags at
+  each Agent run start.
+- Auto keeps the existing exact command vectors, clean command environment and blocklist.
+  It can apply new files and unique exact replacements; replacing an existing file wholesale
+  still asks. Plan rejects shell bang commands and write-capable slash actions in its composer.
+- Restore normal Shift+Tab focus navigation and add keyboard operation for the mode menu.
+
 ## 0.7.0 — 2026-10-21
 
 - Acceptance correction: commit each new snapshot before pruning older recovery points;

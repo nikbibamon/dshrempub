@@ -10,24 +10,29 @@ function sidebar(initialState = {}) {
   const elements = new Map();
   const created = [];
   const outgoing = [];
+  const document = { activeElement: null };
   let savedState = initialState;
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
       value: '', disabled: false, textContent: '',
       attributes: {},
-      addEventListener(type, fn) { listeners.set(`${id}:${type}`, fn); },
-      focus() {}, replaceChildren(...nodes) { this.children = nodes; }, append(...nodes) { this.children = [...(this.children || []), ...nodes]; }, requestSubmit() {}, querySelectorAll() { return []; }, setAttribute(name, value) { this.attributes[name] = value; }, click() {}
+      addEventListener(type, fn) { (this.handlers ||= {})[type] = fn; if (id) listeners.set(`${id}:${type}`, fn); },
+      focus() { document.activeElement = this; }, replaceChildren(...nodes) { this.children = nodes; }, append(...nodes) { this.children = [...(this.children || []), ...nodes]; }, requestSubmit() {},
+      querySelectorAll(selector) { const nodes=this.children||[]; return selector.includes(':not(:disabled)') ? nodes.filter(node=>!node.disabled) : nodes; },
+      querySelector(selector) { const nodes=this.children||[]; return nodes.find(node=>selector.includes('aria-checked') ? node.attributes['aria-checked']==='true' : true); },
+      setAttribute(name, value) { this.attributes[name] = value; }, getAttribute(name) { return this.attributes[name]; }, click() { this.handlers?.click?.({target:this}); }
     });
     return elements.get(id);
   }
-  const document = { getElementById: element, body: element('body'), documentElement: element('html'), createElement: (tag) => { const node = { tag, textContent: '', children: [], append(...nodes) { this.children.push(...nodes); }, addEventListener() {}, setAttribute() {} }; created.push(node); return node; } };
+  document.getElementById = element; document.body = element('body'); document.documentElement = element('html');
+  document.createElement = tag => { const node = { tag, textContent: '', children: [], attributes:{}, append(...nodes) { this.children.push(...nodes); }, addEventListener(type,fn) { (this.handlers ||= {})[type]=fn; }, setAttribute(name,value) { this.attributes[name]=value; }, getAttribute(name) { return this.attributes[name]; }, focus(){document.activeElement=this;}, click(){this.handlers?.click?.({target:this});} }; created.push(node); return node; };
   const window = { addEventListener(type, fn) { listeners.set(`window:${type}`, fn); } };
   const html = chatHtml({ cspSource: 'vscode-webview:' });
   const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
   assert.ok(script, 'webview script exists');
   vm.runInNewContext(script, { document, window, URL, acquireVsCodeApi: () => ({ postMessage: (message) => outgoing.push(message), getState: () => savedState, setState: (next) => { savedState = next; } }) });
   listeners.get('window:message')({ data: { type: 'state', scopeKey: 'tenant-a', messages: [], signedIn: true, attachments: [] } });
-  return { element, outgoing, created, state: () => savedState, emit: (key, event) => {
+  return { element, outgoing, created, document, state: () => savedState, emit: (key, event) => {
     if (event?.data?.type === 'state' && event.data.scopeKey === undefined) event = { data: { ...event.data, scopeKey: 'tenant-a' } };
     return listeners.get(key)(event);
   } };
@@ -276,30 +281,79 @@ test('sidebar offers project-context and apply settings in its own menu', () => 
   assert.ok(texts.includes('Confirm before apply'));
 });
 
-test('mode control switches chat, agent and plan submissions', () => {
+test('explicit mode menu submits Chat, Agent presets and per-run Plan separately', () => {
   const view = sidebar();
+  const scopeKey='tenant-a';
+  const options={models:[{id:'coding',name:'DSHREM Coding'}],model:'coding',agentModel:'coding',agentMode:'council',agentPreset:'manual',agentAutoApply:false,agentAutoRun:false,reasoningMethod:'evidence-first'};
+  view.emit('window:message',{data:{type:'state',scopeKey,signedIn:true,messages:[],options}});
   view.element('question').value = 'Inspect the project';
   view.emit('mode:click', {});
-  assert.equal(view.element('mode').textContent, 'Agent');
+  assert.equal(view.element('mode-menu').hidden,false);
+  assert.equal(view.element('mode-menu').children.find(item=>item.attributes['data-mode']==='chat').attributes['aria-checked'],'true');
+  view.element('mode-menu').children.find(item=>item.attributes['data-mode']==='manual').click();
+  assert.equal(view.outgoing.at(-1).type,'agentPreset');
+  assert.equal(view.outgoing.at(-1).preset,'manual');
+  view.emit('window:message',{data:{type:'presetResult',scopeKey,requestId:view.outgoing.at(-1).requestId,preset:'manual',ok:true}});
+  assert.equal(view.element('mode').textContent,'Manual');
   view.emit('form:submit', { preventDefault() {} });
   assert.deepEqual(view.outgoing.at(-1).agent, true);
   assert.deepEqual(view.outgoing.at(-1).plan, false);
   view.emit('window:message', { data: { type: 'submission', scopeKey: 'tenant-a', ok: true, question: 'Inspect the project' } });
   view.emit('mode:click', {});
-  assert.equal(view.element('mode').textContent, 'Plan (read-only)');
+  view.element('mode-menu').children.find(item=>item.attributes['data-mode']==='plan').click();
+  assert.equal(view.outgoing.at(-1).type,'agentPreset');
+  assert.equal(view.outgoing.at(-1).preset,'plan');
+  view.emit('window:message',{data:{type:'presetResult',scopeKey,requestId:view.outgoing.at(-1).requestId,preset:'plan',ok:true}});
+  assert.equal(view.element('mode').textContent,'Plan');
   view.element('question').value = 'Plan only';
   view.emit('form:submit', { preventDefault() {} });
   assert.equal(view.outgoing.at(-1).agent, true);
   assert.equal(view.outgoing.at(-1).plan, true);
 });
 
-test('shift+tab toggles plan mode for the agent', () => {
+test('mode menu supports keyboard navigation and Shift+Tab remains ordinary focus navigation', () => {
   const view = sidebar();
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',signedIn:true,options:{models:[{id:'coding',name:'DSHREM Coding'}],model:'coding',agentPreset:'manual'}}});
   view.emit('mode:click', {});
-  view.emit('question:keydown', { key: 'Tab', shiftKey: true, preventDefault() {} });
-  assert.equal(view.element('mode').textContent, 'Plan (read-only)');
-  view.emit('question:keydown', { key: 'Tab', shiftKey: true, preventDefault() {} });
-  assert.equal(view.element('mode').textContent, 'Agent');
+  const menu=view.element('mode-menu'), before=view.document.activeElement;
+  assert.equal(before.attributes['data-mode'],'chat');
+  view.emit('mode-menu:keydown',{key:'End',preventDefault(){}});
+  assert.equal(view.document.activeElement.attributes['data-mode'],'auto');
+  view.emit('mode-menu:keydown',{key:'Home',preventDefault(){}});
+  assert.equal(view.document.activeElement.attributes['data-mode'],'chat');
+  view.emit('mode-menu:keydown',{key:'Escape',preventDefault(){}});
+  assert.equal(menu.hidden,true);
+  assert.equal(view.document.activeElement,view.element('mode'));
+  view.emit('mode:click',{});
+  view.emit('mode-menu:keydown',{key:'ArrowDown',preventDefault(){}});
+  view.emit('mode-menu:keydown',{key:' ',preventDefault(){}});
+  assert.equal(view.outgoing.at(-1).preset,'manual');
+  view.emit('window:message',{data:{type:'presetResult',scopeKey:'tenant-a',requestId:view.outgoing.at(-1).requestId,preset:'manual',ok:true}});
+  view.emit('mode:click',{});
+  view.emit('mode-menu:keydown',{key:'ArrowDown',preventDefault(){}});
+  view.emit('mode-menu:keydown',{key:'Enter',preventDefault(){}});
+  assert.equal(view.outgoing.at(-1).preset,'edit');
+  view.emit('window:message',{data:{type:'presetResult',scopeKey:'tenant-a',requestId:view.outgoing.at(-1).requestId,preset:'edit',ok:true}});
+  const selected=view.element('mode').textContent;
+  let prevented=false;
+  view.emit('question:keydown',{key:'Tab',shiftKey:true,preventDefault(){prevented=true;}});
+  assert.equal(prevented,false);
+  assert.equal(view.element('mode').textContent,selected);
+});
+
+test('external non-preset flags display Custom and failed preset update does not change mode',()=>{
+  const view=sidebar();
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',signedIn:true,options:{models:[{id:'coding',name:'Coding'}],model:'coding',agentPreset:'custom',agentAutoApply:false,agentAutoRun:true}}});
+  view.element('mode').click();
+  assert.ok(view.element('mode-menu').children.some(item=>item.children?.[0]?.textContent==='Свои настройки' || item.children?.[0]?.textContent==='Custom'));
+  view.element('mode-menu').children.find(item=>item.attributes['data-mode']==='custom').click();
+  assert.equal(view.element('mode').textContent,'Custom');
+  view.element('mode').click();
+  view.element('mode-menu').children.find(item=>item.attributes['data-mode']==='auto').click();
+  const request=view.outgoing.at(-1);
+  view.emit('window:message',{data:{type:'presetResult',scopeKey:'tenant-a',requestId:request.requestId,preset:'auto',ok:false}});
+  assert.equal(view.element('mode').textContent,'Custom');
+  assert.equal(view.element('notice').className,'visible');
 });
 
 test('agent events render a bounded activity log', () => {
@@ -335,13 +389,50 @@ test('agent and plan labels use the configured agent model while chat shows mode
     model: 'coding', agentModel: 'ds41f', agentMode: 'single', reasoningMethod: 'plan-check'
   } } });
   assert.equal(view.element('workflow-label').textContent, 'DSHREM Coding · Plan, then check');
-  view.emit('mode:click', {});
+  view.emit('mode:click', {}); view.element('mode-menu').children.find(item=>item.attributes['data-mode']==='manual').click();
+  view.emit('window:message',{data:{type:'presetResult',scopeKey:'tenant-a',requestId:view.outgoing.at(-1).requestId,preset:'manual',ok:true}});
   assert.equal(view.element('workflow-label').textContent, 'DeepSeek V4.1 Flash');
   assert.match(view.element('mode-help').textContent, /project tools/);
-  view.emit('mode:click', {});
+  view.emit('mode:click', {}); view.element('mode-menu').children.find(item=>item.attributes['data-mode']==='plan').click();
+  view.emit('window:message',{data:{type:'presetResult',scopeKey:'tenant-a',requestId:view.outgoing.at(-1).requestId,preset:'plan',ok:true}});
   assert.equal(view.element('workflow-label').textContent, 'DeepSeek V4.1 Flash');
   assert.match(view.element('mode-help').textContent, /cannot write files/);
   assert.match(view.element('mode-help').textContent, /local shell command directly/);
+});
+
+test('delayed preset acknowledgement locks duplicate mode clicks and sending, then releases on failure and scope change',()=>{
+  const view=sidebar();
+  const options={models:[{id:'coding',name:'Coding'}],model:'coding',agentPreset:'manual',agentAutoApply:false,agentAutoRun:false};
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',signedIn:true,messages:[],options}});
+  view.element('question').value='Keep this draft';
+  view.emit('mode:click',{});
+  const menu=view.element('mode-menu');
+  menu.children.find(item=>item.attributes['data-mode']==='auto').click();
+  const request=view.outgoing.at(-1);
+  assert.equal(request.type,'agentPreset');
+  assert.equal(view.element('question').value,'Keep this draft');
+  assert.equal(view.element('send').disabled,true);
+  assert.ok(menu.children.every(item=>item.disabled));
+  view.element('mode').click();
+  menu.children.find(item=>item.attributes['data-mode']==='plan').click();
+  assert.equal(view.outgoing.filter(item=>item.type==='agentPreset').length,1,'duplicate clicks do not create requests');
+  view.emit('form:submit',{preventDefault(){}});
+  assert.equal(view.outgoing.some(item=>item.type==='ask'),false,'submission stays blocked while settings are pending');
+  view.emit('window:message',{data:{type:'presetResult',scopeKey:'tenant-a',requestId:request.requestId,preset:'auto',ok:false}});
+  assert.equal(view.element('send').disabled,false);
+  assert.equal(view.element('question').value,'Keep this draft');
+  assert.equal(view.element('notice').className,'visible');
+
+  view.emit('mode:click',{});
+  menu.children.find(item=>item.attributes['data-mode']==='auto').click();
+  const stale=view.outgoing.at(-1);
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-b',signedIn:true,messages:[],options}});
+  assert.equal(view.element('send').disabled,false,'scope changes clear the local pending lock');
+  assert.equal(view.element('question').value,'');
+  view.emit('window:message',{data:{type:'presetResult',scopeKey:'tenant-a',requestId:stale.requestId,preset:'auto',ok:true}});
+  assert.equal(view.element('mode').textContent,'Chat','the stale result cannot alter the new scope');
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',signedIn:true,messages:[],options}});
+  assert.equal(view.element('question').value,'Keep this draft');
 });
 
 test('nullable usage fields render as unknown instead of null or a false zero', () => {

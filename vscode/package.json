@@ -2,7 +2,7 @@
   "name": "tvijo-dshrem",
   "displayName": "Tvijo DSHREM",
   "description": "Managed coding and bounded reviews for shared projects with a per-task spending cap. Provider API credentials remain on the service.",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "repository": {
     "type": "git",
     "url": "https://github.com/nikbibamon/dshrempub.git",
@@ -453,12 +453,12 @@
         "tvijo.agentAutoRun": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "Skips per-command approval only for local Agent commands matching the allowlist. Use for trusted build/test/lint routines. Destructive commands remain blocked; Plan refuses all commands."
+          "markdownDescription": "The Auto preset skips approval only for the existing exact local Agent command vectors. Destructive commands remain blocked; Plan refuses all commands."
         },
         "tvijo.agentAutoApply": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "Skips per-file approval for local Agent edits. Use when you can review opened diffs. Edits remain unsaved editor buffers; Plan refuses writes even when enabled."
+          "markdownDescription": "Edit automatically and Auto apply eligible local Agent edits. Existing-file whole-file replacements still ask in Auto. Edits remain unsaved editor buffers; Plan refuses writes even when enabled."
         },
         "tvijo.telegram.enabled": {
           "type": "boolean",

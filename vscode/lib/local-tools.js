@@ -188,14 +188,14 @@ async function runCommand(root, action, confirm) {
   });
 }
 
-async function writeFile(root, action, confirm, applyWrite, beforeWrite) {
+async function writeFile(root, action, confirm, applyWrite, beforeWrite, operation = 'write_file') {
   const target = safePath(root, action.path);
   const content = typeof action.content === 'string' ? action.content : '';
   if (Buffer.byteLength(content, 'utf8') > MAX_READ * 2) throw new Error('Refusing to write more than 128 KiB in one step.');
   let previous = null;
   try { previous = await fs.readFile(target, 'utf8'); } catch { /* new file */ }
   if (previous === content) return { ok: true, unchanged: true, path: action.path };
-  const approved = await confirm({ path: action.path, absolute: target, previous, content });
+  const approved = await confirm({ path: action.path, absolute: target, previous, content, operation });
   if (!approved) return { ok: false, refused: true, path: action.path };
   safePath(root, action.path);
   if (applyWrite) await applyWrite({ absolute: target, previous, content });
@@ -227,7 +227,7 @@ async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
   if (count > 1) throw new Error('The old text appears ' + count + ' times; include more surrounding context.');
   const content = previous.replace(action.old, () => action.new);
   if (Buffer.byteLength(content, 'utf8') > MAX_READ * 2) throw new Error('Refusing to write more than 128 KiB in one step.');
-  const approved = await confirm({ path: action.path, absolute: target, previous, content });
+  const approved = await confirm({ path: action.path, absolute: target, previous, content, operation: 'replace_in_file' });
   if (!approved) return { ok: false, refused: true, path: action.path };
   safePath(root, action.path);
   if (applyWrite) await applyWrite({ absolute: target, previous, content });
@@ -256,7 +256,7 @@ function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite =
         case 'list_dir': return { ok: true, entries: await listDirectory(root, action.path) };
         case 'read_file': return { ok: true, ...(await readFile(root, action.path, action.start, action.end)) };
         case 'search': return { ok: true, ...(await search(root, action.query, action.path, action.max)) };
-        case 'write_file': return await writeFile(root, action, confirmWrite, applyWrite, beforeWrite);
+        case 'write_file': return await writeFile(root, action, confirmWrite, applyWrite, beforeWrite, 'write_file');
         case 'replace_in_file': return await replaceInFile(root, action, confirmWrite, applyWrite, beforeWrite);
         case 'run_command': return await runCommand(root, action, confirmRun);
         default: throw new Error('Unknown tool: ' + action.tool);

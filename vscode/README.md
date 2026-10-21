@@ -114,12 +114,16 @@ questions stay in the sidebar; questions about a selection open beside your code
 | Mode | Defaults | What it does |
 |---|---|---|
 | Chat | — | One question, one metered task. Answers cite the files you attached or added to your knowledge base. |
-| Agent (`/agent`) | `agentModel = ds41f`, `agentBudgetUsd = 2`, `agentMaxSteps = 12` | Bounded loop over the open workspace: list, read, search, edit and run commands. Every edit is shown as a diff and every command needs explicit confirmation. |
-| Plan (`/plan`) | same limits | The same loop with writes and commands disabled. Safe for a first inspection. |
+| Manual | `agentAutoApply = false`, `agentAutoRun = false` | Ask before edits and commands. |
+| Edit automatically | `agentAutoApply = true`, `agentAutoRun = false` | Apply edits automatically; ask before commands. |
+| Plan | `agentAutoApply = false`, `agentAutoRun = false` | Read-only Agent run with commands disabled. `planMode` is selected for that run. |
+| Auto | `agentAutoApply = true`, `agentAutoRun = true` | Apply new files and exact unique replacements automatically; existing-file whole-file replacements still ask. Auto-run only the existing exact test command vectors. |
 
-Commands never run silently: provider keys are removed from the command environment and
-destructive patterns are refused before a shell starts. Auto-apply and auto-run are off by
-default (`tvijo.agentAutoApply`, `tvijo.agentAutoRun`).
+Choose Chat or one of the four Agent presets from the composer. The picker changes the two
+existing approval settings; it does not change ordinary-chat routing (`tvijo.agentMode`).
+External `false/true` values are shown as Custom. Presets cannot change while a task is
+running. Provider keys are removed from the command environment and destructive patterns
+are refused before a shell starts. `tvijo.autoApply` remains the separate Quick Edit setting.
 
 ## Coding tasks: single, review and swarm
 
@@ -316,16 +320,17 @@ save to you.
 
 ## Agent mode
 
-`/agent` (or the **Mode** button in the composer) runs a bounded agent loop against
-the open workspace. The agent can list, read and search project files and asks for
-precise text replacements and whole-file changes; every changed file is shown as a
-diff and applied to the buffer only after you confirm. Commands are never run silently: each one needs an explicit
-confirmation, provider keys are removed from the command environment, and blocked
-destructive patterns are refused before a shell starts. Secret-like files,
-excluded directories and paths outside the workspace are unavailable.
+`/agent` or an Agent preset runs a bounded loop against the open workspace. The composer
+picker offers Manual, Edit automatically, Plan and Auto. Manual asks before edits and
+commands. Edit automatically applies edits and asks before commands. Plan reads only and
+cannot run commands. Auto applies new files and unique exact replacements, asks before
+existing-file whole-file replacements, and skips command approval only for the existing
+exact test command vectors. Blocked commands never start. Provider keys are removed from
+the command environment; secret-like files, excluded directories and paths outside the
+workspace are unavailable. Ordinary-chat routing in `tvijo.agentMode` is unchanged, and
+Quick Edit continues to use the separate `tvijo.autoApply` setting.
 
-`/plan` keeps the same loop but disables writes and commands, so it is safe for a
-first inspection. Settings: `tvijo.agentModel` (default `ds41f`), `tvijo.agentMaxSteps`
+Settings: `tvijo.agentModel` (default `ds41f`), `tvijo.agentMaxSteps`
 (default 6), `tvijo.agentBudgetUsd` (default 2), `tvijo.agentAutoRun` and
 `tvijo.agentAutoApply` (both off by default). The step limit returns a partial
 report instead of an error, and one malformed model turn is retried once.

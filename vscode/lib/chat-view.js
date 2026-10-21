@@ -28,9 +28,9 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
 <p id="shared-thread-note" hidden><a id="shared-thread-link" href="#"></a></p>
 <p id="history-note" class="mini-select">Chat stays in this workspace and is separate from Copilot. Submitted tasks also appear in server history.</p>
 <div id="account-status" role="status"><span class="dot">●</span><span id="connection-label">Limited free preview</span><span id="budget"></span></div>
-<form id="form"><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><p id="mode-help" role="note"></p><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
+<form id="form"><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><p id="mode-help" role="note"></p><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode" aria-haspopup="menu" aria-controls="mode-menu" aria-expanded="false">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
 <div id="plus-menu" role="menu" aria-label="Add context"><button id="attach" type="button" role="menuitem">Add file…</button><button id="workspace" type="button" role="menuitem">Choose workspace file…</button><button id="selection" type="button" role="menuitem">Use editor selection</button><button id="path" type="button" role="menuitem">Paste workspace path…</button></div>
-<div id="options-menu" role="menu" aria-label="Model and method"></div>
+<div id="mode-menu" role="menu" aria-label="Mode" hidden></div><div id="options-menu" role="menu" aria-label="Model and method"></div>
 <div id="notice" role="alert"><p id="notice-text"></p><button id="notice-action" type="button">Resolve task</button></div>
 <script nonce="${nonce}">
   const COPY = ${JSON.stringify(COPY)};
@@ -49,6 +49,7 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   const fileInput = document.getElementById('file');
   const plusMenu = document.getElementById('plus-menu');
   const optionsMenu = document.getElementById('options-menu');
+  const modeMenu = document.getElementById('mode-menu');
   const modeButton = document.getElementById('mode');
   const agentLog = document.getElementById('agent-log');
   let uiMode = 'chat';
@@ -77,9 +78,12 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   let lastUsageScope = null;
   let pending = false;
   let scopeKey = null;
+  let pendingModeRequestId = null;
+  let modeRequestSequence = 0;
   let rewindRuns = [], rewindChosen = null, rewindWorkspaceKey = null;
   const rewindPanel = document.getElementById('rewind');
   const actionsMenu = document.getElementById('actions-menu');
+  modeMenu.hidden = true;
   actionsMenu.hidden = true;
   function closeActions() {actionsMenu.hidden=true;document.getElementById('commands').setAttribute('aria-expanded','false');}
   function drawRewind() {
@@ -171,7 +175,7 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   function renderOptions(options) {
     optionState = options && Array.isArray(options.models) ? options : null;
     optionsMenu.replaceChildren();
-    updateWorkflowLabel();
+    updateMode();
     if (!optionState) return;
     const group = (titleKey, rows) => {
       if (!rows.length) return;
@@ -215,14 +219,57 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
     notice.className = text ? 'visible' : '';
   }
   function updateMode() {
-    const label = uiMode === 'plan' ? t('modePlan') : uiMode === 'agent' ? t('modeAgent') : t('modeChat');
+    const preset = uiMode === 'plan' ? 'plan' : optionState?.agentPreset || 'manual';
+    const labelKey = uiMode === 'chat' ? 'modeChat' : uiMode === 'plan' ? 'modePlan' : ({manual:'modeManual',edit:'modeEdit',auto:'modeAuto',custom:'modeCustom'}[preset] || 'modeCustom');
+    const label = t(labelKey);
     modeButton.textContent = label;
     modeButton.className = 'mini-select ' + (uiMode === 'chat' ? '' : uiMode);
     modeButton.title = t('mode') + ': ' + label;
     modeButton.setAttribute('aria-label', t('mode') + ': ' + label);
+    modeButton.setAttribute('aria-expanded', String(!modeMenu.hidden));
+    renderModeMenu();
     question.placeholder = uiMode === 'chat' ? t('ask') : t('mentionHint');
     document.getElementById('mode-help').textContent = t(uiMode === 'chat' ? 'modeChatHelp' : uiMode === 'agent' ? 'modeAgentHelp' : 'modePlanHelp') + ' ' + t('shellHelp');
     updateWorkflowLabel();
+  }
+  function renderModeMenu() {
+    modeMenu.replaceChildren();
+    const rows = [
+      {mode:'chat', label:t('modeChat'), hint:t('modeChatHelp'), checked:uiMode === 'chat'},
+      {mode:'manual', label:t('modeManual'), hint:t('modeManualHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'manual'},
+      {mode:'edit', label:t('modeEdit'), hint:t('modeEditHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'edit'},
+      {mode:'plan', label:t('modePlan'), hint:t('modePlanHint'), checked:uiMode === 'plan'},
+      {mode:'auto', label:t('modeAuto'), hint:t('modeAutoHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'auto'}
+    ];
+    if (optionState?.agentPreset === 'custom') rows.push({mode:'custom', label:t('modeCustom'), hint:'', checked:uiMode === 'agent'});
+    for (const row of rows) {
+      const button = document.createElement('button'); button.type = 'button'; button.setAttribute('data-mode', row.mode);
+      button.setAttribute('role','menuitemradio'); button.setAttribute('aria-checked',String(row.checked));
+      const name = document.createElement('span'); name.textContent = row.label;
+      const hint = document.createElement('span'); hint.className = 'hint'; hint.textContent = row.hint;
+      button.append(name,hint); button.disabled = !!row.disabled || running || submitting || preparing || !!pendingModeRequestId;
+      button.addEventListener('click', () => chooseMode(row.mode)); modeMenu.append(button);
+    }
+    modeButton.disabled = running || submitting || preparing || !!pendingModeRequestId;
+  }
+  function openModeMenu() {
+    if (modeButton.disabled) return;
+    modeMenu.hidden = false; modeMenu.className = 'open'; modeButton.setAttribute('aria-expanded','true');
+    const selected = modeMenu.querySelector('[aria-checked="true"]') || modeMenu.querySelector('button'); selected?.focus();
+  }
+  function closeModeMenu(restoreFocus = false) {
+    modeMenu.hidden = true; modeMenu.className = ''; modeButton.setAttribute('aria-expanded','false');
+    if (restoreFocus) modeButton.focus();
+  }
+  function chooseMode(mode) {
+    if (pendingModeRequestId) return;
+    if (mode === 'chat') { closeModeMenu(true); uiMode = 'chat'; updateMode(); saveState(); return; }
+    if (running || submitting || preparing) return;
+    if (mode === 'custom') { closeModeMenu(true); uiMode = 'agent'; updateMode(); saveState(); return; }
+    const preset = mode === 'plan' ? 'plan' : mode;
+    pendingModeRequestId = String(scopeKey || '') + ':' + (++modeRequestSequence);
+    closeModeMenu(true); controls();
+    post({type:'agentPreset',preset,requestId:pendingModeRequestId});
   }
   function agentLine(tag, detail, kind) {
     const line = document.createElement('div'); line.className = 'line ' + (kind || '');
@@ -267,6 +314,7 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   }
   function setLocale(next) {
     locale = next; document.documentElement.lang = locale;
+    modeMenu.setAttribute('aria-label', t('mode'));
     document.getElementById('rewind-title').textContent = locale === 'ru' ? 'Восстановление' : 'Rewind';
     document.getElementById('rewind-action').textContent = locale === 'ru' ? 'Восстановление…' : 'Rewind…';
     document.getElementById('all-actions').textContent = locale === 'ru' ? 'Все команды…' : 'All commands…';
@@ -400,13 +448,14 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   question.addEventListener('input', saveDraft);
   function controls() {
     const blocked = running || preparing || submitting || uploading;
-    send.disabled = blocked || !scopeKey; newConversation.disabled = blocked || !scopeKey;
+    send.disabled = blocked || !!pendingModeRequestId || !scopeKey; newConversation.disabled = blocked || !scopeKey;
     for (const id of ['attach','workspace','selection','path','plus','workflow','mode']) document.getElementById(id).disabled = blocked;
     document.getElementById('cancel').hidden = !running;
     document.getElementById('cancel').textContent = running ? (uiMode !== 'chat' ? t('agentStop') : t('cancel')) : t('resolvePending');
     document.getElementById('cancel').title = running ? (uiMode !== 'chat' ? t('agentStop') : t('cancel')) : t('resolvePending');
     document.getElementById('clear-context').disabled = blocked;
     for (const button of attached.querySelectorAll('button')) button.disabled = blocked;
+    renderModeMenu();
   }
   function render(items) {
     const key = JSON.stringify(items); if (key === lastMessages) return; lastMessages = key;
@@ -509,6 +558,7 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
       if (scopeKey !== nextScope) {
         if (scopeKey) drafts[scopeKey] = question.value;
         scopeKey = nextScope;
+        pendingModeRequestId = null;
         rewindPanel.hidden = true; rewindRuns = []; rewindWorkspaceKey = null;
         mapModel = buildAgentMap(); mapSelection = () => 'request';
         if (mapOpen) { setTab('chat'); drawMap(); }
@@ -548,7 +598,13 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
       if (lastUsage && (!data.signedIn || !data.account || scopeKey !== lastUsageScope || (lastUsage.account && data.account.tenant_id !== lastUsage.account.tenant_id))) { lastUsage = null; document.getElementById('usage-items').replaceChildren(); }
       document.getElementById('signin').textContent = t(lastSignedIn ? 'signedIn' : 'signIn');
       renderBudget(lastAccount);
+      updateMode();
       document.getElementById('history-note').textContent = data.legacyHistory || legacyDraft ? 'Older unassigned chat/draft is preserved locally and is not sent to this account. Server task history belongs to your signed-in account.' : 'Chat stays in this workspace and is separate from Copilot. Submitted tasks also appear in server history.';
+    } else if (data.type === 'presetResult') {
+      if (data.scopeKey !== scopeKey || !pendingModeRequestId || data.requestId !== pendingModeRequestId) return;
+      if (data.ok) { uiMode = data.preset === 'plan' ? 'plan' : 'agent'; saveState(); }
+      else showNotice(t('modeUpdateFailed'));
+      pendingModeRequestId = null; closeModeMenu(true); controls(); updateMode();
     } else if (data.type === 'quote') {
       if (data.scopeKey !== scopeKey) return;
       const q = data.quote || {};
@@ -580,15 +636,25 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
     }
   });
   document.getElementById('form').addEventListener('submit', event => {
-    event.preventDefault(); const text = question.value.trim() || (attachmentCount ? t('attachmentOnly') : ''); if (!text || send.disabled) return;
+    event.preventDefault(); const text = question.value.trim() || (attachmentCount ? t('attachmentOnly') : ''); if (!text || send.disabled || pendingModeRequestId) return;
     submitting = true; controls();
     post({type:'ask', question:text, agent: uiMode !== 'chat', plan: uiMode === 'plan'});
   });
   question.addEventListener('keydown', event => {
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); document.getElementById('form').requestSubmit(); }
-    if (event.key === 'Tab' && event.shiftKey) { event.preventDefault(); uiMode = uiMode === 'plan' ? 'agent' : 'plan'; updateMode(); saveState(); }
   });
-  modeButton.addEventListener('click', () => { uiMode = uiMode === 'chat' ? 'agent' : uiMode === 'agent' ? 'plan' : 'chat'; updateMode(); saveState(); });
+  modeButton.addEventListener('click', () => modeMenu.hidden ? openModeMenu() : closeModeMenu());
+  modeMenu.addEventListener('keydown', event => {
+    const items = Array.from(modeMenu.querySelectorAll('button:not(:disabled)'));
+    const index = items.indexOf(document.activeElement);
+    if (event.key === 'Escape') { event.preventDefault(); closeModeMenu(true); return; }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items[next]?.focus();
+    } else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); document.activeElement?.click(); }
+  });
+  document.body.addEventListener('click', event => { if (!modeMenu.hidden && !modeMenu.contains(event.target) && event.target !== modeButton) closeModeMenu(); });
   document.getElementById('agent-map-button').addEventListener('click', () => { if (mapOpen) setTab('chat'); else mapVisibility(true); });
   document.getElementById('map-close').addEventListener('click', () => { setTab('chat'); document.getElementById('agent-map-button').focus(); });
   document.getElementById('agent-map').addEventListener('keydown', event => { if (event.key === 'Escape') { setTab('chat'); document.getElementById('agent-map-button').focus(); } });

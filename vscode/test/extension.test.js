@@ -18,6 +18,7 @@ function host(options = {}) {
   const posts = [];
   const docs = [];
   const shown = [];
+  const warnings = [];
   const requests = [];
   const errors = [];
   const panels = [];
@@ -34,6 +35,7 @@ function host(options = {}) {
   let provider;
   let receive;
   let disposal;
+  let workspaceChangeListener = null;
   let release;
   let blockGrant = false;
   let botAdapter;
@@ -63,8 +65,9 @@ function host(options = {}) {
     env: { clipboard: { writeText: async value => { copied.push(value); } }, openExternal: async uri => { external.push(uri.fsPath); } },
     commands: { registerCommand: (id, fn) => { commands.set(id, fn); return disposable; }, executeCommand: async (id, ...args) => { executed.push({ id, args }); return commands.get(id)?.(...args); } },
     workspace: {
-      getConfiguration: () => ({ get: (key, fallback) => key === 'apiBase' ? base : (settings.has(key) ? settings.get(key) : fallback), inspect: key => ({ globalValue: settings.get(key) }), update: async (key, value) => { settings.set(key, value); } }),
+      getConfiguration: () => ({ get: (key, fallback) => key === 'apiBase' ? base : (settings.has(key) ? settings.get(key) : fallback), inspect: key => ({ globalValue: settings.get(key) }), update: async (key, value) => { if (options.configurationUpdate) return options.configurationUpdate(key, value, settings); settings.set(key, value); } }),
       onDidChangeConfiguration: () => disposable,
+      onDidChangeWorkspaceFolders: fn => { workspaceChangeListener = fn; return disposable; },
       workspaceFolders: [{ uri: Uri.file(root) }],
       getWorkspaceFolder: (uri) => uri?.fsPath?.startsWith(root + path.sep) ? { uri: Uri.file(root) } : undefined,
       fs: {
@@ -87,7 +90,7 @@ function host(options = {}) {
       createStatusBarItem: () => status,
       registerWebviewViewProvider: (_id, value) => { provider = value; return disposable; },
       showErrorMessage: async message => { errors.push(message); }, showInformationMessage: async () => undefined,
-      showWarningMessage: async (...args) => { if (options.onWarning) await options.onWarning(...args); return warningAnswer; },
+      showWarningMessage: async (...args) => { warnings.push(args); if (options.onWarning) await options.onWarning(...args); return warningAnswer; },
       showTextDocument: async doc => { shown.push(doc); },
       showInputBox: async () => 'Account A editor question',
       showQuickPick: async (choices, config) => options.pick?.(choices, config),
@@ -139,7 +142,7 @@ function host(options = {}) {
     onDidDispose: (fn) => { disposal = fn; }
   });
   const { tenantState, scopeKey } = require('../lib/tenant-state');
-  return { vscode, context, posts, docs, shown, requests, commands, executed, errors, panels, external, copied, base, local: tenantState(context), scope: tenant => scopeKey(base, tenant), receive: (message) => receive(message),
+  return { vscode, context, posts, docs, shown, warnings, requests, commands, executed, errors, panels, external, copied, base, local: tenantState(context), scope: tenant => scopeKey(base, tenant), receive: (message) => receive(message), workspaceChanged: () => workspaceChangeListener?.({}),
     storage, botAdapter: () => botAdapter, settings, status, Uri, Position, Range,
     grantError: value => { grantError = value; }, lookup: value => { lookup = value; }, warning: value => { warningAnswer = value; }, chat: value => { chatContent = value; }, editor: value => { activeEditor = value; }, applied: () => appliedEdit, taskSnapshot: value => { taskSnapshot = value; },
     blockResponse: (requestPath, method = 'GET') => { blockedRequest = { path: requestPath, method }; }, responseWaiting: () => !!releaseRequest,
@@ -544,6 +547,210 @@ test('a definitively absent saved request is forgotten only after explicit confi
     assert.equal(app.local.pending(scope), undefined);
     assert.equal(app.requests.filter(r => r.url.endsWith('/tasks')).length, 1);
     assert.equal(app.requests.filter(r => r.url.endsWith('/chat')).length, 0);
+  } finally { app.close(); }
+});
+
+test('an Agent waiting for authentication cannot start during a preset update', async () => {
+  let releaseMode, modeWaiting = false;
+  const app = host({configurationUpdate:async (key,value,settings)=>{
+    if (!modeWaiting) {modeWaiting=true;await new Promise(resolve=>{releaseMode=resolve;});}
+    settings.set(key,value);
+  }});
+  let releaseAuth;
+  try {
+    await app.receive({type:'ready'});
+    app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',1);
+    const get=app.context.secrets.get;let first=true,authWaiting=false;
+    app.context.secrets.get=async (...args)=>{
+      const value=await get(...args);
+      if (first) {first=false;authWaiting=true;await new Promise(resolve=>{releaseAuth=resolve;});}
+      return value;
+    };
+    const starting=app.commands.get('tvijo.agent')();
+    for(let i=0;i<100&&!authWaiting;i++)await new Promise(resolve=>setTimeout(resolve,1));
+    assert.equal(authWaiting,true);
+    const updating=app.receive({type:'agentPreset',preset:'auto',scopeKey:app.scope('tenant-a')});
+    for(let i=0;i<100&&!modeWaiting;i++)await new Promise(resolve=>setTimeout(resolve,1));
+    assert.equal(modeWaiting,true);
+    releaseAuth();await starting;
+    assert.equal(app.requests.filter(r=>r.url.endsWith('/tasks')&&r.method==='POST').length,0);
+    releaseMode();await updating;
+    assert.equal(app.posts.filter(p=>p.type==='presetResult').at(-1).ok,true);
+  } finally {releaseAuth?.();releaseMode?.();app.close();}
+});
+
+test('Agent presets map to approval flags while leaving chat routing and Quick Edit settings alone', async () => {
+  const app = host();
+  try {
+    await app.receive({type:'ready'});
+    const scopeKey = app.scope('tenant-a');
+    app.settings.set('agentMode','council');
+    app.settings.set('autoApply',true);
+    const expected = [
+      ['manual',false,false], ['edit',true,false], ['plan',false,false], ['auto',true,true]
+    ];
+    for (const [preset, apply, run] of expected) {
+      await app.receive({type:'agentPreset',preset,scopeKey});
+      assert.equal(app.settings.get('agentAutoApply'),apply);
+      assert.equal(app.settings.get('agentAutoRun'),run);
+      const result = app.posts.filter(item => item.type === 'presetResult').at(-1);
+      assert.deepEqual({preset:result.preset,ok:result.ok},{preset,ok:true});
+      const options = app.posts.filter(item => item.type === 'state').at(-1).options;
+      assert.equal(options.agentMode,'council');
+      assert.equal(options.agentPreset,preset === 'plan' ? 'manual' : preset);
+      assert.equal(app.settings.get('autoApply'),true);
+    }
+  } finally { app.close(); }
+});
+
+test('external false/true approval values remain Custom and failed or overridden updates do not report success', async () => {
+  const custom = host();
+  try {
+    custom.settings.set('agentAutoApply',false); custom.settings.set('agentAutoRun',true);
+    await custom.receive({type:'ready'});
+    assert.equal(custom.posts.filter(item => item.type === 'state').at(-1).options.agentPreset,'custom');
+    const scopeKey = custom.scope('tenant-a');
+    await custom.receive({type:'agentPreset',preset:'auto',scopeKey:'stale-scope'});
+    assert.equal(custom.settings.get('agentAutoRun'),true);
+    assert.equal(custom.posts.filter(item => item.type === 'presetResult').length,0);
+  } finally { custom.close(); }
+  for (const update of [
+    async (key,value,settings) => { if (key === 'agentAutoRun') throw new Error('blocked synthetic setting update'); settings.set(key,value); },
+    async (key,value,settings) => { settings.set(key,key === 'agentAutoRun' ? false : value); }
+  ]) {
+    const app = host({configurationUpdate:update});
+    try {
+      await app.receive({type:'ready'});
+      await app.receive({type:'agentPreset',preset:'auto',scopeKey:app.scope('tenant-a')});
+      assert.equal(app.posts.filter(item => item.type === 'presetResult').at(-1).ok,false);
+      assert.ok(app.errors.length > 0);
+    } finally { app.close(); }
+  }
+});
+
+test('Auto requires both approval flags before unique replacements and new files can apply automatically', async () => {
+  const fs=require('node:fs');
+  for (const kind of ['unique replacement','new file']) {
+    const root=fs.mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'auto-permission-'));
+    const file=path.join(root,'code.js'), before='const old = 1;\n'; fs.writeFileSync(file,before);
+    const action=kind==='unique replacement'
+      ? {tool:'replace_in_file',path:'code.js',old:'const old = 1;',new:'const next = 2;'}
+      : {tool:'write_file',path:'new.js',content:'const created = true;\n'};
+    let applies=0;
+    const app=host({root,chatContent:JSON.stringify(action),applyEdit:async()=>{applies++;return true;}});
+    try {
+      app.settings.set('workspaceContext','off'); app.settings.set('agentAutoApply',false); app.settings.set('agentAutoRun',true); app.settings.set('agentMaxSteps',1);
+      if (kind==='unique replacement') app.editor({document:{uri:app.Uri.file(file),version:1,isClosed:false,getText:()=>before,positionAt:n=>n}});
+      await app.commands.get('tvijo.agent')();
+      assert.equal(applies,0,kind);
+      assert.equal(app.warnings.length,1,kind);
+      assert.match(app.warnings[0][0],/wants to write/);
+      assert.equal(fs.existsSync(path.join(root,'new.js')),false);
+      assert.equal(fs.readFileSync(file,'utf8'),before);
+    } finally { app.close(); }
+  }
+});
+
+test('a partial preset update restores its original flags and preserves a concurrent external value', async () => {
+  const app=host({configurationUpdate:async (key,value,settings) => {
+    if (key==='agentAutoApply' && value===true) { settings.set(key,value); return; }
+    if (key==='agentAutoRun' && value===true) { settings.set(key,value); throw new Error('simulated partial failure'); }
+    settings.set(key,value);
+  }});
+  try {
+    app.settings.set('agentAutoApply',false); app.settings.set('agentAutoRun',false);
+    await app.receive({type:'ready'});
+    await app.receive({type:'agentPreset',preset:'auto',scopeKey:app.scope('tenant-a'),requestId:'partial'});
+    assert.equal(app.settings.get('agentAutoApply'),false);
+    assert.equal(app.settings.get('agentAutoRun'),false);
+    assert.equal(app.posts.filter(item=>item.type==='presetResult').at(-1).ok,false);
+  } finally { app.close(); }
+
+  let externalChanged=false;
+  const concurrent=host({configurationUpdate:async (key,value,settings) => {
+    settings.set(key,value);
+    if (key==='agentAutoRun' && value===true && !externalChanged) { externalChanged=true; settings.set('agentAutoApply',false); }
+  }});
+  try {
+    concurrent.settings.set('agentAutoApply',false); concurrent.settings.set('agentAutoRun',false);
+    await concurrent.receive({type:'ready'});
+    await concurrent.receive({type:'agentPreset',preset:'auto',scopeKey:concurrent.scope('tenant-a'),requestId:'external'});
+    assert.equal(concurrent.settings.get('agentAutoApply'),false,'concurrent external setting is preserved');
+    assert.equal(concurrent.settings.get('agentAutoRun'),false,'the setter restores only its own still-current write');
+    assert.equal(concurrent.posts.filter(item=>item.type==='presetResult').at(-1).ok,false);
+  } finally { concurrent.close(); }
+});
+
+test('a deferred preset update detects workspace change and returns a scoped failure', async () => {
+  let began, finish;
+  const started=new Promise(resolve=>{began=resolve;});
+  const deferred=new Promise(resolve=>{finish=resolve;});
+  const app=host({configurationUpdate:async (key,value,settings) => { if (key==='agentAutoApply') { began(); await deferred; } settings.set(key,value); }});
+  try {
+    await app.receive({type:'ready'});
+    const pending=app.receive({type:'agentPreset',preset:'auto',scopeKey:app.scope('tenant-a'),requestId:'workspace-change'});
+    await started;
+    app.workspaceChanged();
+    finish();
+    await pending;
+    const result=app.posts.filter(item=>item.type==='presetResult').at(-1);
+    assert.deepEqual({ok:result.ok,requestId:result.requestId},{ok:false,requestId:'workspace-change'});
+    assert.equal(app.settings.get('agentAutoApply'),undefined);
+    assert.equal(app.settings.get('agentAutoRun'),undefined);
+  } finally { finish(); app.close(); }
+});
+
+test('a rejected concurrent preset does not release the in-flight setter lock', async () => {
+  let began, finish;
+  const started=new Promise(resolve=>{began=resolve;});
+  const deferred=new Promise(resolve=>{finish=resolve;});
+  const app=host({configurationUpdate:async (key,value,settings) => { if (key==='agentAutoApply') { began(); await deferred; } settings.set(key,value); }});
+  try {
+    await app.receive({type:'ready'});
+    const scopeKey=app.scope('tenant-a');
+    const first=app.receive({type:'agentPreset',preset:'auto',scopeKey,requestId:'first'});
+    await started;
+    await app.receive({type:'agentPreset',preset:'manual',scopeKey,requestId:'second'});
+    const secondResult=app.posts.filter(item=>item.type==='presetResult').find(item=>item.requestId==='second');
+    assert.equal(secondResult.ok,false);
+    finish(); await first;
+    const firstResult=app.posts.filter(item=>item.type==='presetResult').find(item=>item.requestId==='first');
+    assert.equal(firstResult.ok,true);
+    assert.equal(app.settings.get('agentAutoApply'),true);
+    assert.equal(app.settings.get('agentAutoRun'),true);
+  } finally { finish(); app.close(); }
+});
+
+test('a busy Agent cannot be escalated to another preset', async () => {
+  const app = host({chatContent:'{"tool":"list_dir","path":"."}'});
+  try {
+    await app.receive({type:'ready'});
+    const scopeKey = app.scope('tenant-a');
+    app.settings.set('workspaceContext','off');
+    app.blockResponse('/tasks/task-test/chat','POST');
+    const running = app.receive({type:'ask',scopeKey,question:'Inspect the workspace',agent:true,plan:false});
+    for (let i=0;i<100 && !app.responseWaiting();i++) await new Promise(resolve=>setTimeout(resolve,5));
+    assert.equal(app.responseWaiting(),true);
+    await app.receive({type:'agentPreset',preset:'auto',scopeKey,requestId:'busy'});
+    const result=app.posts.filter(item=>item.type==='presetResult').at(-1);
+    assert.deepEqual({scopeKey:result.scopeKey,requestId:result.requestId,ok:result.ok},{scopeKey,requestId:'busy',ok:false});
+    assert.equal(app.settings.get('agentAutoApply'),undefined);
+    assert.equal(app.settings.get('agentAutoRun'),undefined);
+    app.releaseResponse(); await running;
+  } finally { app.releaseResponse(); app.close(); }
+});
+
+test('Plan composer refuses ! commands, Quick Edit and coding Apply before dispatch', async () => {
+  const app = host();
+  try {
+    await app.receive({type:'ready'});
+    const scopeKey=app.scope('tenant-a');
+    await app.receive({type:'agentPreset',preset:'plan',scopeKey});
+    const before=app.requests.length;
+    for (const question of ['!echo no','/edit','/codeapply','/rewind']) await app.receive({type:'ask',scopeKey,question,agent:true,plan:true});
+    assert.equal(app.requests.length,before);
+    assert.equal(app.posts.filter(item=>item.type==='agent' && item.event?.type==='start').length,0);
+    assert.ok(app.errors.length >= 4);
   } finally { app.close(); }
 });
 
@@ -963,6 +1170,27 @@ test('agent autoApply always previews a diff and applies only a WorkspaceEdit', 
     assert.ok(app.executed.some(item => item.id === 'vscode.diff'));
     assert.equal(await fs.readFile(file, 'utf8'), before);
   } finally { app.close(); }
+});
+
+test('Auto applies unique replacements but asks before replacing an existing file wholesale', async () => {
+  const fs=require('node:fs');
+  for (const tool of ['replace_in_file','write_file']) {
+    const root=fs.mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'auto-write-'));
+    const file=path.join(root,'code.js'), before='const old = 1;\n'; fs.writeFileSync(file,before);
+    const action=tool==='replace_in_file'
+      ? {tool,path:'code.js',old:'const old = 1;',new:'const next = 2;'}
+      : {tool,path:'code.js',content:'const next = 2;\n'};
+    let applies=0;
+    const app=host({root,chatContent:JSON.stringify(action),applyEdit:async()=>{applies++;return true;}});
+    try {
+      app.settings.set('workspaceContext','off'); app.settings.set('agentAutoApply',true); app.settings.set('agentAutoRun',true); app.settings.set('agentMaxSteps',1);
+      app.editor({document:{uri:app.Uri.file(file),version:1,isClosed:false,getText:()=>before,positionAt:n=>n}});
+      await app.commands.get('tvijo.agent')();
+      if (tool==='replace_in_file') { assert.equal(applies,1); assert.equal(app.warnings.length,0); }
+      else { assert.equal(applies,0); assert.equal(app.warnings.length,1); assert.match(app.warnings[0][0],/wants to write/); }
+      assert.equal(fs.readFileSync(file,'utf8'),before);
+    } finally { app.close(); }
+  }
 });
 
 test('agent history trimming keeps system, original goal and first answer', async () => {

@@ -21,6 +21,7 @@ const customerConnection = require('./lib/byok');
 const workspaceContext = require('./lib/workspace-context');
 const quickEdit = require('./lib/quick-edit');
 const { runAgent } = require('./lib/agent');
+const modePresets = require('./lib/modes');
 const { createTools, safePath, autoCommand } = require('./lib/local-tools');
 const { createMetrics } = require('./lib/metrics');
 const { createCheckpoints } = require('./lib/checkpoints');
@@ -111,6 +112,7 @@ function activate(context) {
   }
   let pendingDraft = null;
   let busy = false;
+  let modeUpdatePending = false;
   let attaching = false;
   let attachments = [];
   let activeAbort = null;
@@ -220,6 +222,9 @@ function activate(context) {
       models,
       model: current,
       agentMode: configuration.get('agentMode', 'single'),
+      agentAutoApply: !!configuration.get('agentAutoApply', false),
+      agentAutoRun: !!configuration.get('agentAutoRun', false),
+      agentPreset: modePresets.presetFor(configuration.get('agentAutoApply', false), configuration.get('agentAutoRun', false)),
       agentModel,
       reasoningMethod: configuration.get('reasoningMethod', 'evidence-first'),
       contextMode: configuration.get('workspaceContext', 'ask'),
@@ -430,6 +435,9 @@ function activate(context) {
     ensureIdle();
     if (!goal?.trim()) return;
     const auth = await requireAuth();
+    // Authentication yields: a permission update can acquire the idle lock
+    // while it is pending. Snapshot settings only after checking again.
+    ensureIdle();
     const agentScope = shared.selection(auth.scope) ? shared.scope(auth.scope) : auth.scope;
     const agentHistory = shared.selection(auth.scope) ? [...historyFor(auth.scope), ...local.history(agentScope)] : historyFor(auth.scope);
     const editor = vscode.window.activeTextEditor;
@@ -498,7 +506,8 @@ function activate(context) {
             if (doc.getText() !== info.previous) throw new core.ServiceError('file_changed', 'Editor content changed.');
             writeVersions.set(info.absolute, doc.version);
           }
-          const approved = autoApply ? (await showProposedWrite(info.path, info.previous, info.content), true) : await confirmAgentWrite(info);
+          const autoSafe = autoApply && autoRun && modePresets.autoWritePolicy(info.operation, info.previous);
+          const approved = autoSafe ? true : autoRun ? await confirmAgentWrite(info) : autoApply ? (await showProposedWrite(info.path, info.previous, info.content), true) : await confirmAgentWrite(info);
           await guard(); return approved;
         },
         applyWrite: async ({ absolute, previous, content }) => {
@@ -662,7 +671,7 @@ function activate(context) {
   }
 
   function ensureIdle() {
-    if (rewindBusy || busy || attaching) throw new core.ServiceError('busy', 'Wait for the current question or attachment to finish.');
+    if (rewindBusy || busy || attaching || modeUpdatePending) throw new core.ServiceError('busy', 'Wait for the current question or attachment to finish.');
   }
 
   async function loadSharedThread(auth, selected) {
@@ -1729,7 +1738,7 @@ function activate(context) {
       view.webview.html = chatHtml(view.webview).replaceAll('Chat stays in this workspace and is separate from Copilot. Submitted tasks also appear in server history.', 'Use Commands to choose a shared project and server thread. Shared messages are available in your browser.');
       const listener = view.webview.onDidReceiveMessage(async (message) => {
         try {
-          if (['ask', 'attach', 'removeAttachment', 'previewAttachment', 'copy', 'openAnswer', 'new', 'cancel', 'workspace', 'selection', 'path', 'clearAttachments', 'tasks', 'usage', 'workflow', 'setOption', 'quickEdit', 'choosePack', 'copyCode', 'openExternal', 'agentMap'].includes(message?.type) && message.scopeKey !== undefined) {
+          if (['ask', 'attach', 'removeAttachment', 'previewAttachment', 'copy', 'openAnswer', 'new', 'cancel', 'workspace', 'selection', 'path', 'clearAttachments', 'tasks', 'usage', 'workflow', 'setOption', 'agentPreset', 'quickEdit', 'choosePack', 'copyCode', 'openExternal', 'agentMap'].includes(message?.type) && message.scopeKey !== undefined) {
             const auth = await requireAuth();
             if (message.scopeKey !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account changed. This action was not sent.');
           }
@@ -1778,6 +1787,80 @@ function activate(context) {
             if (message.key === 'workspaceContext' && message.value === 'ask') await context.globalState.update(CONTEXT_CONSENT, undefined);
             await vscode.workspace.getConfiguration('tvijo').update(message.key, message.value, vscode.ConfigurationTarget.Global);
             await postChatState();
+          } else if (message?.type === 'agentPreset') {
+            const settings = modePresets.PRESETS[message.preset];
+            if (!settings || !['manual', 'edit', 'plan', 'auto'].includes(message.preset)) throw new core.ServiceError('invalid_option', 'Unknown agent preset.');
+            const scope = message.scopeKey;
+            const epoch = workspaceEpoch;
+            let validScope = false;
+            let ownsModeLock = false;
+            let presetAuth = null;
+            const written = new Map();
+            let originals = null;
+            const assertCurrent = async (auth) => {
+              const authCurrent = await isCurrentAuth(auth);
+              if (!authCurrent || epoch !== workspaceEpoch || scope !== currentViewScope(auth.scope)) {
+                throw new core.ServiceError('account_changed', 'The account or workspace changed. This mode was not applied.');
+              }
+            };
+            try {
+              const auth = presetAuth = await requireAuth();
+              if (scope !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account changed. This mode was not applied.');
+              validScope = true;
+              await assertCurrent(auth);
+              if (modeUpdatePending || rewindBusy || busy || attaching) throw new core.ServiceError('busy', 'Wait for the current question, attachment or mode update to finish.');
+              modeUpdatePending = true;
+              ownsModeLock = true;
+              const target = vscode.ConfigurationTarget.Global;
+              const keys = ['agentAutoApply', 'agentAutoRun'];
+              const inspect = () => {
+                const config = vscode.workspace.getConfiguration('tvijo');
+                return Object.fromEntries(keys.map(key => [key, config.inspect(key)?.globalValue]));
+              };
+              originals = inspect();
+              const orderedKeys = keys.slice().sort((a, b) => Number(settings[a]) - Number(settings[b]));
+              for (const key of orderedKeys) {
+                if (originals[key] === settings[key]) continue;
+                const beforeUpdate = inspect()[key];
+                try {
+                  await vscode.workspace.getConfiguration('tvijo').update(key, settings[key], target);
+                  written.set(key, settings[key]);
+                } catch (error) {
+                  if (beforeUpdate !== settings[key] && inspect()[key] === settings[key]) written.set(key, settings[key]);
+                  throw error;
+                }
+                await assertCurrent(auth);
+              }
+              await assertCurrent(auth);
+              const effective = vscode.workspace.getConfiguration('tvijo');
+              const actual = { agentAutoApply: !!effective.get('agentAutoApply', false), agentAutoRun: !!effective.get('agentAutoRun', false) };
+              const globalActual = inspect();
+              if (actual.agentAutoApply !== settings.agentAutoApply || actual.agentAutoRun !== settings.agentAutoRun ||
+                  globalActual.agentAutoApply !== settings.agentAutoApply || globalActual.agentAutoRun !== settings.agentAutoRun) {
+                throw new core.ServiceError('mode_update', 'The effective settings did not match this preset.');
+              }
+              await postChatState();
+              await assertCurrent(auth);
+              await view.webview.postMessage({ type: 'presetResult', scopeKey: scope, requestId: message.requestId, preset: message.preset, ok: true });
+            } catch (error) {
+              if (originals) {
+                for (const key of ['agentAutoRun', 'agentAutoApply']) {
+                  if (!written.has(key)) continue;
+                  try {
+                    const current = vscode.workspace.getConfiguration('tvijo').inspect(key)?.globalValue;
+                    if (current === written.get(key)) {
+                      await vscode.workspace.getConfiguration('tvijo').update(key, originals[key], vscode.ConfigurationTarget.Global);
+                      if (presetAuth) await assertCurrent(presetAuth);
+                    }
+                  } catch { /* Keep the effective setting and report the observed state below. */ }
+                }
+              }
+              if (validScope) {
+                try { await postChatState(); } catch { /* The scoped failure result still releases the webview lock. */ }
+                await view.webview.postMessage({ type: 'presetResult', scopeKey: scope, requestId: message.requestId, preset: message.preset, ok: false });
+              }
+              throw error;
+            } finally { if (ownsModeLock) modeUpdatePending = false; }
           } else if (message?.type === 'ready') {
             await refreshStatus();
             if (pendingRewind && pendingRewind.workspaceKey === rewindWorkspace().key) await view.webview.postMessage(pendingRewind);
@@ -1815,6 +1898,9 @@ function activate(context) {
           } else if (message?.type === 'ask' && typeof message.question === 'string') {
             try {
               const action = slashAction(message.question);
+              if (message.agent && message.plan && modePresets.isPlanBypass(message.question, action)) {
+                throw new core.ServiceError('plan_mode', L('Switch to an Agent preset before using commands or write actions.', 'Переключитесь на режим агента перед командами или записью.'));
+              }
               const reference = fileReference(message.question);
               if (reference) { await attachPath(reference); await refreshStatus(); }
               else if (action) {
@@ -1864,7 +1950,7 @@ function activate(context) {
     vscode.window.showInformationMessage(`Tvijo: ${label} added to your knowledge base.`);
   });
 
-  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration('tvijo.pack')) refreshStatus(); if (e.affectsConfiguration('tvijo.model') || e.affectsConfiguration('tvijo.agentModel')) postChatState(); if (e.affectsConfiguration('tvijo.apiBase')) { authAttempt++; switchIdentity(null); } if (e.affectsConfiguration('tvijo.apiBase') || e.affectsConfiguration('tvijo.telegram.ownerId') || e.affectsConfiguration('tvijo.telegram.allowedServices') || (e.affectsConfiguration('tvijo.telegram.enabled') && !vscode.workspace.getConfiguration('tvijo').get('telegram.enabled', false))) { customerBot?.stop(); customerBot = null; refreshStatus(); } }));
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration('tvijo.pack')) refreshStatus(); if (e.affectsConfiguration('tvijo.model') || e.affectsConfiguration('tvijo.agentModel') || e.affectsConfiguration('tvijo.agentAutoApply') || e.affectsConfiguration('tvijo.agentAutoRun')) postChatState(); if (e.affectsConfiguration('tvijo.apiBase')) { authAttempt++; switchIdentity(null); } if (e.affectsConfiguration('tvijo.apiBase') || e.affectsConfiguration('tvijo.telegram.ownerId') || e.affectsConfiguration('tvijo.telegram.allowedServices') || (e.affectsConfiguration('tvijo.telegram.enabled') && !vscode.workspace.getConfiguration('tvijo').get('telegram.enabled', false))) { customerBot?.stop(); customerBot = null; refreshStatus(); } }));
   refreshStatus();
   if (vscode.workspace.getConfiguration('tvijo').get('telegram.enabled', false)) handlers.get('tvijo.startBot')().then(refreshStatus).catch(report);
 }
