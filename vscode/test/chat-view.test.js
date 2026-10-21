@@ -20,7 +20,7 @@ function sidebar(initialState = {}) {
       focus() { document.activeElement = this; }, replaceChildren(...nodes) { this.children = nodes; }, append(...nodes) { this.children = [...(this.children || []), ...nodes]; }, requestSubmit() {},
       querySelectorAll(selector) { const nodes=this.children||[]; return selector.includes(':not(:disabled)') ? nodes.filter(node=>!node.disabled) : nodes; },
       querySelector(selector) { const nodes=this.children||[]; return nodes.find(node=>selector.includes('aria-checked') ? node.attributes['aria-checked']==='true' : true); },
-      setAttribute(name, value) { this.attributes[name] = value; }, getAttribute(name) { return this.attributes[name]; }, click() { this.handlers?.click?.({target:this}); }
+      setAttribute(name, value) { this.attributes[name] = value; }, getAttribute(name) { return this.attributes[name]; }, click() { this.clicks=(this.clicks||0)+1; this.handlers?.click?.({target:this}); }
     });
     return elements.get(id);
   }
@@ -28,6 +28,9 @@ function sidebar(initialState = {}) {
   document.createElement = tag => { const node = { tag, textContent: '', children: [], attributes:{}, append(...nodes) { this.children.push(...nodes); }, addEventListener(type,fn) { (this.handlers ||= {})[type]=fn; }, setAttribute(name,value) { this.attributes[name]=value; }, getAttribute(name) { return this.attributes[name]; }, focus(){document.activeElement=this;}, click(){this.handlers?.click?.({target:this});} }; created.push(node); return node; };
   const window = { addEventListener(type, fn) { listeners.set(`window:${type}`, fn); } };
   const html = chatHtml({ cspSource: 'vscode-webview:' });
+  element('plus-menu').querySelectorAll = selector => selector.includes('[data-action-id]')
+    ? ['attach','mention-file','attach-problems','attach-terminal','clear-conversation','rewind-action','export-conversation','switch-model'].map(id=>{const node=element(id);node.dataset={actionId:{attach:'tvijo.attachFile','mention-file':'tvijo.mentionFile','attach-problems':'tvijo.attachProblems','attach-terminal':'tvijo.attachTerminal','clear-conversation':'tvijo.newConversation','rewind-action':'tvijo.rewind','export-conversation':'tvijo.export','switch-model':'tvijo.chooseWorkflow'}[id]};return node;})
+    : selector.includes('[role="menuitem"]') ? ['attach','mention-file','attach-problems','attach-terminal','workspace','selection','path','clear-conversation','rewind-action','export-conversation','switch-model','all-actions'].map(element) : [];
   const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
   assert.ok(script, 'webview script exists');
   vm.runInNewContext(script, { document, window, URL, acquireVsCodeApi: () => ({ postMessage: (message) => outgoing.push(message), getState: () => savedState, setState: (next) => { savedState = next; } }) });
@@ -456,12 +459,28 @@ test('narrow sidebar styles wrap footer actions without character-by-character c
   assert.match(html, /min-width:0;max-width:100%;white-space:normal;word-break:normal/);
 });
 
-test('Rewind header action shows metadata only, localizes and returns to chat with restore note',()=>{
-  const view=sidebar();view.emit('commands:click',{});assert.equal(view.element('actions-menu').hidden,false);
-  view.emit('rewind-action:click',{});assert.equal(view.outgoing.at(-1).type,'rewind');
+test('Rewind action in unified plus menu shows metadata only, localizes and returns to chat with restore note',()=>{
+  const view=sidebar();view.emit('plus:click',{});assert.equal(view.element('plus-menu').className,'open');
+  view.emit('rewind-action:click',{target:view.element('rewind-action')});assert.equal(view.outgoing.at(-1).type,'action');assert.equal(view.outgoing.at(-1).actionId,'tvijo.rewind');
   const runs=[{id:'r',title:'Test run',time:1,steps:[{step:2,time:1,model:'synthetic',files:['src/a.js']}]}];
   view.emit('window:message',{data:{type:'rewind',workspaceKey:'w',runs}});assert.equal(view.element('rewind').hidden,false);assert.equal(view.element('messages').hidden,true);
   view.emit('lang:click',{});assert.equal(view.element('rewind-title').textContent,'Восстановление');
   view.emit('window:message',{data:{type:'rewindResult',workspaceKey:'other',text:'stale'}});assert.equal(view.element('rewind').hidden,false);
   view.emit('window:message',{data:{type:'rewindResult',workspaceKey:'w',text:'Rewound to step 2: 1 files restored'}});assert.equal(view.element('rewind').hidden,true);assert.equal(view.element('messages').hidden,false);
+});
+
+test('unified plus menu keeps local upload, workspace action, keyboard access and pending disable state',()=>{
+  const view=sidebar();
+  const ids=['attach','mention-file','attach-problems','attach-terminal','workspace','selection','path','clear-conversation','rewind-action','export-conversation','switch-model','all-actions'];
+  assert.ok(ids.every(id=>view.element(id)));
+  view.emit('plus:click',{});
+  assert.equal(view.document.activeElement,view.element('attach'));
+  view.emit('plus-menu:keydown',{key:'ArrowDown',preventDefault(){}});
+  assert.equal(view.document.activeElement,view.element('mention-file'));
+  view.emit('attach:click',{target:view.element('attach')});
+  assert.equal(view.element('file').clicks,1);
+  assert.ok(!view.outgoing.some(item=>item.type==='action'&&item.actionId==='tvijo.attachFile'));
+  view.emit('window:message',{data:{type:'submission',scopeKey:'tenant-a',ok:false,question:'keep draft'}});
+  assert.equal(view.element('question').value,'');
+  assert.equal(view.element('send').disabled,false);
 });

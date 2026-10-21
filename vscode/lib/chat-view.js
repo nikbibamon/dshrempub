@@ -21,7 +21,7 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
 </style></head><body>
 <header><strong id="brand"><span id="brand-mark" aria-hidden="true">›_</span>DSHREM</strong><button id="pack-picker" type="button" hidden aria-haspopup="dialog"></button><button id="agent-map-button" type="button" aria-expanded="false" aria-controls="agent-map">⑂ Agent map</button><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="signin" type="button">Sign in</button><button id="new" class="icon" type="button" title="New session" aria-label="New session">＋</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings">⚙</button></header>
 <nav aria-label="Workspace"><button id="tab-chat" type="button" aria-selected="true">Chat</button><button id="tab-context" type="button" aria-selected="false">Context</button><button id="tab-usage" type="button" aria-selected="false">Usage</button><button id="tab-terminal" type="button" aria-selected="false">Terminal</button></nav>
-<div id="actions-menu" role="menu" aria-label="Actions" hidden><button id="rewind-action" type="button" role="menuitem">Rewind…</button><button id="all-actions" type="button" role="menuitem">All commands…</button></div><section id="rewind" aria-labelledby="rewind-title" hidden><div id="rewind-heading"><h2 id="rewind-title">Rewind</h2><button id="rewind-close" type="button">Back to chat</button></div><p id="rewind-hint"></p><p id="rewind-status" role="status"></p><div id="rewind-list"></div></section><main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
+<section id="rewind" aria-labelledby="rewind-title" hidden><div id="rewind-heading"><h2 id="rewind-title">Rewind</h2><button id="rewind-close" type="button">Back to chat</button></div><p id="rewind-hint"></p><p id="rewind-status" role="status"></p><div id="rewind-list"></div></section><main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
 <div id="agent-log" role="log" aria-live="polite"></div>
 <div class="product-links"><button id="product-guide" type="button">Tvijo AI guide</button><button id="connections" type="button">Connections</button><button id="tasks" type="button">Server task history</button><button id="context-preview" type="button">Preview context</button><button id="quick-edit" type="button">Quick edit</button></div>
@@ -29,7 +29,7 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
 <p id="history-note" class="mini-select">Chat stays in this workspace and is separate from Copilot. Submitted tasks also appear in server history.</p>
 <div id="account-status" role="status"><span class="dot">●</span><span id="connection-label">Limited free preview</span><span id="budget"></span></div>
 <form id="form"><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><p id="mode-help" role="note"></p><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode" aria-haspopup="menu" aria-controls="mode-menu" aria-expanded="false">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
-<div id="plus-menu" role="menu" aria-label="Add context"><button id="attach" type="button" role="menuitem">Add file…</button><button id="workspace" type="button" role="menuitem">Choose workspace file…</button><button id="selection" type="button" role="menuitem">Use editor selection</button><button id="path" type="button" role="menuitem">Paste workspace path…</button></div>
+<div id="plus-menu" role="menu" aria-label="Actions"><button id="attach" data-action-id="tvijo.attachFile" type="button" role="menuitem">Attach file…</button><button id="mention-file" data-action-id="tvijo.mentionFile" type="button" role="menuitem">Mention file…</button><button id="attach-problems" data-action-id="tvijo.attachProblems" type="button" role="menuitem">@problems</button><button id="attach-terminal" data-action-id="tvijo.attachTerminal" type="button" role="menuitem">@terminal</button><button id="workspace" type="button" role="menuitem">Choose workspace file…</button><button id="selection" type="button" role="menuitem">Use editor selection</button><button id="path" type="button" role="menuitem">Paste workspace path…</button><button id="clear-conversation" data-action-id="tvijo.newConversation" type="button" role="menuitem">Clear conversation</button><button id="rewind-action" data-action-id="tvijo.rewind" type="button" role="menuitem">Rewind…</button><button id="export-conversation" data-action-id="tvijo.export" type="button" role="menuitem">Export conversation as Markdown</button><button id="switch-model" data-action-id="tvijo.chooseWorkflow" type="button" role="menuitem">Switch model</button><button id="all-actions" type="button" role="menuitem">All commands…</button></div>
 <div id="mode-menu" role="menu" aria-label="Mode" hidden></div><div id="options-menu" role="menu" aria-label="Model and method"></div>
 <div id="notice" role="alert"><p id="notice-text"></p><button id="notice-action" type="button">Resolve task</button></div>
 <script nonce="${nonce}">
@@ -82,10 +82,7 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   let modeRequestSequence = 0;
   let rewindRuns = [], rewindChosen = null, rewindWorkspaceKey = null;
   const rewindPanel = document.getElementById('rewind');
-  const actionsMenu = document.getElementById('actions-menu');
   modeMenu.hidden = true;
-  actionsMenu.hidden = true;
-  function closeActions() {actionsMenu.hidden=true;document.getElementById('commands').setAttribute('aria-expanded','false');}
   function drawRewind() {
     renderRewind(document,document.getElementById('rewind-list'),rewindRuns,locale,id => {rewindChosen=id;drawRewind();},(runId,step) => {post({type:'rewindRestore',workspaceKey:rewindWorkspaceKey,runId,step});},rewindChosen);
   }
@@ -317,7 +314,6 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
     modeMenu.setAttribute('aria-label', t('mode'));
     document.getElementById('rewind-title').textContent = locale === 'ru' ? 'Восстановление' : 'Rewind';
     document.getElementById('rewind-action').textContent = locale === 'ru' ? 'Восстановление…' : 'Rewind…';
-    document.getElementById('all-actions').textContent = locale === 'ru' ? 'Все команды…' : 'All commands…';
     document.getElementById('rewind-close').textContent = locale === 'ru' ? 'Вернуться к чату' : 'Back to chat';
     document.getElementById('rewind-hint').textContent = locale === 'ru' ? 'Только на этом устройстве · 7 дней · до 50 МиБ. Изменённые файлы и удаление требуют подтверждения.' : 'On this machine only · 7 days · up to 50 MiB. Changed files and deletions need confirmation.';
     if (!rewindPanel.hidden) drawRewind();
@@ -328,6 +324,19 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
     document.getElementById('map-hint').textContent = locale === 'ru' ? 'Только выполненные шаги · — нет данных · Прокрутка ↔ ↕ · Стрелки — переход, Enter — подробности' : 'Executed steps only · — unknown · Scroll ↔ ↕ · Arrow keys navigate, Enter shows details';
     if (mapOpen) drawMap();
     document.getElementById('lang').textContent = locale === 'en' ? 'EN / RU' : 'RU / EN';
+    const actionLabels = locale === 'ru' ? {
+      'attach':'Прикрепить файл…','mention-file':'Упомянуть файл…','attach-problems':'@problems · Проблемы','attach-terminal':'@terminal · Вывод терминала',
+      'workspace':'Выбрать файл проекта…','selection':'Добавить выделение','path':'Вставить путь проекта…','clear-conversation':'Очистить диалог',
+      'rewind-action':'Восстановить…','export-conversation':'Экспортировать диалог в Markdown','switch-model':'Сменить модель','all-actions':'Все команды…'
+    } : {
+      'attach':'Attach file…','mention-file':'Mention file…','attach-problems':'@problems · Problems','attach-terminal':'@terminal · Terminal output',
+      'workspace':'Choose workspace file…','selection':'Use editor selection','path':'Paste workspace path…','clear-conversation':'Clear conversation',
+      'rewind-action':'Rewind…','export-conversation':'Export conversation as Markdown','switch-model':'Switch model','all-actions':'All commands…'
+    };
+    for (const [id, label] of Object.entries(actionLabels)) document.getElementById(id).textContent = label;
+    document.getElementById('plus').setAttribute('aria-label', locale === 'ru' ? 'Действия' : 'Actions');
+    document.getElementById('plus-menu').setAttribute('aria-label', locale === 'ru' ? 'Действия' : 'Actions');
+    document.getElementById('commands').setAttribute('aria-label', locale === 'ru' ? 'Действия' : 'Actions');
     document.getElementById('tab-chat').textContent = t('chat');
     document.getElementById('tab-context').textContent = t('context');
     document.getElementById('tab-usage').textContent = locale === 'ru' ? 'Расходы' : 'Usage';
@@ -667,16 +676,20 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   document.getElementById('quick-edit').addEventListener('click', () => post({ type: 'quickEdit' }));
   document.getElementById('workflow').addEventListener('click', () => { plusMenu.className = ''; document.getElementById('plus').setAttribute('aria-expanded','false'); const open = optionsMenu.className !== 'open'; optionsMenu.className = open ? 'open' : ''; document.getElementById('workflow').setAttribute('aria-expanded', String(open)); });
   document.getElementById('commands').setAttribute('aria-haspopup','menu');
-  document.getElementById('commands').addEventListener('click', () => { actionsMenu.hidden = !actionsMenu.hidden; document.getElementById('commands').setAttribute('aria-expanded',String(!actionsMenu.hidden)); if (!actionsMenu.hidden) document.getElementById('rewind-action').focus(); });
-  document.getElementById('rewind-action').addEventListener('click', () => {closeActions();post({type:'rewind'});});
-  document.getElementById('all-actions').addEventListener('click', () => {closeActions();post({type:'commands'});});
+  document.getElementById('commands').addEventListener('click', () => { plusMenu.className = plusMenu.className ? '' : 'open'; const open = plusMenu.className === 'open'; document.getElementById('plus').setAttribute('aria-expanded', String(open)); document.getElementById('commands').setAttribute('aria-expanded', String(open)); if (open) document.getElementById('attach').focus(); });
+  const closePlus = () => { plusMenu.className = ''; document.getElementById('plus').setAttribute('aria-expanded','false'); document.getElementById('commands').setAttribute('aria-expanded','false'); };
+  for (const button of plusMenu.querySelectorAll('[data-action-id]')) button.addEventListener('click', () => {closePlus();if(button.dataset.actionId==='tvijo.attachFile')fileInput.click();else post({type:'action',actionId:button.dataset.actionId});});
+  document.getElementById('all-actions').addEventListener('click', () => {closePlus();post({type:'commands'});});
   document.getElementById('rewind-close').addEventListener('click', () => {setTab('chat');document.getElementById('commands').focus();});
   document.getElementById('rewind').addEventListener('keydown', event => {if(event.key === 'Escape') {setTab('chat');document.getElementById('commands').focus();}});
-  actionsMenu.addEventListener('keydown', event => {
-    if(event.key === 'Escape') {closeActions();document.getElementById('commands').focus();}
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {event.preventDefault(); const next=document.activeElement?.id === 'rewind-action' ? 'all-actions' : 'rewind-action';document.getElementById(next).focus();}
+  plusMenu.addEventListener('keydown', event => {
+    const items = Array.from(plusMenu.querySelectorAll('[role="menuitem"]'));
+    const index = items.indexOf(document.activeElement);
+    if (event.key === 'Escape') {plusMenu.className='';document.getElementById('plus').setAttribute('aria-expanded','false');document.getElementById('plus').focus();}
+    else if (['ArrowDown','ArrowUp','Home','End'].includes(event.key)) {event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length;items[next]?.focus();}
+    else if(event.key==='Enter'||event.key===' '){event.preventDefault();document.activeElement?.click();}
   });
-  for (const type of ['workspace','selection','path']) document.getElementById(type).addEventListener('click', () => { plusMenu.className = ''; optionsMenu.className = ''; document.getElementById('plus').setAttribute('aria-expanded','false'); post({type}); });
+  for (const type of ['workspace','selection','path']) document.getElementById(type).addEventListener('click', () => { closePlus(); optionsMenu.className = ''; post({type}); });
   document.getElementById('tab-usage').addEventListener('click', () => { setTab('usage'); post({type:'usage'}); });
   document.getElementById('connections').addEventListener('click', () => post({type:'connections'}));
   document.getElementById('product-guide').addEventListener('click', () => post({type:'productGuide'}));
@@ -688,9 +701,8 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   document.getElementById('clear-context').addEventListener('click', () => post({type:'clearAttachments'}));
   document.getElementById('lang').addEventListener('click', () => { setLocale(locale === 'en' ? 'ru' : 'en'); post({type:'locale', value:locale}); });
   document.getElementById('theme').addEventListener('click', () => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system'));
-  document.body.addEventListener('keydown', event => { if (event.key === 'Escape') { if (plusMenu.className === 'open') { plusMenu.className = ''; document.getElementById('plus').setAttribute('aria-expanded','false'); document.getElementById('plus').focus(); } if (optionsMenu.className === 'open') { closeOptions(); document.getElementById('workflow').focus(); } } });
-  document.getElementById('plus').addEventListener('click', () => { closeOptions(); plusMenu.className = plusMenu.className ? '' : 'open'; document.getElementById('plus').setAttribute('aria-expanded', plusMenu.className === 'open' ? 'true' : 'false'); });
-  document.getElementById('attach').addEventListener('click', () => { plusMenu.className = ''; document.getElementById('plus').setAttribute('aria-expanded','false'); fileInput.click(); });
+  document.body.addEventListener('keydown', event => { if (event.key === 'Escape') { if (plusMenu.className === 'open') { closePlus(); document.getElementById('plus').focus(); } if (optionsMenu.className === 'open') { closeOptions(); document.getElementById('workflow').focus(); } } });
+  document.getElementById('plus').addEventListener('click', () => { closeOptions(); plusMenu.className = plusMenu.className ? '' : 'open'; document.getElementById('plus').setAttribute('aria-expanded', plusMenu.className === 'open' ? 'true' : 'false'); if (plusMenu.className === 'open') document.getElementById('attach').focus(); });
   fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
   question.addEventListener('paste', event => {
     const images = Array.from(event.clipboardData?.files || []).filter(file => file.type.startsWith('image/'));

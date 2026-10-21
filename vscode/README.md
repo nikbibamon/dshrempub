@@ -1,8 +1,28 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.7.0. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.7.2. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
+
+## Actions and context captures
+
+Use **+** (or the header actions button) for Attach file, Mention file, Problems,
+Terminal output, Clear conversation, Rewind, Export conversation as Markdown and
+Switch model. The menu is keyboard accessible and localized in English and Russian.
+Type `@src/file.js` or `@"path with spaces.js"` to resolve a workspace file before
+sending; ambiguous names require a picker. File references are attached as clearly
+labelled, untrusted context. Nothing is sent until you submit the message.
+
+Problems includes only current Error and Warning diagnostics with safe workspace
+paths. Terminal output is available only when this host observed shell integration
+output for the active workspace terminal. It keeps a bounded in-memory tail, strips
+terminal control sequences, and is never persisted. Both captures are labelled
+untrusted and previewable/removable before sending. Agent and Plan runs include the
+explicit attachments selected when the run starts.
+
+Markdown export includes conversation display text only and redacts known auth
+tokens and common credential patterns. Credential detection is best effort; review
+the exported document before sharing it.
 
 ## Rewind (local checkpoints)
 

@@ -24,6 +24,23 @@ test('agent parses one JSON action and accepts a fenced object', () => {
   assert.equal(parseAction('{"not_a_tool":true}'), null);
 });
 
+test('Agent and Plan runs receive explicit attachment context as untrusted data', async () => {
+  const { runAgent } = require('../lib/agent');
+  const { prepareAttachment, questionWithAttachments } = require('../lib/attachments');
+  const attachment = await prepareAttachment('src/example.js', Buffer.from('const value = 1;'));
+  for (const planMode of [false, true]) {
+    let sent;
+    await runAgent({
+      goal: questionWithAttachments('Review this file', [attachment]), planMode, maxSteps: 1,
+      tools: { execute: async () => ({ ok: true }) },
+      ask: async ({ messages }) => { sent = messages; return { content: '{"tool":"finish","answer":"Reviewed"}' }; }
+    });
+    const serialized = JSON.stringify(sent);
+    assert.match(serialized, /const value = 1/);
+    assert.match(serialized, /untrusted|not instructions/i);
+  }
+});
+
 test('agent loop executes a tool and stops on finish', async () => {
   const answers = ['{"tool":"read_file","path":"a.txt"}', '{"tool":"finish","answer":"done"}'];
   const events = [];

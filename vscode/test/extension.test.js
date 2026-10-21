@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const Module = require('node:module');
 const path = require('node:path');
+const fs = require('node:fs/promises');
 
 function memory(initial = {}) {
   const values = new Map(Object.entries(initial));
@@ -36,6 +37,7 @@ function host(options = {}) {
   let receive;
   let disposal;
   let workspaceChangeListener = null;
+  const configurationChangeListeners = [];
   let release;
   let blockGrant = false;
   let botAdapter;
@@ -66,7 +68,7 @@ function host(options = {}) {
     commands: { registerCommand: (id, fn) => { commands.set(id, fn); return disposable; }, executeCommand: async (id, ...args) => { executed.push({ id, args }); return commands.get(id)?.(...args); } },
     workspace: {
       getConfiguration: () => ({ get: (key, fallback) => key === 'apiBase' ? base : (settings.has(key) ? settings.get(key) : fallback), inspect: key => ({ globalValue: settings.get(key) }), update: async (key, value) => { if (options.configurationUpdate) return options.configurationUpdate(key, value, settings); settings.set(key, value); } }),
-      onDidChangeConfiguration: () => disposable,
+      onDidChangeConfiguration: fn => { configurationChangeListeners.push(fn); return disposable; },
       onDidChangeWorkspaceFolders: fn => { workspaceChangeListener = fn; return disposable; },
       workspaceFolders: [{ uri: Uri.file(root) }],
       getWorkspaceFolder: (uri) => uri?.fsPath?.startsWith(root + path.sep) ? { uri: Uri.file(root) } : undefined,
@@ -79,6 +81,8 @@ function host(options = {}) {
       get textDocuments() { return activeEditor ? [activeEditor.document] : []; },
       openTextDocument: async (doc) => { docs.push(doc); return doc?.fsPath && activeEditor?.document?.uri?.fsPath === doc.fsPath ? activeEditor.document : doc; }
     },
+    languages: { getDiagnostics: () => options.diagnostics || [] },
+    DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2 },
     window: {
       createWebviewPanel: () => {
         let listener;
@@ -95,6 +99,7 @@ function host(options = {}) {
       showInputBox: async () => 'Account A editor question',
       showQuickPick: async (choices, config) => options.pick?.(choices, config),
       get activeTextEditor() { return activeEditor; },
+      get activeTerminal() { return options.activeTerminal; },
       withProgress: async (_options, fn) => fn({}, { onCancellationRequested() {} })
     }
   };
@@ -103,6 +108,7 @@ function host(options = {}) {
   try {
     Module._load = function (id, ...args) {
       if (id === 'vscode') return vscode;
+      if (id === './lib/attachments' && options.prepareAttachment) return { ...originalLoad.call(this, id, ...args), prepareAttachment: options.prepareAttachment };
       if (id === './lib/telegram-bot' && options.captureBot) return { createBot: adapter => {
         botAdapter = adapter;
         return { start: async () => { await adapter.load(); return { username: 'synthetic' }; }, poll: async () => {}, stop() {}, running: false };
@@ -142,7 +148,7 @@ function host(options = {}) {
     onDidDispose: (fn) => { disposal = fn; }
   });
   const { tenantState, scopeKey } = require('../lib/tenant-state');
-  return { vscode, context, posts, docs, shown, warnings, requests, commands, executed, errors, panels, external, copied, base, local: tenantState(context), scope: tenant => scopeKey(base, tenant), receive: (message) => receive(message), workspaceChanged: () => workspaceChangeListener?.({}),
+  return { vscode, context, posts, docs, shown, warnings, requests, commands, executed, errors, panels, external, copied, base, local: tenantState(context), scope: tenant => scopeKey(base, tenant), receive: (message) => receive(message), workspaceChanged: () => { if (!workspaceChangeListener) return false; workspaceChangeListener({}); return true; }, configurationChanged: () => { for (const listener of configurationChangeListeners) listener({ affectsConfiguration: key => key === 'tvijo.apiBase' }); return configurationChangeListeners.length; },
     storage, botAdapter: () => botAdapter, settings, status, Uri, Position, Range,
     grantError: value => { grantError = value; }, lookup: value => { lookup = value; }, warning: value => { warningAnswer = value; }, chat: value => { chatContent = value; }, editor: value => { activeEditor = value; }, applied: () => appliedEdit, taskSnapshot: value => { taskSnapshot = value; },
     blockResponse: (requestPath, method = 'GET') => { blockedRequest = { path: requestPath, method }; }, responseWaiting: () => !!releaseRequest,
@@ -336,6 +342,170 @@ test('Agent steps and finalization combine pack with tool rules in one system me
     assert.equal(app.requests.filter(item => item.url.endsWith('/tasks')).at(-1).body.model, 'auto');
     assert.equal(app.errors.length, 0);
   } finally { app.close(); }
+});
+
+test('Agent and Plan extension host requests include attached context only after Ask and honor removal', async () => {
+  const baseDir = process.env.TVIJO_TEST_ARTIFACTS;
+  const root = path.join(baseDir, 'agent-attachment-workspace');
+  const file = path.join(root, 'notes.txt');
+  await fs.mkdir(root, { recursive: true });
+  await fs.writeFile(file, 'SYNTHETIC_ATTACHMENT_SENTINEL');
+  const app = host({ root, packs: syntheticPacks, chatContent: '{"tool":"finish","answer":"Synthetic answer"}' });
+  try {
+    app.settings.set('workspaceContext', 'off'); app.settings.set('agentMaxSteps', 1);
+    await app.commands.get('tvijo.attachFile')(app.Uri.file(file));
+    const attached = app.posts.filter(item => item.type === 'state').at(-1).attachments;
+    assert.equal(attached.length, 1);
+    assert.equal(app.requests.filter(item => item.url.endsWith('/chat')).length, 0, 'attaching never uploads to the model');
+    await app.receive({ type: 'removeAttachment', id: attached[0].id });
+    assert.equal(app.posts.filter(item => item.type === 'state').at(-1).attachments.length, 0);
+    await app.commands.get('tvijo.attachFile')(app.Uri.file(file));
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_GOAL', agent: true });
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_PLAN', agent: true, plan: true });
+    const bodies = app.requests.filter(item => item.url.endsWith('/chat')).map(item => item.body.messages.map(message => message.content).join('\n'));
+    assert.equal(bodies.length, 2);
+    assert.ok(bodies.every(body => body.includes('SYNTHETIC_ATTACHMENT_SENTINEL')));
+    assert.ok(bodies[0].includes('SYNTHETIC_GOAL') && bodies[1].includes('SYNTHETIC_PLAN'));
+    assert.equal(app.errors.length, 0);
+  } finally { app.close(); }
+});
+
+test('unified plus-menu actionId dispatch uses the registered Export handler', async () => {
+  const app = host();
+  try {
+    await app.receive({ type: 'ready' });
+    const scopeKey = app.posts.filter(item => item.type === 'state').at(-1).scopeKey;
+    await app.receive({ type: 'action', actionId: 'tvijo.export', scopeKey });
+    assert.ok(app.shown.some(item => item.language === 'markdown' || item.languageId === 'markdown') || app.docs.length > 0);
+    assert.equal(app.errors.length, 0);
+  } finally { app.close(); }
+});
+
+test('reserved problem references capture without a model call alone and attach bounded context inline', async () => {
+  const root = path.join(process.env.TVIJO_TEST_ARTIFACTS, 'problems-capture-workspace');
+  const source = path.join(root, 'src', 'main.js');
+  await fs.mkdir(path.dirname(source), { recursive: true }); await fs.writeFile(source, 'SYNTHETIC_SOURCE_CANARY;');
+  const app = host({ root, diagnostics: [[appUri(source), [{ severity: 0, range: { start: { line: 2 } }, message: 'SYNTHETIC_PROBLEM_CANARY' }]]] });
+  try {
+    await app.receive({ type: 'ready' });
+    const scopeKey = app.posts.filter(item => item.type === 'state').at(-1).scopeKey;
+    await app.receive({ type: 'ask', scopeKey, question: '@problems' });
+    assert.equal(app.requests.filter(item => item.url.endsWith('/chat')).length, 0, 'standalone reserved reference only attaches');
+    assert.equal(app.posts.filter(item => item.type === 'state').at(-1).attachments.length, 1);
+    await app.receive({ type: 'ask', scopeKey, question: 'Explain @src/main.js and @problems.' });
+    const chat = app.requests.filter(item => item.url.endsWith('/chat')).at(-1);
+    const content = chat.body.messages.map(item => item.content).join('\n');
+    assert.match(content, /Explain/); assert.match(content, /SYNTHETIC_PROBLEM_CANARY/); assert.match(content, /SYNTHETIC_SOURCE_CANARY/);
+    assert.equal(app.errors.length, 0);
+  } finally { app.close(); }
+});
+
+test('inline references cap at four, preserve email prose, and cancel ambiguous picks without submitting', async () => {
+  const root = path.join(process.env.TVIJO_TEST_ARTIFACTS, 'mention-host-workspace');
+  await fs.mkdir(path.join(root, 'src'), { recursive: true });
+  for (let i = 0; i < 5; i++) await fs.writeFile(path.join(root, 'src', 'a' + i + '.js'), 'SYNTHETIC_FILE_' + i);
+  const app = host({ root });
+  try {
+    await app.receive({ type: 'ready' });
+    const scopeKey = app.posts.filter(item => item.type === 'state').at(-1).scopeKey;
+    const question = 'Check @src/a0.js @src/a1.js @src/a2.js @src/a3.js @src/a4.js user@example.com!';
+    await app.receive({ type: 'ask', scopeKey, question });
+    const body = app.requests.filter(item => item.url.endsWith('/chat')).at(-1).body.messages.map(item => item.content).join('\n');
+    assert.ok(app.posts.some(item => item.type === 'state' && item.attachments?.length === 4), JSON.stringify(app.errors));
+    for (let i = 0; i < 4; i++) assert.ok(body.includes('SYNTHETIC_FILE_' + i));
+    assert.ok(!body.includes('SYNTHETIC_FILE_4'));
+    assert.match(body, /user@example\.com/);
+  } finally { app.close(); }
+
+  const ambiguousRoot = path.join(process.env.TVIJO_TEST_ARTIFACTS, 'mention-cancel-workspace');
+  await fs.mkdir(path.join(ambiguousRoot, 'one'), { recursive: true }); await fs.mkdir(path.join(ambiguousRoot, 'two'), { recursive: true });
+  await fs.writeFile(path.join(ambiguousRoot, 'one', 'same.js'), 'one'); await fs.writeFile(path.join(ambiguousRoot, 'two', 'same.js'), 'two');
+  const cancelled = host({ root: ambiguousRoot });
+  try {
+    await cancelled.receive({ type: 'ready' });
+    const scopeKey = cancelled.posts.filter(item => item.type === 'state').at(-1).scopeKey;
+    await cancelled.receive({ type: 'ask', scopeKey, question: 'Check @same.js' });
+    assert.equal(cancelled.requests.filter(item => item.url.endsWith('/chat')).length, 0);
+    assert.deepEqual(cancelled.posts.filter(item => item.type === 'submission').at(-1), { type: 'submission', scopeKey, ok: false, question: 'Check @same.js' });
+    assert.match(cancelled.errors.at(-1), /Choose a file/);
+  } finally { cancelled.close(); }
+});
+
+function appUri(fsPath) { return { fsPath, scheme: 'file' }; }
+
+test('terminal capture rejects header-only output and uses labelled direct output with a known workspace', async () => {
+  const root = path.join(process.env.TVIJO_TEST_ARTIFACTS, 'terminal-fallback-workspace');
+  await fs.mkdir(root, { recursive: true });
+  const app = host({ root, chatContent: '{"tool":"run_command","command":"printf SYNTHETIC_DIRECT_OUTPUT"}' });
+  try {
+    await app.receive({ type: 'ready' });
+    const scopeKey = app.posts.filter(item => item.type === 'state').at(-1).scopeKey;
+    await app.commands.get('tvijo.attachTerminal')();
+    assert.equal(app.errors.length, 1);
+    assert.match(app.errors[0], /No observed output/);
+    await app.receive({ type: 'ask', scopeKey, question: '@terminal' });
+    const rejected = app.posts.filter(item => item.type === 'submission').at(-1);
+    assert.deepEqual({ ok: rejected.ok, question: rejected.question }, { ok: false, question: '@terminal' });
+    assert.equal(app.errors.length, 2);
+    app.warning('Run command');
+    await app.receive({ type: 'ask', scopeKey, question: 'Run a local command', agent: true });
+    await app.commands.get('tvijo.attachTerminal')();
+    const attachments = app.posts.filter(item => item.type === 'state').at(-1).attachments;
+    assert.ok(attachments.some(item => item.name === 'terminal-output.txt'));
+    await app.receive({ type: 'ask', scopeKey, question: 'Review attached command output' });
+    const body = app.requests.filter(item => item.url.endsWith('/chat')).at(-1).body.messages.map(item => item.content).join('\n');
+    assert.match(body, /Untrusted Extension run_command output/);
+    assert.match(body, /SYNTHETIC_DIRECT_OUTPUT/);
+    assert.equal(app.errors.length, 2);
+  } finally { app.close(); }
+});
+
+test('delayed attachment preparation rejects auth A to B to A and workspace changes', async () => {
+  for (const changed of ['auth', 'workspace']) {
+    const root = path.join(process.env.TVIJO_TEST_ARTIFACTS, 'stale-attachment-' + changed);
+    const file = path.join(root, 'capture.txt');
+    await fs.mkdir(root, { recursive: true }); await fs.writeFile(file, 'SYNTHETIC_CAPTURE');
+    let entered; const reachedPrepare = new Promise(resolve => { entered = resolve; });
+    let release; const gate = new Promise(resolve => { release = resolve; });
+    const app = host({ root, prepareAttachment: async (name, bytes) => {
+      entered(); await gate;
+      return { id: 'delayed-attachment', name, kind: 'text', text: bytes.toString('utf8'), size: bytes.length, sha256: 'synthetic' };
+    } });
+    try {
+      const attaching = app.commands.get('tvijo.attachFile')(app.Uri.file(file));
+      await reachedPrepare;
+      if (changed === 'auth') { assert.ok(app.configurationChanged() > 0); app.configurationChanged(); await app.receive({ type: 'ready' }); }
+      else assert.equal(app.workspaceChanged(), true);
+      release();
+      await attaching;
+      assert.match(app.errors.at(-1), /account or workspace changed/, changed + ' epoch must invalidate delayed prep');
+      assert.equal(app.posts.filter(item => item.type === 'state').at(-1).attachments.length, 0);
+    } finally { release(); app.close(); }
+  }
+});
+
+test('delayed cached terminal capture cannot attach across auth A to B to A', async () => {
+  const root = path.join(process.env.TVIJO_TEST_ARTIFACTS, 'stale-terminal-workspace');
+  await fs.mkdir(root, { recursive: true });
+  let entered; const reachedPrepare = new Promise(resolve => { entered = resolve; });
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  const app = host({ root, chatContent: '{"tool":"run_command","command":"printf SYNTHETIC_TERMINAL_CAPTURE"}', prepareAttachment: async (name, bytes) => {
+    if (name !== 'terminal-output.txt') throw new Error('Unexpected attachment preparation');
+    entered(); await gate;
+    return { id: 'delayed-terminal', name, kind: 'text', text: bytes.toString('utf8'), size: bytes.length, sha256: 'synthetic' };
+  } });
+  try {
+    await app.receive({ type: 'ready' });
+    app.warning('Run command');
+    await app.receive({ type: 'ask', scopeKey: app.posts.filter(item => item.type === 'state').at(-1).scopeKey, question: 'Capture command output', agent: true });
+    const attaching = app.commands.get('tvijo.attachTerminal')();
+    await reachedPrepare;
+    app.configurationChanged(); app.configurationChanged();
+    await app.receive({ type: 'ready' });
+    release(); await attaching;
+    assert.match(app.errors.at(-1), /account or workspace changed/);
+    assert.ok(!app.posts.filter(item => item.type === 'state').at(-1).attachments.some(item => item.name === 'terminal-output.txt'));
+  } finally { release(); app.close(); }
 });
 
 test('native pack picker writes only tvijo.pack and localized header/status show the chosen pack', async () => {
@@ -1436,4 +1606,23 @@ test('checkpoint I/O failure blocks actual Agent Apply and never leaks storage e
     const outbound=JSON.stringify(app.requests);for(const value of [app.storage,'rewind-v1','00000000.json','INVALID_LOCAL_STORAGE_SENTINEL','JSON.parse','SyntaxError'])assert.ok(!outbound.includes(value));
     const result=app.posts.find(item=>item.type==='agent' && item.event.type==='result');assert.equal(result.event.result.ok,false);assert.equal(result.event.result.error,'The edit could not be safely applied.');
   }finally{app.close();}
+});
+
+test('standalone file mention only attaches; inline mentions retain the visible original question', async () => {
+  const root = path.join(process.env.TVIJO_TEST_ARTIFACTS, 'standalone-mention-root');
+  await fs.mkdir(root, {recursive:true}); await fs.writeFile(path.join(root,'canary.txt'), 'ATTACHED_BODY_CANARY');
+  const app=host({root, diagnostics:[[appUri(path.join(root,'canary.txt')),[{severity:0,range:{start:{line:0}},message:'PROBLEM_CANARY'}]]]});
+  try {
+    await app.receive({type:'ready'});
+    const scopeKey=app.posts.filter(x=>x.type==='state').at(-1).scopeKey;
+    await app.receive({type:'ask', scopeKey, question:'@canary.txt'});
+    assert.equal(app.requests.filter(x=>x.url.endsWith('/tasks')).length,0);
+    assert.equal(app.posts.filter(x=>x.type==='state').at(-1).attachments.length,1);
+    const question='Explain @canary.txt and @problems.';
+    await app.receive({type:'ask',scopeKey,question});
+    const history=app.local.history(app.scope('tenant-a'));
+    assert.ok(history.find(x=>x.role==='user').display.startsWith(question));
+    assert.match(app.requests.filter(x=>x.url.endsWith('/chat')).at(-1).body.messages.map(x=>x.content).join(' '),/ATTACHED_BODY_CANARY/);
+    assert.equal(app.errors.length,0);
+  } finally {app.close();}
 });

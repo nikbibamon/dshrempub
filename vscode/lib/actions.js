@@ -14,7 +14,7 @@ const ACTIONS = [
   ['tvijo.terminal', 'Open project terminal', '/terminal'],
   ['tvijo.learn', 'Learn DSHREM', '/learn'],
   ['tvijo.feedback', 'Send feedback', '/feedback'],
-  ['tvijo.chooseWorkflow', 'Choose model and workflow', '/workflow'],
+  ['tvijo.chooseWorkflow', 'Switch model', '/model'],
   ['tvijo.configureBot', 'Configure Telegram bot', '/botsetup'],
   ['tvijo.startBot', 'Start Telegram bot', '/botstart'],
   ['tvijo.stopBot', 'Stop Telegram bot', '/botstop'],
@@ -22,6 +22,9 @@ const ACTIONS = [
   ['tvijo.buyCredit', 'Request $10 service credit', '/credit'],
   ['tvijo.openChat', 'Open chat', ''],
   ['tvijo.attachFile', 'Attach workspace file', '/attach'],
+  ['tvijo.mentionFile', 'Mention a workspace file', '/mention'],
+  ['tvijo.attachProblems', 'Attach workspace problems', '/problems'],
+  ['tvijo.attachTerminal', 'Attach terminal output', '/terminal-output'],
   ['tvijo.attachPath', 'Attach by path', '/attach path/to/file'],
   ['tvijo.attachSelection', 'Attach selected code', '/selection'],
   ['tvijo.quickEdit', 'Quick edit the current file with a diff', '/edit'],
@@ -30,14 +33,14 @@ const ACTIONS = [
   ['tvijo.contextPreview', 'Preview bounded project context', '/context'],
   ['tvijo.clearAttachments', 'Clear attachments', '/clear'],
   ['tvijo.addFileToKnowledge', 'Add current file to knowledge base', 'explicit upload with confirmation'],
-  ['tvijo.newConversation', 'New conversation', '/new'],
+  ['tvijo.newConversation', 'Clear conversation', '/new'],
   ['tvijo.cancelPending', 'Cancel pending task', '/cancel'],
   ['tvijo.account', 'Account and credit', '/account'],
   ['tvijo.tasks', 'Recent tasks and spending', '/tasks'],
   ['tvijo.status', 'Check service connection', '/status'],
   ['tvijo.metrics', 'Local usage metrics', '/metrics'],
   ['tvijo.startFirstTask', 'Start your first task (guided)', '/start'],
-  ['tvijo.export', 'Export conversation', '/export'],
+  ['tvijo.export', 'Export conversation as Markdown', '/export'],
   ['tvijo.signIn', 'Sign in', '/signin'],
   ['tvijo.signOut', 'Sign out', '/signout'],
   ['tvijo.settings', 'Settings', '/settings'],
@@ -49,16 +52,20 @@ const SLASH = {
   code: 'tvijo.codingTask', codediff: 'tvijo.openCodingTask', codeapply: 'tvijo.applyCoding',
   usage: 'tvijo.usage', connections: 'tvijo.connections', guide: 'tvijo.productGuide',
   terminal: 'tvijo.terminal', learn: 'tvijo.learn', feedback: 'tvijo.feedback',
-  workflow: 'tvijo.chooseWorkflow', botsetup: 'tvijo.configureBot', botstart: 'tvijo.startBot', botstop: 'tvijo.stopBot', bot: 'tvijo.botGuide', credit: 'tvijo.buyCredit',
+  workflow: 'tvijo.chooseWorkflow', model: 'tvijo.chooseWorkflow', botsetup: 'tvijo.configureBot', botstart: 'tvijo.startBot', botstop: 'tvijo.stopBot', bot: 'tvijo.botGuide', credit: 'tvijo.buyCredit',
   help: 'tvijo.help', new: 'tvijo.newConversation', attach: 'tvijo.attachFile', selection: 'tvijo.attachSelection',
   clear: 'tvijo.clearAttachments', cancel: 'tvijo.cancelPending', account: 'tvijo.account', tasks: 'tvijo.tasks',
+  mention: 'tvijo.mentionFile', problems: 'tvijo.attachProblems', 'terminal-output': 'tvijo.attachTerminal',
   status: 'tvijo.status', export: 'tvijo.export', signin: 'tvijo.signIn', signout: 'tvijo.signOut', settings: 'tvijo.settings',
   metrics: 'tvijo.metrics', метрики: 'tvijo.metrics',
   start: 'tvijo.startFirstTask', старт: 'tvijo.startFirstTask',
-  model: 'tvijo.chooseWorkflow', context: 'tvijo.contextPreview', edit: 'tvijo.quickEdit',
+  context: 'tvijo.contextPreview', edit: 'tvijo.quickEdit',
   agent: 'tvijo.agent', plan: 'tvijo.agentPlan',
   модель: 'tvijo.chooseWorkflow', контекст: 'tvijo.contextPreview', правка: 'tvijo.quickEdit', агент: 'tvijo.agent', план: 'tvijo.agentPlan', помощь: 'tvijo.help', новая: 'tvijo.newConversation'
 };
+
+const ACTION_BY_ID = Object.freeze(Object.fromEntries(ACTIONS.map(([id, label, slash]) => [id, Object.freeze({ id, label, slash })])));
+const PLUS_ACTIONS = Object.freeze(['tvijo.attachFile', 'tvijo.mentionFile', 'tvijo.attachProblems', 'tvijo.attachTerminal', 'tvijo.newConversation', 'tvijo.rewind', 'tvijo.export', 'tvijo.chooseWorkflow']);
 
 function slashAction(question) {
   if (!question.trim().startsWith('/')) return null;
@@ -82,4 +89,4 @@ function fileReference(question) {
   return path.isAbsolute(value) || /^\.{1,2}[\/\\]/.test(value) || /^[\w.@-]+\/.+/.test(value) ? value : null;
 }
 
-module.exports = { ACTIONS, slashAction, fileReference };
+module.exports = { ACTIONS, ACTION_BY_ID, PLUS_ACTIONS, SLASH, slashAction, fileReference };

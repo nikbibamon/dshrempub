@@ -2,7 +2,7 @@
   "name": "tvijo-dshrem",
   "displayName": "Tvijo DSHREM",
   "description": "Managed coding and bounded reviews for shared projects with a per-task spending cap. Provider API credentials remain on the service.",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "repository": {
     "type": "git",
     "url": "https://github.com/nikbibamon/dshrempub.git",
@@ -127,6 +127,21 @@
       {
         "command": "tvijo.attachFile",
         "title": "Attach workspace file",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.mentionFile",
+        "title": "Mention or attach workspace file",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.attachProblems",
+        "title": "Attach workspace problems",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.attachTerminal",
+        "title": "Attach observed terminal output",
         "category": "Tvijo"
       },
       {

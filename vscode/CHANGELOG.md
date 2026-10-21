@@ -1,3 +1,16 @@
+## 0.7.2 — 2026-10-21
+
+- Add the shared `+` and slash action registry for workspace file attachment/mentions,
+  safe Problems and observed Terminal captures, conversation actions, Rewind, export
+  and model switching. The compact EN/RU action menu supports keyboard navigation.
+- Resolve inline workspace file mentions before sending, with a bounded ambiguity
+  picker and workspace, symlink and secret-path checks. Captures are labelled untrusted,
+  previewable and removable; explicit attachments are snapshotted into Agent/Plan runs.
+- Add optional VS Code shell-integration tail capture (4 terminals, 100 lines and 8 KiB),
+  resetting on account/workspace changes. Add bounded allowlisted Markdown export with
+  known-token and common-credential redaction.
+- Version 0.7.2. No service route or setting changes.
+
 ## 0.7.1 — 2026-10-21
 
 - Add a compact English/Russian Chat and Agent preset picker: Manual, Edit automatically,
