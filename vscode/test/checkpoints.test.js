@@ -100,6 +100,23 @@ test('size pruning removes oldest even when under TTL, while oversized capture p
   fs.writeFileSync(f.file,'a'.repeat(2000));assert.throws(()=>f.capture(4,'four'),/storage limit/);
   assert.deepEqual(f.store.list(f.root)[0].steps.map(item=>item.step),[3]);
 });
+test('failed staging open, write or fsync preserves published recovery points and record enumeration',()=>{
+  let failure=null;
+  const io={
+    openSync:(...args)=>{if(failure==='open' && String(args[0]).endsWith('.tmp'))throw Object.assign(new Error('injected open failure'),{code:'ENOSPC'});return fs.openSync(...args);},
+    writeFileSync:(...args)=>{if(failure==='write')throw Object.assign(new Error('injected write failure'),{code:'ENOSPC'});return fs.writeFileSync(...args);},
+    fsyncSync:(...args)=>{if(failure==='fsync')throw Object.assign(new Error('injected fsync failure'),{code:'ENOSPC'});return fs.fsyncSync(...args);},
+  };
+  let clock=100;const f=fixture({now:()=>clock++,maxBytes:600,io});fs.writeFileSync(f.file,'old');f.capture(1,'one');
+  for(const stage of ['open','write','fsync']){
+    failure=stage;
+    assert.throws(()=>f.capture(2,stage),/injected/);
+    failure=null;
+    const listed=f.store.list(f.root);
+    assert.deepEqual(listed[0].steps.map(item=>item.step),[1]);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(f.storage,'rewind-v1',fs.readdirSync(path.join(f.storage,'rewind-v1')).find(name=>name.endsWith('.json'))),'utf8')).files[0].before,Buffer.from('old').toString('base64'));
+  }
+});
 test('user disk edits prompt with skip per file; affirmative restores exact previous bytes',async()=>{
   const f=fixture();fs.writeFileSync(f.file,'old');f.capture(1,'agent');fs.writeFileSync(f.file,'user');let prompts=0;
   const confirm=async info=>{prompts++;assert.equal(info.conflict,true);assert.equal(info.deletion,false);return false;};
@@ -120,6 +137,18 @@ test('changes during conflict prompt or editor Apply refuse to overwrite new use
   const f=fixture();fs.writeFileSync(f.file,'old');f.capture(1,'agent');fs.writeFileSync(f.file,'user');
   await assert.rejects(restore(f,{confirm:async()=>{fs.writeFileSync(f.file,'newer user');return true;}}),/changed during/);
   assert.equal(fs.readFileSync(f.file,'utf8'),'newer user');
+});
+test('restore refuses a target path replaced immediately before its non-truncating open',async()=>{
+  const f=fixture({beforeRestoreOpen:async target=>{fs.renameSync(target,target+'.saved');fs.writeFileSync(target,'replacement');}});
+  fs.writeFileSync(f.file,'old');f.capture(1,'agent');fs.writeFileSync(f.file,'agent');
+  await assert.rejects(restore(f),/replaced during Rewind/);
+  assert.equal(fs.readFileSync(f.file,'utf8'),'replacement');assert.equal(fs.readFileSync(f.file+'.saved','utf8'),'agent');
+});
+test('restore refuses same-inode content changes immediately before its open',async()=>{
+  const f=fixture({beforeRestoreOpen:async target=>fs.writeFileSync(target,'raced content')});
+  fs.writeFileSync(f.file,'old');f.capture(1,'agent');fs.writeFileSync(f.file,'agent');
+  await assert.rejects(restore(f),/content changed during Rewind/);
+  assert.equal(fs.readFileSync(f.file,'utf8'),'raced content');
 });
 test('snapshot checksum corruption blocks restore before any workspace mutation',async()=>{
   const f=fixture();fs.writeFileSync(f.file,'old');f.capture(1,'agent');fs.writeFileSync(f.file,'agent');
@@ -161,4 +190,16 @@ test('three-file recovery matches every original SHA256',async()=>{
   for(const file of files)fs.writeFileSync(file.absolute,file.before);
   f.store.capture({root:f.root,runId:'run',step:1,files});for(const file of files)fs.writeFileSync(file.absolute,file.content);
   assert.equal((await restore(f)).restored,3);for(const file of files)assert.equal(hash(fs.readFileSync(file.absolute)),hash(file.before));
+});
+
+test('restore recreates a user-deleted original only after explicit approval and refuses a concurrent replacement',async()=>{
+  const f=fixture();fs.writeFileSync(f.file,'original');f.capture(1,'agent');fs.unlinkSync(f.file);
+  let confirmations=0;
+  await restore(f,{confirm:async info=>{confirmations++;assert.equal(info.conflict,true);return false;}});
+  assert.equal(fs.existsSync(f.file),false);
+  await restore(f,{confirm:async()=>{confirmations++;return true;}});
+  assert.equal(fs.readFileSync(f.file,'utf8'),'original');assert.equal(confirmations,2);
+  const raced=fixture({beforeRestoreOpen:async target=>fs.writeFileSync(target,'concurrent creation')});
+  fs.writeFileSync(raced.file,'original');raced.capture(1,'agent');fs.unlinkSync(raced.file);
+  await assert.rejects(restore(raced),/EEXIST/);assert.equal(fs.readFileSync(raced.file,'utf8'),'concurrent creation');
 });

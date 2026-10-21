@@ -1,5 +1,8 @@
 ## 0.7.0 — 2026-10-21
 
+- Acceptance correction: commit each new snapshot before pruning older recovery points;
+  failed storage writes preserve existing points. Restore validates opened file identity
+  and bytes before writing, and recreates a deleted original only after approval.
 - SPEC-215 slice 1: local Rewind checkpoints before Agent write/replace, Quick Edit,
   and reviewed coding proposal Apply. Disk bytes and editor input are preserved under
   global storage, with SHA256 verification, a seven-day TTL and a 50 MiB total cap.

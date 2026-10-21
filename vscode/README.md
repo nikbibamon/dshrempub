@@ -437,3 +437,8 @@ private environment file. `/services` shows only those units.
 60 seconds performs that exact restart. It consumes the confirmation before
 running, never retries a restart, and still requires OS-level service permissions.
 It cannot run arbitrary shell commands or restart units outside your allowlist.
+
+Rewind publishes each new checkpoint before pruning old recovery points. Published records
+are capped at 50 MiB; atomic staging can temporarily require another 50 MiB. A failed
+capture blocks the edit and preserves previous recovery points. Other processes can still
+change files during recovery; detected conflicts stop recovery and are reported.

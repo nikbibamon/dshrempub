@@ -18,7 +18,7 @@ function noLinks(target) {
     catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
 }
-function readBytes(target) {
+function readSnapshot(target) {
   noLinks(target);
   let fd;
   try {
@@ -26,12 +26,13 @@ function readBytes(target) {
     const stat = fs.fstatSync(fd);
     if (!stat.isFile() || stat.nlink !== 1) throw new Error('Rewind requires a regular, unlinked file.');
     if (stat.size > MAX_BYTES) throw new Error('File exceeds Rewind storage limit.');
-    return fs.readFileSync(fd);
-  } catch (error) { if (error.code === 'ENOENT') return absent; throw error; }
+    return { bytes: fs.readFileSync(fd), stat };
+  } catch (error) { if (error.code === 'ENOENT') return { bytes: absent, stat: null }; throw error; }
   finally { if (fd !== undefined) fs.closeSync(fd); }
 }
+function readBytes(target) { return readSnapshot(target).bytes; }
 const fingerprint = value => value === null ? null : hash(value);
-function createCheckpoints(storagePath, { now = Date.now, maxBytes = MAX_BYTES, ttl = TTL } = {}) {
+function createCheckpoints(storagePath, { now = Date.now, maxBytes = MAX_BYTES, ttl = TTL, io = {}, beforeRestoreOpen = async () => {} } = {}) {
   const directory = storagePath && path.join(storagePath, 'rewind-v1');
   let locked = false;
   let lastCaptureTime = -Infinity;
@@ -78,10 +79,28 @@ function createCheckpoints(storagePath, { now = Date.now, maxBytes = MAX_BYTES, 
     }) };
     const bytes = Buffer.from(JSON.stringify(record));
     if (bytes.length > maxBytes) throw new Error('Rewind checkpoint exceeds storage limit; edit refused.');
-    prune(bytes.length);
-    const target = path.join(directory, randomUUID() + '.json');
-    const fd = fs.openSync(target, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
-    try { fs.writeFileSync(fd, bytes); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    storage();
+    // Keep the staging name outside records()' JSON filename filter. A failed
+    // write/fsync therefore cannot make enumeration parse a partial record.
+    // During staging, old valid records plus this one bounded record may use
+    // up to twice maxBytes; stable published records are pruned back to maxBytes.
+    const id = randomUUID(), staging = path.join(directory, `.${id}.tmp`), target = path.join(directory, id + '.json');
+    const open = io.openSync || fs.openSync, write = io.writeFileSync || fs.writeFileSync;
+    const sync = io.fsyncSync || fs.fsyncSync, rename = io.renameSync || fs.renameSync;
+    const fd = open(staging, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
+    try { write(fd, bytes); sync(fd); }
+    catch (error) { fs.closeSync(fd); try { fs.unlinkSync(staging); } catch {} throw error; }
+    fs.closeSync(fd);
+    rename(staging, target);
+    let dirFd;
+    try { dirFd = fs.openSync(directory, fs.constants.O_RDONLY); fs.fsyncSync(dirFd); }
+    catch (error) {
+      // Some supported platforms/filesystems cannot fsync a directory. The
+      // record file itself was fsynced before the atomic rename.
+      if (!['EINVAL', 'ENOTSUP', 'EISDIR', 'EPERM'].includes(error.code)) throw error;
+    }
+    finally { if (dirFd !== undefined) fs.closeSync(dirFd); }
+    prune();
     return record;
   }
   function list(root) {
@@ -113,9 +132,9 @@ function createCheckpoints(storagePath, { now = Date.now, maxBytes = MAX_BYTES, 
         const target = safePath(root, file.path);
         const before = file.before === null ? null : Buffer.from(file.before, 'base64');
         if (fingerprint(before) !== file.beforeHash) throw new Error('Rewind snapshot checksum mismatch.');
-        const current = readBytes(target), document = await inspect(target);
+        const current = readSnapshot(target), document = await inspect(target);
         const text = document?.getText(), version = document?.version;
-        const diskHash = fingerprint(current), bufferHash = text === undefined ? null : hash(Buffer.from(text));
+        const diskHash = fingerprint(current.bytes), bufferHash = text === undefined ? null : hash(Buffer.from(text));
         const conflict = ![file.beforeHash, file.afterHash].includes(diskHash) || (bufferHash !== null && bufferHash !== file.afterHash);
         if (before === null || conflict) {
           const approved = await confirm({ path: file.path, deletion: before === null, conflict });
@@ -124,7 +143,8 @@ function createCheckpoints(storagePath, { now = Date.now, maxBytes = MAX_BYTES, 
         await guard();
         const latestDocument = await inspect(target);
         safePath(root, file.path);
-        if (latestDocument !== document || fingerprint(readBytes(target)) !== diskHash || (document && (document.getText() !== text || document.version !== version))) throw new Error('File changed during Rewind confirmation. Try again.');
+        const latest = readSnapshot(target);
+        if (latestDocument !== document || fingerprint(latest.bytes) !== diskHash || (document && (document.getText() !== text || document.version !== version))) throw new Error('File changed during Rewind confirmation. Try again.');
         // Update open buffers first, with VS Code document version checks. Then
         // restore original disk bytes (including BOM, CRLF and non-UTF8 bytes).
         if (document && before !== null && file.buffer === null && !Buffer.from(before.toString('utf8')).equals(before)) throw new Error('Close the binary file editor before Rewind.');
@@ -134,9 +154,27 @@ function createCheckpoints(storagePath, { now = Date.now, maxBytes = MAX_BYTES, 
         if (afterBuffer !== diskHash && !(before === null && afterBuffer === null)) throw new Error('File changed during Rewind.');
         if (before === null) { if (readBytes(target) !== null) fs.unlinkSync(target); }
         else {
-          noLinks(path.dirname(target)); fs.mkdirSync(path.dirname(target), { recursive: true }); safePath(root, file.path);
-          const fd = fs.openSync(target, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_NOFOLLOW, file.mode ?? 0o600);
-          try { if (!fs.fstatSync(fd).isFile() || fs.fstatSync(fd).nlink !== 1) throw new Error('Unsafe Rewind target.'); fs.writeFileSync(fd, before); fs.ftruncateSync(fd, before.length); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+          // Never recreate an existing-at-check target. Open without create or
+          // truncate, then bind the write to the identity and bytes we checked.
+          await beforeRestoreOpen(target);
+          safePath(root, file.path);
+          const recreating = latest.stat === null;
+          if (recreating) { noLinks(path.dirname(target)); fs.mkdirSync(path.dirname(target), { recursive:true }); safePath(root,file.path); }
+          const flags = fs.constants.O_RDWR | fs.constants.O_NOFOLLOW | (recreating ? fs.constants.O_CREAT | fs.constants.O_EXCL : 0);
+          const fd = fs.openSync(target, flags, file.mode ?? 0o600);
+          try {
+            const opened = fs.fstatSync(fd);
+            if (!opened.isFile() || opened.nlink !== 1) throw new Error('Unsafe Rewind target.');
+            if (!recreating && (opened.dev !== latest.stat.dev || opened.ino !== latest.stat.ino)) throw new Error('File was replaced during Rewind. Try again.');
+            const openedBytes = fs.readFileSync(fd);
+            if (recreating ? openedBytes.length !== 0 : fingerprint(openedBytes) !== diskHash) throw new Error('File content changed during Rewind. Try again.');
+            for (let offset=0;offset<before.length;) {
+              const written=fs.writeSync(fd,before,offset,before.length-offset,offset);
+              if (written<=0) throw new Error('Rewind write did not make progress.');
+              offset+=written;
+            }
+            fs.ftruncateSync(fd, before.length); fs.fsyncSync(fd);
+          } finally { fs.closeSync(fd); }
           if (fingerprint(readBytes(target)) !== file.beforeHash) throw new Error('Rewind byte verification failed.');
         }
         restored++;

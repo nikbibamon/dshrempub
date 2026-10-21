@@ -124,3 +124,18 @@ Limits: shell/external writes are not checkpointed; first workspace folder; nati
 host prompts are mocked. No installed-host/provider smoke, installation, push or
 publication under the worktree-only constraint. Baseline untracked work and prior
 artifacts remain preserved. README and CHANGELOG updated; no new settings.
+
+### 0.7.0 independent acceptance correction (2026-10-21)
+
+Independent injected-ENOSPC reproduction showed an old recovery point was pruned before
+a new checkpoint became durable. Corrected capture stages/fsyncs/renames the new record
+before pruning. Stable published storage remains50MiB; temporary staging can require100MiB
+total. Open/write/fsync failure tests preserve the previous point at capacity. Restore
+checks opened inode/device/content before writing; explicitly approved recreation uses
+exclusive creation. Concurrent replacement/content changes refuse recovery.
+
+Independent root+extension suite:9 root tests and331 extension tests passed. Focused
+checkpoint suite26/26. EN/RU280/640px Playwright checks passed: identity, content, clean
+console, Rewind interactions, map reachability, no overflow or remote requests. Native
+VSCode-host validation is pending; no live-provider smoke or installation is claimed here.
+Original0.7.0 artifacts remain preserved; a corrected archive will have a new checksum.
