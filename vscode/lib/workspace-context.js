@@ -6,6 +6,7 @@
 // any bytes reach the service.
 
 const path = require('node:path');
+const projectRules = require('./project-rules');
 
 const MAX_DEPTH = 3;
 const MAX_ENTRIES = 2500;
@@ -42,9 +43,9 @@ function printable(text) {
   return bad <= Math.max(1, text.length * 0.01);
 }
 
-async function collect(vscode, { document = null, selectionText = '', maxBytes = DEFAULT_MAX_BYTES } = {}) {
+async function collect(vscode, { document = null, selectionText = '', maxBytes = DEFAULT_MAX_BYTES, knownPaths = [], knownSecrets = [], contextMode = 'on' } = {}) {
   const folders = vscode.workspace.workspaceFolders || [];
-  if (!folders.length) return { text: '', summary: { root: '', files: 0, bytes: 0, truncated: false, activePath: '' } };
+  if (!folders.length) return { text: '', summary: { root: '', files: 0, bytes: 0, truncated: false, activePath: '', rules: { status: 'unavailable' } } };
   const activeFolder = document ? vscode.workspace.getWorkspaceFolder(document.uri) : null;
   const folder = activeFolder || folders[0];
   const root = folder.uri;
@@ -115,9 +116,26 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
     push('\n--- ' + label + ': ' + activePath + (selectionText ? ' (lines ' + start + '-' + (document.selection.end.line + 1) + ')' : '') + ' ---\n' + clipped + '\n');
   }
 
+  const rules = projectRules.collect({
+    root: folder.uri.fsPath,
+    knownPaths: [...(Array.isArray(knownPaths) ? knownPaths : []), ...(activePath ? [activePath] : [])],
+    knownSecrets,
+    contextMode
+  });
+  let rulesStatus = { status: rules.status, paths: rules.paths || [] };
+  if (rules.text) {
+    const end = '[END WORKSPACE CONTEXT]\n';
+    const rulesBytes = Buffer.byteLength('\n' + rules.text, 'utf8');
+    if (used + rulesBytes + Buffer.byteLength(end, 'utf8') <= limit) {
+      parts.push('\n' + rules.text); used += rulesBytes;
+    } else {
+      truncated = true;
+      rulesStatus = { status: 'omitted-limit', paths: rules.paths || [] };
+    }
+  }
   push('[END WORKSPACE CONTEXT]\n');
   const text = parts.join('');
-  return { text, summary: { root: rootName, files: tree.length, bytes: Buffer.byteLength(text, 'utf8'), truncated, activePath } };
+  return { text, summary: { root: rootName, files: tree.length, bytes: Buffer.byteLength(text, 'utf8'), truncated, activePath, rules: rulesStatus } };
 }
 
 module.exports = { collect, DEFAULT_MAX_BYTES, EXCLUDED_DIRS, EXCLUDED_FILE };

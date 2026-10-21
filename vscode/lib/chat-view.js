@@ -191,7 +191,7 @@ header{flex-wrap:wrap}.run-chip{font-size:11px;padding:3px 6px;border:1px solid 
     if (!value) { node.textContent = ''; return; }
     const mode = value.mode === 'on' ? t('contextOn') : value.mode === 'off' ? t('contextOff') : t('contextAsk');
     const last = value.last ? (value.last.root + ' · ' + value.last.files + ' ' + (locale === 'ru' ? 'файлов' : 'files') + ' · ' + Math.ceil(value.last.bytes / 1024) + ' KiB') : '';
-    node.textContent = t('contextSummary') + ': ' + mode + (last ? ' — ' + last : '') + (value.mode === 'off' ? ' — ' + t('contextOffHint') : '');
+    node.textContent = t('contextSummary') + ': ' + mode + (last ? ' — ' + last : '') + (value.mode === 'off' ? ' — ' + t('contextOffHint') : '') + (value.last?.rules ? ' · ' + (locale === 'ru' ? 'Правила: ' : 'Rules: ') + ({included:locale==='ru'?'добавлены':'included',preview:locale==='ru'?'предпросмотр':'preview',missing:locale==='ru'?'нет файла':'missing',unmatched:locale==='ru'?'область не совпала':'unmatched',rejected:locale==='ru'?'отклонены':'rejected','omitted-limit':locale==='ru'?'не помещаются':'omitted: size limit',disabled:locale==='ru'?'отключены':'off'}[value.last.rules.status] || '—') : '');
   }
   function renderOptions(options) {
     optionState = options && Array.isArray(options.models) ? options : null;

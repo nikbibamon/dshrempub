@@ -1,3 +1,10 @@
+## 0.8.0 — 2026-10-21
+
+- Add uniquely anchored LF/CRLF replacement proposals with explicit confirmation.
+- Parse local commands as literal argv, apply token denials before approval and execute with shell:false.
+- Add bounded scoped .tvijo/rules.md project context, consent/preview status and untrusted user-data placement.
+- Preserve settings, budget reservations, provider credential custody, diagnostics, run chips and Rewind.
+
 ## 0.7.4 — 2026-10-21
 
 - Show anchored elapsed time and observed active-agent counts, with unknown state displayed as —.

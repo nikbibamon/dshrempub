@@ -26,7 +26,7 @@ const modePresets = require('./lib/modes');
 const captures = require('./lib/context-captures');
 const terminalContext = require('./lib/terminal-context');
 const conversationExport = require('./lib/export-conversation');
-const { createTools, safePath, autoCommand } = require('./lib/local-tools');
+const { createTools, safePath, autoCommand, analyzeCommand, assertWriteSnapshot } = require('./lib/local-tools');
 const diagnosticsFeedback = require('./lib/diagnostics-feedback');
 const { createMetrics } = require('./lib/metrics');
 const { createCheckpoints } = require('./lib/checkpoints');
@@ -66,13 +66,15 @@ function activate(context) {
     return session;
   }
   async function postRunSession(auth) {
-    if (!chatView || !await isCurrentAuth(auth)) return;
+    const view=chatView;
+    if (!view || !await isCurrentAuth(auth) || view!==chatView) return;
     const key = auth.viewScope || currentViewScope(auth.scope), session = agentMaps.get(key);
-    await chatView.webview.postMessage({type:'runSession', scopeKey:key, session:sessionChips.viewState(session)});
+    await view.webview.postMessage({type:'runSession', scopeKey:key, session:sessionChips.viewState(session)});
   }
   async function postMap(auth) {
-    if (!chatView || !await isCurrentAuth(auth)) return;
-    await chatView.webview.postMessage({type:'agentMap', scopeKey:auth.viewScope || currentViewScope(auth.scope), model:buildAgentMap(mapSession(auth))});
+    const view=chatView;
+    if (!view || !await isCurrentAuth(auth) || view!==chatView) return;
+    await view.webview.postMessage({type:'agentMap', scopeKey:auth.viewScope || currentViewScope(auth.scope), model:buildAgentMap(mapSession(auth))});
   }
   async function mapTask(auth, id, data) {
     if (!id || !await isCurrentAuth(auth)) return;
@@ -371,14 +373,16 @@ function activate(context) {
   }
 
   async function postChatState(message = '', error = null) {
-    if (!chatView) return;
+    const view=chatView, renderEpoch=authAttempt, renderWorkspaceEpoch=workspaceEpoch;
+    if (!view) return;
     const auth = await readAuth();
+    if(view!==chatView || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
     const signedIn = !!(auth?.access_token && auth.api_base === client().base && !(auth.expires_at && Date.now() >= Date.parse(auth.expires_at)) && identity?.token === auth.access_token && identity.base === auth.api_base);
     const scope = signedIn ? identity.scope : null;
     const history = scope ? historyFor(scope) : [];
     const nextAgentScope = scope ? currentViewScope(scope) : null;
     if (postChatState.agentScope !== nextAgentScope) {
-      await chatView.webview.postMessage({ type: 'agent', scopeKey: postChatState.agentScope, event: { type: 'reset' } });
+      await view.webview.postMessage({ type: 'agent', scopeKey: postChatState.agentScope, event: { type: 'reset' } });
       postChatState.agentScope = nextAgentScope;
     }
     const pending = scope ? local.pending(scope) : null;
@@ -400,7 +404,8 @@ function activate(context) {
       updatePackStatus(selection, auth);
       try { options = chatOptions(auth, selection.pack); } catch { options = null; }
     } else updatePackStatus(null, null);
-    await chatView.webview.postMessage({ type: 'state', scopeKey: scope ? currentViewScope(scope) : null, messages, signedIn, pack, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length, account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
+    if(view!==chatView || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
+    await view.webview.postMessage({ type: 'state', scopeKey: scope ? currentViewScope(scope) : null, messages, signedIn, pack, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length, account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'coding') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
       status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
@@ -518,7 +523,7 @@ function activate(context) {
           }
         }
         if (enabled) {
-          const collected = await workspaceContext.collect(vscode, { document: editor?.document || null, maxBytes: 16000 });
+          const collected = await workspaceContext.collect(vscode, { knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: 16000 });
           tree = collected.text;
           lastContextSummary = collected.summary;
         }
@@ -566,19 +571,22 @@ function activate(context) {
             if (doc.getText() !== info.previous) throw new core.ServiceError('file_changed', 'Editor content changed.');
             writeVersions.set(info.absolute, doc.version);
           }
-          const autoSafe = autoApply && autoRun && modePresets.autoWritePolicy(info.operation, info.previous);
-          const approved = autoSafe ? true : autoRun ? await confirmAgentWrite(info) : autoApply ? (await showProposedWrite(info.path, info.previous, info.content), true) : await confirmAgentWrite(info);
+          const autoSafe = autoApply && autoRun && modePresets.autoWritePolicy(info.operation, info.previous, info.matchKind);
+          const approved = info.matchKind && info.matchKind !== 'exact' ? await confirmAgentWrite(info) : autoSafe ? true : autoRun ? await confirmAgentWrite(info) : autoApply ? (await showProposedWrite(info.path, info.previous, info.content), true) : await confirmAgentWrite(info);
           await guard(); return approved;
         },
-        applyWrite: async ({ absolute, previous, content }) => {
+        applyWrite: async ({ absolute, previous, content, diskIdentity }) => {
           await guard();
+          assertWriteSnapshot(folder.uri.fsPath,absolute,previous,diskIdentity);
           const uri = vscode.Uri.file(absolute);
           if (previous === null) {
             const edit = new vscode.WorkspaceEdit();
             edit.createFile(uri, { overwrite: false, ignoreIfExists: false });
             edit.insert(uri, new vscode.Position(0, 0), content);
             await guard();
+            assertWriteSnapshot(folder.uri.fsPath,absolute,previous,diskIdentity);
             checkpointWrite({absolute,content});
+            assertWriteSnapshot(folder.uri.fsPath,absolute,previous,diskIdentity);
             await guard();
             safePath(folder.uri.fsPath, absolute);
             if (!await vscode.workspace.applyEdit(edit)) throw new core.ServiceError('file_changed', 'The new file could not be created.');
@@ -590,7 +598,7 @@ function activate(context) {
           const version = writeVersions.get(absolute);
           await guard();
           if (document.version !== version || document.getText() !== previous) throw new core.ServiceError('file_changed', 'Editor content changed.');
-          await quickEdit.apply(vscode, document, content, () => checkpointWrite({absolute,content,document}));
+          await quickEdit.apply(vscode, document, content, () => {assertWriteSnapshot(folder.uri.fsPath,absolute,previous,diskIdentity);checkpointWrite({absolute,content,document});assertWriteSnapshot(folder.uri.fsPath,absolute,previous,diskIdentity);});
           applyStartedAt.set(path.resolve(absolute), diagnosticsTracker.markApply());
         }
       });
@@ -623,7 +631,7 @@ function activate(context) {
           await guard();
           const remaining = Number(budgetUsd) - agentSpent;
           if (!Number.isFinite(remaining) || remaining <= 0) throw Object.assign(new Error('Agent budget exhausted'), { code: 'agent_budget', spent: agentSpent, budget: budgetUsd });
-          const bounded = finalization ? [...messages] : [messages[0], { role: 'user', content: modelGoal }];
+          const bounded = finalization ? [...messages] : [messages[0], messages[1]];
           if (!finalization && firstAgentAnswer) bounded.push(firstAgentAnswer);
           if (!finalization && step > 1) exchanges.push(...messages.slice(-2));
           while (exchanges.length > 8) exchanges.splice(0, 2);
@@ -688,19 +696,26 @@ function activate(context) {
     ensureIdle();
     const folder = (vscode.window.activeTextEditor && vscode.workspace.getWorkspaceFolder(vscode.window.activeTextEditor.document.uri)) || (vscode.workspace.workspaceFolders || [])[0];
     if (!folder) throw new core.ServiceError('no_workspace', L('Open a project folder first.', 'Сначала откройте папку проекта.'));
+    const commandDecision = analyzeCommand(command);
+    if (!commandDecision.ok) throw new core.ServiceError('command_policy', commandDecision.reason);
+    const auth = await requireAuth();
+    const commandGuard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
+    await commandGuard();
     if (typeof vscode.window.showWarningMessage !== 'function') return;
     const run = L('Run command', 'Выполнить команду');
     const answer = await vscode.window.showWarningMessage(
       L('Run this command in ', 'Выполнить эту команду в ') + folder.uri.fsPath + '?\n' + command,
       { modal: true, detail: L('This is your own shell command; no model task is created.', 'Это ваша собственная shell-команда; платная задача модели не создаётся.') }, run);
     if (answer !== run) return;
-    const tools = createTools({ root: folder.uri.fsPath, confirmRun: async () => true, confirmWrite: async () => false });
+    await commandGuard();
+    ensureIdle();
+    const tools = createTools({ root: folder.uri.fsPath, guard:commandGuard, confirmRun: async () => true, confirmWrite: async () => false });
     const startedAt = Date.now();
     const terminalCaptureEpoch = terminalCaptures.epoch;
     busy = true;
     try {
       await postActivity('model', L('Running your command…', 'Выполняю вашу команду…'));
-      const result = await tools.execute({ tool: 'run_command', command });
+      const result = await tools.execute({ tool: 'run_command', command, commandDecision });
       if (terminalCaptureEpoch === terminalCaptures.epoch && (vscode.workspace.workspaceFolders || []).some(item => path.resolve(item.uri.fsPath) === path.resolve(folder.uri.fsPath))) {
         terminalCaptures.recordDirect({ root: folder.uri.fsPath, cwd: folder.uri.fsPath, output: [result.stdout, result.stderr].filter(Boolean).join('\n[stderr]\n'), source: 'Extension shell output' });
       }
@@ -717,6 +732,7 @@ function activate(context) {
 
   function localizedMessage(error) {
     const code = error?.serverCode || (typeof error?.code === 'string' ? error.code : '');
+    if (error?.code === 'command_policy') return L('Command refused. Use one executable with literal arguments; unsafe commands and shell syntax are blocked.', 'Команда отклонена. Используйте одну программу с буквальными аргументами; опасные команды и синтаксис оболочки заблокированы.');
     if (!(error instanceof core.ServiceError)) {
       if (code === 'agent_stopped') return L('Agent stopped. No further step was started.', 'Агент остановлен. Следующий шаг не запускался.');
       if (code === 'agent_budget') {
@@ -869,12 +885,25 @@ function activate(context) {
     await postChatState();
   });
 
-  async function prepareAndAdd(name, bytes, scope, expectedAuthAttempt = authAttempt, expectedWorkspaceEpoch = workspaceEpoch) {
+
+  function knownAttachmentPaths(document) {
+    const folder = (document && vscode.workspace.getWorkspaceFolder(document.uri)) || vscode.workspace.workspaceFolders?.[0];
+    if (!folder) return [];
+    return attachments.filter(item=>item.workspaceFile).flatMap(item=>{
+      const relative=path.relative(folder.uri.fsPath,item.workspaceFile).split(path.sep).join('/');
+      try {safePath(folder.uri.fsPath,relative);return [relative];}catch{return [];}
+    });
+  }
+
+  async function prepareAndAdd(name, bytes, scope, expectedAuthAttempt = authAttempt, expectedWorkspaceEpoch = workspaceEpoch, workspaceFile = null) {
+    if (!identity || authAttempt !== expectedAuthAttempt || currentViewScope(identity.scope) !== scope || expectedWorkspaceEpoch !== workspaceEpoch) throw new core.ServiceError('account_changed', 'The context scope changed. Attach it again.');
     const digest = createHash('sha256').update(bytes).digest('hex');
-    if (attachments.some((item) => item.sha256 === digest)) return;
+    const duplicate=attachments.find(item=>item.sha256===digest);
+    if (duplicate) {if(workspaceFile) duplicate.workspaceFile=workspaceFile;return;}
     if (attachments.length >= 4) throw new core.ServiceError('attachment_count', 'Attach up to 4 files per question.');
     const item = await files.prepareAttachment(name, bytes, { languages: vscode.workspace.getConfiguration('tvijo').get('ocrLanguages', 'eng+rus') });
     if (!identity || authAttempt !== expectedAuthAttempt || currentViewScope(identity.scope) !== scope || expectedWorkspaceEpoch !== workspaceEpoch) throw new core.ServiceError('account_changed', 'The account or workspace changed while reading context. Attach it again in the intended scope.');
+    if (workspaceFile) item.workspaceFile = workspaceFile;
     const next = [...attachments, item];
     files.checkAttachmentSet(next);
     attachments = next;
@@ -923,7 +952,7 @@ function activate(context) {
         if (!bytesRead) break;
         length += bytesRead;
       }
-      await prepareAndAdd(label, bytes.subarray(0, length), attachmentScope, expectedAuthAttempt, expectedWorkspaceEpoch);
+      await prepareAndAdd(label, bytes.subarray(0, length), attachmentScope, expectedAuthAttempt, expectedWorkspaceEpoch, resolved);
     } finally { await handle.close(); }
     } finally { attaching = false; await postChatState(); }
   }
@@ -982,10 +1011,10 @@ function activate(context) {
     ensureIdle();
     // The preview is read locally from the workspace; it needs no account.
     const editor = vscode.window.activeTextEditor;
-    const collected = await workspaceContext.collect(vscode, { document: editor?.document || null, maxBytes: vscode.workspace.getConfiguration('tvijo').get('workspaceContextMaxBytes', 48000) });
-    lastContextSummary = collected.summary;
-    const content = '# Bounded project context that would be sent\n\n' + (collected.text || L('No workspace folder is open.', 'Папка проекта не открыта.'));
     const auth = await readAuth();
+    const collected = await workspaceContext.collect(vscode, { knownSecrets: [auth?.access_token, auth?.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), contextMode: 'preview', document: editor?.document || null, maxBytes: vscode.workspace.getConfiguration('tvijo').get('workspaceContextMaxBytes', 48000) });
+    lastContextSummary = collected.summary;
+    const content = '# Bounded project context preview\n\nRules: ' + (collected.summary.rules?.status || 'unknown') + '\n\n' + (collected.text || L('No workspace folder is open.', 'Папка проекта не открыта.'));
     if (auth) await showPrivateDocument('plaintext', content, auth);
     else await showDocument('plaintext', content);
     await postChatState();
@@ -1081,7 +1110,7 @@ function activate(context) {
         else { const send = L('Send context', 'Отправить контекст'); contextEnabled = await vscode.window.showWarningMessage(L('Send project context with this edit?', 'Отправить контекст проекта с правкой?'), { modal: true }, send, L('No context', 'Без контекста')) === send; }
       }
       await editGuard();
-      if (contextEnabled) { const collected = await workspaceContext.collect(vscode, { document: null, maxBytes: 16000 }); if (collected.text) projectBlock = collected.text + '\n\n'; }
+      if (contextEnabled) { const collected = await workspaceContext.collect(vscode, { knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), document: null, knownPaths: [...knownAttachmentPaths(document), relative], maxBytes: 16000 }); if (collected.text) projectBlock = collected.text + '\n\n'; }
       const messages = [{ role: 'user', content: projectBlock + quickEdit.instruction(relative, document.languageId) + '\n\n--- FILE ---\n' + original + '\n--- END FILE ---\n\nInstruction: ' + instruction.trim() }];
       await local.savePending(auth.scope, { idempotencyKey, apiBase: auth.api_base, tenantId: auth.tenant_id, createdAt: new Date().toISOString() });
       const answer = await vscode.window.withProgress(
@@ -1631,7 +1660,7 @@ function activate(context) {
     if (contextEnabled) {
       await postActivity('scan', L('Reading the project tree and manifests…', 'Смотрю проект: дерево и манифесты…'));
       try {
-        const collected = await workspaceContext.collect(vscode, { document: editor?.document || null, maxBytes: config.get('workspaceContextMaxBytes', 48000) });
+        const collected = await workspaceContext.collect(vscode, { knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: config.get('workspaceContextMaxBytes', 48000) });
         contextSummary = collected.summary;
         if (collected.text) contextBlock = collected.text + '\n\n';
         lastContextSummary = contextSummary;

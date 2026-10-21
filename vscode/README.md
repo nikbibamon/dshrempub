@@ -1,6 +1,6 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.7.4. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.8.0. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
@@ -475,3 +475,22 @@ capture blocks the edit and preserves previous recovery points. Other processes 
 change files during recovery; detected conflicts stop recovery and are reported.
 
 The run header uses host session timestamps and observed agent identities. Unknown observations show —; the agent-count button opens Agent Map with separate bounded command lifecycle rows. Stop requests are shown until a child exit is observed; descendant process status remains unknown after cancellation/timeout.
+
+
+## Scoped project rules and literal commands
+
+Optional `.tvijo/rules.md` contributes untrusted project context under the existing
+context consent, Off and Preview controls. The entire file is limited to 16 KiB.
+An optional first line `<!-- tvijo-globs: ["src/**/*.js"] -->` scopes it to known
+workspace paths. The context summary shows included, unmatched, rejected or omitted
+rules. Rules cannot change tool permissions, budgets, service endpoints or credentials.
+
+Commands accept one executable and literal arguments with quotes and escapes.
+Pipelines, redirects, substitutions, environment assignments and shell wrappers are
+refused before approval. The five existing automatic test commands remain unchanged.
+Confirmed programs still execute project code; this parser is not an operating-system
+sandbox. Cancellation reports observed child exits and leaves descendant status unknown.
+
+Replacement first requires a unique exact match. A unique whole-line LF/CRLF match
+can be proposed for a multiline block, with explicit diff confirmation in every mode.
+Indentation differences produce a reread hint; the extension does not normalize them.

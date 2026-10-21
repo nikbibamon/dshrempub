@@ -20,7 +20,8 @@ function isPlanBypass(question, action) {
   return !!action?.command && ['tvijo.quickEdit', 'tvijo.agent', 'tvijo.applyCoding', 'tvijo.rewind'].includes(action.command);
 }
 
-function autoWritePolicy(operation, previous) {
+function autoWritePolicy(operation, previous, matchKind = 'exact') {
+  if (matchKind !== 'exact') return false;
   if (previous === null) return true;
   return operation === 'replace_in_file';
 }

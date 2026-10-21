@@ -9,24 +9,13 @@ const fssync = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
+const { analyzeCommand, isCommandDecision, BLOCKED_COMMAND } = require('./command-policy');
 
 const MAX_READ = 64 * 1024;
 const MAX_OUTPUT = 8 * 1024;
 const MAX_MATCHES = 50;
 const MAX_LIST = 200;
 const DEFAULT_TIMEOUT = 60_000;
-
-const BLOCKED_COMMAND = [
-  /(^|[\s;&|])(sudo|su|doas)\b/i,
-  /(^|[\s;&|])(mkfs|fdisk|parted|shutdown|reboot|poweroff|halt)\b/i,
-  /(^|[\s;&|])rm\s+(-[a-z]*[rf][a-z]*\s+)+(\/|~|\$HOME)(\s|$)/i,
-  /(^|[\s;&|])git\s+(reset\s+--hard|clean\s+-[a-z]*f|checkout\s+--\s+\.)/i,
-  /(^|[\s;&|])dd\s+if=/i,
-  /:\s*\(\s*\)\s*\{/,
-  /(curl|wget)[^|]*\|\s*(sh|bash)\b/i,
-  />\s*\/dev\/sd[a-z]/i,
-  /chmod\s+(-R\s+)?777\s+\//i
-];
 
 const SECRET_FILE = /^(?:\.env(?:\.|$)|secrets?\.|credentials?\.|auth\.json$|\.npmrc$|\.netrc$|\.pypirc$|id_rsa|id_ed25519|.*\.(?:pem|key|p12|pfx|crt|der)$)/i;
 const EXCLUDED_DIRS = new Set(['.git', '.hg', '.svn', '.ssh', '.aws', 'node_modules', '.venv', 'venv', 'dist', 'build', 'target', '__pycache__', '.pytest_cache']);
@@ -162,26 +151,26 @@ async function fallbackSearch(root, cwd, query, limit) {
 }
 
 function autoCommand(command) {
-  const allowed = ['npm test', 'pnpm test', 'yarn test', 'go test ./...', 'cargo test'];
-  return allowed.includes(command) ? command.split(' ') : null;
+  const vectors = { 'npm test':['npm','test'], 'pnpm test':['pnpm','test'], 'yarn test':['yarn','test'], 'go test ./...':['go','test','./...'], 'cargo test':['cargo','test'] };
+  return Object.hasOwn(vectors, command) ? vectors[command].slice() : null;
 }
 
-async function runCommand(root, action, confirm, { signal, onLifecycle = () => {} } = {}) {
-  const command = typeof action.command === 'string' ? action.command.trim() : '';
-  if (!command) throw new Error('A command is required.');
-  if (BLOCKED_COMMAND.some((pattern) => pattern.test(command))) throw new Error('This command is blocked by the local safety rules.');
+async function runCommand(root, action, confirm, { signal, onLifecycle = () => {}, guard = async()=>{} } = {}) {
+  const decision = isCommandDecision(action.commandDecision, action.command) ? action.commandDecision : analyzeCommand(action.command);
+  const command = typeof action.command === 'string' ? action.command : '';
+  if (!decision.ok) throw new Error(decision.reason);
   const cwd = action.cwd ? safePath(root, action.cwd) : root;
-  const approved = await confirm({ command, cwd, signal });
+  const approved = await confirm(Object.freeze({ command, cwd, signal, decision }));
   if (!approved) return { ok: false, refused: true, command, cwd };
+  await guard();
   safePath(root, action.cwd || '.');
   if (signal?.aborted) return { ok:false, cancelled:true, command, cwd, termination:'not_started' };
   const timeout = Math.min(Math.max(Number(action.timeout_ms) || DEFAULT_TIMEOUT, 1000), 180000);
   return await new Promise((resolve) => {
-    const exact = autoCommand(command);
     const id = randomUUID();
     let child;
     try {
-      child = exact ? spawn(exact[0], exact.slice(1), { shell: false, cwd, env: cleanEnv(), stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' }) : spawn(command, { shell: true, cwd, env: cleanEnv(), stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
+      child = spawn(decision.executable, decision.args, { shell: false, cwd, env: cleanEnv(), stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
     } catch (error) {
       onLifecycle({ type:'error', id, status:'failed', startedAt:null, endedAt:Date.now(), error:error.message });
       resolve({ ok:false, command, cwd, error:error.message }); return;
@@ -227,17 +216,45 @@ async function runCommand(root, action, confirm, { signal, onLifecycle = () => {
   });
 }
 
+function snapshotIdentity(stat) {
+  return Object.freeze(Object.fromEntries(['dev','ino','size','mode','nlink','mtimeNs','ctimeNs'].map(key=>[key,String(stat[key])])));
+}
+
+function writeSnapshot(root, target, allowMissing = false) {
+  safePath(root,target);
+  let fd;
+  try { fd = fssync.openSync(target, fssync.constants.O_RDONLY | (fssync.constants.O_NOFOLLOW || 0)); }
+  catch(error) { if(allowMissing && error.code==='ENOENT') return {content:null,identity:null}; throw error; }
+  try {
+    const before=fssync.fstatSync(fd,{bigint:true});
+    if(!before.isFile() || before.nlink!==1n || before.size>MAX_READ*2) throw new Error('Refusing an unsafe or oversized write target.');
+    const bytes=Buffer.alloc(MAX_READ*2+1);let length=0;
+    while(length<bytes.length){const read=fssync.readSync(fd,bytes,length,bytes.length-length,length);if(!read)break;length+=read;}
+    const identity=snapshotIdentity(before);
+    safePath(root,target);
+    if(BigInt(length)!==before.size || JSON.stringify(identity)!==JSON.stringify(snapshotIdentity(fssync.fstatSync(fd,{bigint:true}))) || JSON.stringify(identity)!==JSON.stringify(snapshotIdentity(fssync.lstatSync(target,{bigint:true})))) throw new Error('File changed while reading the write target.');
+    const raw=bytes.subarray(0,length),content=raw.toString('utf8');
+    if(!Buffer.from(content,'utf8').equals(raw) || content.includes('\0')) throw new Error('Refusing to edit binary or invalid UTF-8 content.');
+    return {content,identity};
+  } finally {fssync.closeSync(fd);}
+}
+
+function assertWriteSnapshot(root,target,previous,identity) {
+  const current=writeSnapshot(root,target,previous===null);
+  if(current.content!==previous || JSON.stringify(current.identity)!==JSON.stringify(identity)) throw new Error('File changed after the write proposal.');
+}
+
 async function writeFile(root, action, confirm, applyWrite, beforeWrite, operation = 'write_file') {
   const target = safePath(root, action.path);
   const content = typeof action.content === 'string' ? action.content : '';
   if (Buffer.byteLength(content, 'utf8') > MAX_READ * 2) throw new Error('Refusing to write more than 128 KiB in one step.');
-  let previous = null;
-  try { previous = await fs.readFile(target, 'utf8'); } catch { /* new file */ }
+  const {content:previous,identity:diskIdentity}=writeSnapshot(root,target,true);
   if (previous === content) return { ok: true, unchanged: true, path: action.path };
   const approved = await confirm({ path: action.path, absolute: target, previous, content, operation });
   if (!approved) return { ok: false, refused: true, path: action.path };
   safePath(root, action.path);
-  if (applyWrite) await applyWrite({ absolute: target, previous, content });
+  assertWriteSnapshot(root,target,previous,diskIdentity);
+  if (applyWrite) await applyWrite({ absolute: target, previous, content, diskIdentity });
   else {
     let current = null;
     try { current = await fs.readFile(target, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -251,25 +268,78 @@ async function writeFile(root, action, confirm, applyWrite, beforeWrite, operati
     try { latest = await fs.readFile(target, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     if (latest !== previous) throw new Error('File changed before write.');
     safePath(root, action.path);
-    await fs.writeFile(target, content, 'utf8');
+    assertWriteSnapshot(root,target,previous,diskIdentity);
+    await fs.writeFile(target, content, {encoding:'utf8',flag:previous===null?'wx':'w'});
   }
   return { ok: true, path: action.path, bytes: Buffer.byteLength(content, 'utf8'), created: previous === null };
+}
+
+function normalizeEolWithOffsets(text) {
+  let normalized = '';
+  const offsets = [0];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\r' && text[i + 1] === '\n') i++;
+    normalized += text[i];
+    offsets.push(i + 1);
+  }
+  return { text:normalized, offsets };
+}
+
+function findEolMatch(previous, old) {
+  if (/\r(?!\n)/.test(old)) return { match:null };
+  const oldEols = old.match(/\r\n|\n/g) || [];
+  if (oldEols.some(eol => eol !== oldEols[0])) return { match:null };
+  const normalizedOld = old.replace(/\r\n/g, '\n');
+  const lines = (normalizedOld.endsWith('\n') ? normalizedOld.slice(0,-1) : normalizedOld).split('\n');
+  if (lines.length < 2 || !lines[0].trim() || !lines.at(-1).trim() || lines.filter(line => line.trim()).length < 2) return { match:null };
+  const source = normalizeEolWithOffsets(previous), needle = old.replace(/\r\n/g, '\n');
+  const matches = [];
+  let at = 0;
+  while ((at = source.text.indexOf(needle, at)) !== -1) {
+    const after = at + needle.length;
+    if ((at === 0 || source.text[at - 1] === '\n') && (needle.endsWith('\n') || after === source.text.length || source.text[after] === '\n')) {
+      const start = source.offsets[at], end = source.offsets[after];
+      const raw = previous.slice(start, end);
+      const eols = raw.match(/\r\n|\n/g) || [];
+      const valid = (!raw.includes('\r') || (raw.match(/\r/g) || []).length === eols.filter(eol => eol === '\r\n').length) && (!eols.length || eols.every(eol => eol === eols[0]));
+      matches.push({start,end,valid});
+    }
+    at++;
+  }
+  if (matches.length > 1) return { ambiguous:true };
+  if (matches.length === 1 && matches[0].valid) return { match:matches[0] };
+  const strippedNeedle = lines.map(line => line.trimStart()).join('\n');
+  if (strippedNeedle !== needle) {
+    const strippedSource = source.text.split('\n');
+    if (strippedSource.some((line, index) => line.trimStart() === lines[0].trimStart() && line !== lines[0]))
+      return { match:null, indentHint:'Possible indentation mismatch. Reread the relevant lines and provide exact text.' };
+  }
+  return { match:null };
 }
 
 async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
   const target = safePath(root, action.path);
   if (typeof action.old !== 'string' || !action.old) throw new Error('The old text is required.');
   if (typeof action.new !== 'string') throw new Error('The replacement text is required.');
-  const previous = await fs.readFile(target, 'utf8');
-  const count = previous.split(action.old).length - 1;
-  if (count === 0) throw new Error('The old text was not found. Read the file and copy the exact text.');
+  const {content:previous,identity:diskIdentity}=writeSnapshot(root,target);
+  let count = 0, cursor = 0;
+  while ((cursor = previous.indexOf(action.old, cursor)) !== -1) { count++; cursor++; }
   if (count > 1) throw new Error('The old text appears ' + count + ' times; include more surrounding context.');
-  const content = previous.replace(action.old, () => action.new);
+  let matchKind = 'exact', start = -1, end = -1;
+  if (count === 1) { start = previous.indexOf(action.old); end = start + action.old.length; }
+  else {
+    const fallback = findEolMatch(previous, action.old);
+    if (fallback.ambiguous) throw new Error('The EOL-normalized text appears more than once; include more surrounding context.');
+    if (!fallback.match) throw new Error(fallback.indentHint || 'The old text was not found. Read the file and copy the exact text.');
+    ({ start, end } = fallback.match); matchKind = 'eol';
+  }
+  const content = previous.slice(0, start) + action.new + previous.slice(end);
   if (Buffer.byteLength(content, 'utf8') > MAX_READ * 2) throw new Error('Refusing to write more than 128 KiB in one step.');
-  const approved = await confirm({ path: action.path, absolute: target, previous, content, operation: 'replace_in_file' });
+  const approved = await confirm({ path: action.path, absolute: target, previous, content, operation: 'replace_in_file', matchKind });
   if (!approved) return { ok: false, refused: true, path: action.path };
   safePath(root, action.path);
-  if (applyWrite) await applyWrite({ absolute: target, previous, content });
+  assertWriteSnapshot(root,target,previous,diskIdentity);
+  if (applyWrite) await applyWrite({ absolute: target, previous, content, diskIdentity });
   else {
     if (await fs.readFile(target, 'utf8') !== previous) throw new Error('File changed during confirmation.');
     const checkpoint = beforeWrite({ absolute: target, content });
@@ -279,6 +349,7 @@ async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
     try { latest = await fs.readFile(target, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     if (latest !== previous) throw new Error('File changed before write.');
     safePath(root, action.path);
+    assertWriteSnapshot(root,target,previous,diskIdentity);
     await fs.writeFile(target, content, 'utf8');
   }
   return { ok: true, path: action.path, bytes: Buffer.byteLength(content, 'utf8') };
@@ -297,11 +368,11 @@ function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite =
         case 'search': return { ok: true, ...(await search(root, action.query, action.path, action.max)) };
         case 'write_file': return await writeFile(root, action, confirmWrite, applyWrite, beforeWrite, 'write_file');
         case 'replace_in_file': return await replaceInFile(root, action, confirmWrite, applyWrite, beforeWrite);
-        case 'run_command': await guard(); return await runCommand(root, action, confirmRun, { signal:context.signal || signal, onLifecycle:onCommandLifecycle });
+        case 'run_command': await guard(); return await runCommand(root, action, confirmRun, { signal:context.signal || signal, onLifecycle:onCommandLifecycle, guard });
         default: throw new Error('Unknown tool: ' + action.tool);
       }
     }
   };
 }
 
-module.exports = { createTools, inside, safePath, cleanEnv, autoCommand, BLOCKED_COMMAND, SECRET_FILE, EXCLUDED_DIRS };
+module.exports = { createTools, inside, safePath, cleanEnv, autoCommand, analyzeCommand, assertWriteSnapshot, BLOCKED_COMMAND, SECRET_FILE, EXCLUDED_DIRS };
