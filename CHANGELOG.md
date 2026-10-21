@@ -2,6 +2,13 @@
 
 Extension release notes. The detailed history is in [vscode/CHANGELOG.md](vscode/CHANGELOG.md).
 
+## 0.8.4 — 2026-10-21
+
+- Make root and extension `npm test` create isolated artifact and temporary directories automatically.
+- Run suites sequentially with a 60-second test timeout and a nine-minute overall deadline; retain fixtures for inspection.
+- Add dependency-free CI checks on Node 22 and 24 using synthetic replies and local fixtures, with read-only repository permission.
+- Prepared for review; extension behavior and the website release catalog are unchanged.
+
 ## 0.8.3 — 2026-10-21
 
 - Add fixed Plan operations for the selected workspace and open dirty-buffer status or approximate changed-line spans.

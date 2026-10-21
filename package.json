@@ -12,6 +12,6 @@
   },
   "license": "UNLICENSED",
   "scripts": {
-    "test": "node --test test/*.test.mjs && cd vscode && node --test test/*.test.js"
+    "test": "node scripts/test-runner.mjs"
   }
 }
