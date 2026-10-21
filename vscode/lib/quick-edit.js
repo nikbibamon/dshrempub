@@ -43,10 +43,14 @@ async function preview(vscode, document, proposed, title) {
   return proposedDocument;
 }
 
-async function apply(vscode, document, proposed) {
+async function apply(vscode, document, proposed, beforeWrite = () => {}) {
+  const version = document.version;
   const end = document.positionAt(document.getText().length);
   const edit = new vscode.WorkspaceEdit();
   edit.replace(document.uri, new vscode.Range(new vscode.Position(0, 0), end), proposed);
+  const checkpoint = beforeWrite();
+  if (checkpoint && typeof checkpoint.then === 'function') await checkpoint;
+  if (document.version !== version) throw new Error('File changed before apply.');
   const ok = await vscode.workspace.applyEdit(edit);
   if (!ok) throw new Error('The editor refused the workspace edit.');
   return ok;

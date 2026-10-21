@@ -4,6 +4,7 @@ const path = require('node:path');
 const { fileURLToPath } = require('node:url');
 
 const ACTIONS = [
+  ['tvijo.rewind', 'Rewind to a local checkpoint', '/rewind'],
   ['tvijo.codingTask', 'Create coding task: single, review or swarm', '/code'],
   ['tvijo.openCodingTask', 'Open coding task and preview diffs', '/codediff'],
   ['tvijo.applyCoding', 'Apply reviewed coding proposal', '/codeapply'],
@@ -44,6 +45,7 @@ const ACTIONS = [
 ];
 
 const SLASH = {
+  rewind: 'tvijo.rewind',
   code: 'tvijo.codingTask', codediff: 'tvijo.openCodingTask', codeapply: 'tvijo.applyCoding',
   usage: 'tvijo.usage', connections: 'tvijo.connections', guide: 'tvijo.productGuide',
   terminal: 'tvijo.terminal', learn: 'tvijo.learn', feedback: 'tvijo.feedback',

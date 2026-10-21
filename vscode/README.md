@@ -1,8 +1,40 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.6.1. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.7.0. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
+
+## Rewind (local checkpoints)
+
+Open the header **… → Rewind…**, run **Tvijo: Rewind**, or type `/rewind`.
+Choose a recent run, then a step: its time, files and requested model are shown.
+**Rewind to before step N** undoes that step and every later edit in the same run.
+Files changed by later runs are treated as conflicts; those runs are not silently undone.
+
+Tvijo saves the previous disk bytes (or “did not exist”) before Agent `write_file`,
+`replace_in_file`, Quick Edit buffer Apply, and reviewed coding proposal Apply.
+Open editor buffers are captured separately, including unsaved Quick Edit input.
+Rewind restores the original disk bytes and buffer state; disk restoration is checked
+with SHA256, preserving BOM, CRLF and arbitrary bytes. It does not automatically save
+unsaved buffer changes. Close binary editors before restoring binary files.
+
+If a file or buffer has changed since the agent edit, choose **Overwrite file** or
+**Skip file**. Files that did not exist at the selected point always require
+**Delete file** confirmation; **Skip file** preserves them. Dismissing a prompt skips
+that file. Changes during confirmation abort that restore rather than replace newer data.
+A short local chat note reports restored and skipped counts.
+
+Checkpoints stay in this extension host’s `globalStorageUri/rewind-v1`, outside the
+workspace, for up to seven days and 50 MiB total (including metadata). Expired records
+and then oldest records are pruned on activation, hourly, and before capture/list/restore.
+A checkpoint larger than the limit or unavailable storage blocks the edit.
+Symlinks, hard links, excluded/secret paths and files outside the workspace are refused.
+Local snapshot bytes, hashes and storage paths never enter service requests, conversation
+exports or usage logs. Rewind works locally without signing in; its note is display-only.
+
+This is file-edit recovery, not a full filesystem transaction: shell-command side effects,
+external tool writes and files outside Tvijo’s Apply paths are not checkpointed. The
+first workspace folder is used, as in the existing Agent flow. No new settings are added.
 
 ## Markdown answers
 
@@ -19,7 +51,7 @@ Click **⑂ Agent map** (**Карта агентов**) in the header. The curre
 left; executed tasks, Agent model steps/tools and available council or coding
 review/swarm execution records extend right. Select a node for task ID, route, receipt
 fields and a short last message. Arrow keys move between nodes; Enter/Space select;
-Escape returns to chat. The canvas scrolls horizontally in narrow sidebars.
+Escape returns to chat. The canvas scrolls horizontally and vertically, with visible scrollbars; the details pane stays independently scrollable.
 
 While open, the map refreshes every two seconds using existing task reads. Data stays
 scoped to the signed-in account, project and thread. Reopened conversations use server

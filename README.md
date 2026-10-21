@@ -58,3 +58,13 @@ Assistant replies now render safe Markdown with code-copy controls and highlight
 links. The EN/RU Agent map shows the current request and actual task/agent/workflow
 execution receipts in a live, keyboard-accessible horizontal tree. Missing metrics stay
 **—**. See [the extension README](vscode/README.md) for controls and data limits.
+
+## VS Code 0.7.0: Rewind
+
+Use **… → Rewind…**, **Tvijo: Rewind**, or `/rewind` to choose a run and restore
+its files to before a selected step. Checkpoints cover Agent write/replace, Quick Edit
+and reviewed proposal Apply; disk bytes are restored exactly and changed files prompt
+for Overwrite or Skip. Newly created files always ask before deletion. Local recovery
+data stays in extension global storage (seven days, 50 MiB) and is excluded from
+requests, exports and logs. Agent Map scrolls on both axes while keeping file details.
+See [Rewind behavior and limits](vscode/README.md#rewind-local-checkpoints).

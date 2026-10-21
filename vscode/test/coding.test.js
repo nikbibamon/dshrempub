@@ -206,3 +206,13 @@ test('limits v2: a clean five-file 23 KiB apply submits every file exactly once'
   assert.deepEqual(ops.map(([p])=>path.basename(p)).sort(),[...f.names].sort());
   assert.ok(ops.every(([,text])=>text===f.content));
 });
+
+test('reviewed proposal snapshots every applied file after approval and before the bulk edit',async()=>{
+  const {createCheckpoints}=require('../lib/checkpoints');const f=await fixture();
+  const storage=await fs.mkdtemp(path.join(E,'review-checkpoints-')),store=createCheckpoints(storage);
+  let captured=false;
+  f.vscode.workspace.applyEdit=async()=>{assert.equal(captured,true);assert.equal(store.list(f.root)[0].steps[0].files[0],'calc.py');return true;};
+  const beforeWrite=checks=>{store.capture({root:f.root,runId:'review',step:1,files:checks.map(entry=>({absolute:entry.target,content:entry.edit.content,document:entry.document}))});captured=true;};
+  assert.equal(await coding.apply({...f,confirm:async()=>false,beforeWrite}),false);assert.equal(captured,false);
+  assert.equal(await coding.apply({...f,confirm:async()=>true,beforeWrite}),true);
+});

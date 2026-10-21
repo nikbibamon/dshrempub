@@ -188,7 +188,7 @@ async function runCommand(root, action, confirm) {
   });
 }
 
-async function writeFile(root, action, confirm, applyWrite) {
+async function writeFile(root, action, confirm, applyWrite, beforeWrite) {
   const target = safePath(root, action.path);
   const content = typeof action.content === 'string' ? action.content : '';
   if (Buffer.byteLength(content, 'utf8') > MAX_READ * 2) throw new Error('Refusing to write more than 128 KiB in one step.');
@@ -205,12 +205,19 @@ async function writeFile(root, action, confirm, applyWrite) {
     if (current !== previous) throw new Error('File changed during confirmation.');
     await fs.mkdir(path.dirname(target), { recursive: true });
     safePath(root, action.path);
+    const checkpoint = beforeWrite({ absolute: target, content });
+    if (checkpoint && typeof checkpoint.then === 'function') await checkpoint;
+    safePath(root, action.path);
+    let latest = null;
+    try { latest = await fs.readFile(target, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (latest !== previous) throw new Error('File changed before write.');
+    safePath(root, action.path);
     await fs.writeFile(target, content, 'utf8');
   }
   return { ok: true, path: action.path, bytes: Buffer.byteLength(content, 'utf8'), created: previous === null };
 }
 
-async function replaceInFile(root, action, confirm, applyWrite) {
+async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
   const target = safePath(root, action.path);
   if (typeof action.old !== 'string' || !action.old) throw new Error('The old text is required.');
   if (typeof action.new !== 'string') throw new Error('The replacement text is required.');
@@ -226,12 +233,19 @@ async function replaceInFile(root, action, confirm, applyWrite) {
   if (applyWrite) await applyWrite({ absolute: target, previous, content });
   else {
     if (await fs.readFile(target, 'utf8') !== previous) throw new Error('File changed during confirmation.');
+    const checkpoint = beforeWrite({ absolute: target, content });
+    if (checkpoint && typeof checkpoint.then === 'function') await checkpoint;
+    safePath(root, action.path);
+    let latest = null;
+    try { latest = await fs.readFile(target, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (latest !== previous) throw new Error('File changed before write.');
+    safePath(root, action.path);
     await fs.writeFile(target, content, 'utf8');
   }
   return { ok: true, path: action.path, bytes: Buffer.byteLength(content, 'utf8') };
 }
 
-function createTools({ root, confirmRun, confirmWrite, applyWrite, guard = async () => {} }) {
+function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {} }) {
   return {
     root,
     async execute(action, context = {}) {
@@ -242,8 +256,8 @@ function createTools({ root, confirmRun, confirmWrite, applyWrite, guard = async
         case 'list_dir': return { ok: true, entries: await listDirectory(root, action.path) };
         case 'read_file': return { ok: true, ...(await readFile(root, action.path, action.start, action.end)) };
         case 'search': return { ok: true, ...(await search(root, action.query, action.path, action.max)) };
-        case 'write_file': return await writeFile(root, action, confirmWrite, applyWrite);
-        case 'replace_in_file': return await replaceInFile(root, action, confirmWrite, applyWrite);
+        case 'write_file': return await writeFile(root, action, confirmWrite, applyWrite, beforeWrite);
+        case 'replace_in_file': return await replaceInFile(root, action, confirmWrite, applyWrite, beforeWrite);
         case 'run_command': return await runCommand(root, action, confirmRun);
         default: throw new Error('Unknown tool: ' + action.tool);
       }

@@ -40,15 +40,22 @@ function host(options = {}) {
   let blockedRequest;
   let releaseRequest;
   const disposable = { dispose() {} };
-  const root = path.resolve(__dirname, '../..');
+  const root = options.root || path.resolve(__dirname, '../..');
+  const storage = require('node:fs').mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'rewind-host-'));
   const settings = new Map();
   const status = { show() {} };
   class Uri { constructor(fsPath) { this.fsPath = fsPath; this.scheme = 'file'; } static file(value) { return new Uri(value); } static parse(value) { return new Uri(value); } static joinPath(base, ...parts) { return new Uri(path.join(base.fsPath, ...parts)); } }
   class Position { constructor(line, character) { this.line = line; this.character = character; } }
   class Range { constructor(start, end) { this.start = start; this.end = end; } }
-  class WorkspaceEdit { replace(uri, range, text) { appliedEdit = { uri, range, text }; } }
+  class WorkspaceEdit {
+    constructor() { this.operations = []; }
+    replace(uri, range, text) { appliedEdit = { uri, range, text }; this.operations.push({kind:'replace',uri,range,text}); }
+    createFile(uri) { this.operations.push({kind:'create',uri}); }
+    insert(uri, position, text) { this.operations.push({kind:'insert',uri,text}); }
+    deleteFile(uri) { this.operations.push({kind:'delete',uri}); }
+  }
   const context = {
-    subscriptions: [], globalState: memory(), workspaceState: memory(),
+    subscriptions: [], globalStorageUri: Uri.file(storage), globalState: memory(), workspaceState: memory(),
     secrets: memory({ 'tvijo.auth': JSON.stringify({ access_token: 'test-token', api_base: base }) })
   };
   const vscode = {
@@ -65,7 +72,8 @@ function host(options = {}) {
         stat: async () => ({ type: 1 }),
         readFile: async () => Buffer.from('Demo project README\n')
       },
-      applyEdit: async () => true,
+      applyEdit: async edit => { if (options.applyEdit) return options.applyEdit(edit); return true; },
+      get textDocuments() { return activeEditor ? [activeEditor.document] : []; },
       openTextDocument: async (doc) => { docs.push(doc); return doc?.fsPath && activeEditor?.document?.uri?.fsPath === doc.fsPath ? activeEditor.document : doc; }
     },
     window: {
@@ -131,8 +139,8 @@ function host(options = {}) {
     onDidDispose: (fn) => { disposal = fn; }
   });
   const { tenantState, scopeKey } = require('../lib/tenant-state');
-  return { context, posts, docs, shown, requests, commands, executed, errors, panels, external, copied, base, local: tenantState(context), scope: tenant => scopeKey(base, tenant), receive: (message) => receive(message),
-    botAdapter: () => botAdapter, settings, status, Uri, Position, Range,
+  return { vscode, context, posts, docs, shown, requests, commands, executed, errors, panels, external, copied, base, local: tenantState(context), scope: tenant => scopeKey(base, tenant), receive: (message) => receive(message),
+    storage, botAdapter: () => botAdapter, settings, status, Uri, Position, Range,
     grantError: value => { grantError = value; }, lookup: value => { lookup = value; }, warning: value => { warningAnswer = value; }, chat: value => { chatContent = value; }, editor: value => { activeEditor = value; }, applied: () => appliedEdit, taskSnapshot: value => { taskSnapshot = value; },
     blockResponse: (requestPath, method = 'GET') => { blockedRequest = { path: requestPath, method }; }, responseWaiting: () => !!releaseRequest,
     releaseResponse: () => { blockedRequest = null; releaseRequest?.(); },
@@ -1118,4 +1126,86 @@ for (const cancel of [false, true]) test('SPEC-053 B6 payer opens project select
     assert.equal(picks.length, cancel ? 1 : 2);
     assert.deepEqual(app.errors, []);
   } finally { app.close(); }
+});
+
+for (const tool of ['write_file','replace_in_file','create_file']) {
+  test('Rewind host snapshots before actual Agent Apply: ' + tool, async () => {
+    const fs=require('node:fs'),{createCheckpoints}=require('../lib/checkpoints');
+    const base=fs.mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'host-write-'));
+    const root=path.join(base,'workspace');fs.mkdirSync(root);const file=path.join(root,'code.js');
+    const before='DISK_ONLY_RECOVERY_SENTINEL\r\n';if(tool!=='create_file')fs.writeFileSync(file,before);
+    const action=tool==='replace_in_file'?{tool,path:'code.js',old:before,new:'agent'}:{tool:'write_file',path:'code.js',content:'agent'};
+    let app,applied=0;
+    app=host({root,chatContent:JSON.stringify(action),applyEdit:async()=>{
+      applied++;const runs=createCheckpoints(app.storage).list(root);
+      assert.equal(runs.length,1);assert.equal(runs[0].steps[0].step,1);assert.equal(runs[0].steps[0].files[0],'code.js');
+      const dir=path.join(app.storage,'rewind-v1'),record=JSON.parse(fs.readFileSync(path.join(dir,fs.readdirSync(dir)[0])));
+      assert.equal(record.files[0].before,tool==='create_file'?null:Buffer.from(before).toString('base64'));return true;
+    }});
+    try {
+      app.settings.set('workspaceContext','off');app.settings.set('agentAutoApply',true);app.settings.set('agentMaxSteps',1);
+      if(tool!=='create_file')app.editor({document:{uri:app.Uri.file(file),version:1,isClosed:false,getText:()=>before,positionAt:n=>n}});
+      await app.commands.get('tvijo.agent')();assert.equal(applied,1);assert.equal(app.errors.length,0);
+      assert.equal(app.requests.filter(item=>item.url.endsWith('/chat')).length,2);
+      // First turn contains only the tool action; the checkpoint's base64 bytes,
+      // hashes, storage location and record fields never join any HTTP request.
+      const outbound=JSON.stringify(app.requests);
+      for(const value of [Buffer.from(before).toString('base64'),app.storage,'beforeHash','afterHash','rewind-v1'])assert.ok(!outbound.includes(value));
+      if(tool==='write_file')assert.ok(!outbound.includes(before));
+      await app.commands.get('tvijo.rewind')();
+      const view=app.posts.filter(item=>item.type==='rewind').at(-1);assert.equal(view.runs[0].steps[0].files[0],'code.js');
+      assert.doesNotMatch(JSON.stringify(view),/beforeHash|afterHash|DISK_ONLY/);
+    }finally{app.close();}
+  });
+}
+
+test('Rewind Quick Edit captures disk bytes and unsaved buffer before actual Apply without uploading local recovery bytes',async()=>{
+  const fs=require('node:fs'),{createCheckpoints}=require('../lib/checkpoints');
+  const root=fs.mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'quick-rewind-'));
+  const file=path.join(root,'code.js');fs.writeFileSync(file,'LOCAL_RECOVERY_DISK_ONLY');let app,applies=0;
+  app=host({root,chatContent:'<<<FILE>>>\nagent\n<<<END>>>',applyEdit:async()=>{applies++;assert.equal(createCheckpoints(app.storage).list(root).length,1);return true;}});
+  try {
+    app.settings.set('workspaceContext','off');app.warning('Apply to buffer');
+    app.editor({document:{uri:app.Uri.file(file),fileName:file,languageId:'javascript',version:1,isDirty:true,isClosed:false,getText:()=> 'UNSAVED_BUFFER',positionAt:n=>n}});
+    await app.commands.get('tvijo.quickEdit')();assert.equal(applies,1);assert.equal(app.errors.length,0);
+    const outbound=JSON.stringify(app.requests);assert.doesNotMatch(outbound,/LOCAL_RECOVERY_DISK_ONLY|rewind-v1|beforeHash|afterHash/);
+    assert.ok(!outbound.includes(Buffer.from('LOCAL_RECOVERY_DISK_ONLY').toString('base64')));
+  }finally{app.close();}
+});
+
+test('Rewind conflict offers Skip, deletion asks, and chat note never joins chat requests or exports',async()=>{
+  const fs=require('node:fs'),{createCheckpoints}=require('../lib/checkpoints');
+  const base=fs.mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'host-restore-'));
+  const root=path.join(base,'workspace');fs.mkdirSync(root);const file=path.join(root,'code.js');fs.writeFileSync(file,'old');
+  const prompts=[];const app=host({root,onWarning:async(...args)=>{prompts.push(args);}});
+  try {
+    await app.receive({type:'ready'});const store=createCheckpoints(app.storage);
+    store.capture({root,runId:'run',step:1,files:[{absolute:file,content:'agent'}]});fs.writeFileSync(file,'user');
+    await app.commands.get('tvijo.rewind')();const view=app.posts.filter(item=>item.type==='rewind').at(-1),message={type:'rewindRestore',workspaceKey:view.workspaceKey,runId:'run',step:1};
+    app.warning('Skip file');await app.receive(message);assert.equal(fs.readFileSync(file,'utf8'),'user');
+    assert.ok(prompts.at(-1).includes('Skip file'));assert.ok(prompts.at(-1).includes('Overwrite file'));
+    app.warning('Overwrite file');await app.receive(message);assert.equal(fs.readFileSync(file,'utf8'),'old');
+    assert.ok(app.posts.filter(item=>item.type==='state').at(-1).messages.some(item=>/Rewound to step 1: 1 files restored/.test(item.content)));
+    const newFile=path.join(root,'new.js');store.capture({root,runId:'new',step:1,files:[{absolute:newFile,content:'new'}]});fs.writeFileSync(newFile,'new');
+    app.warning('Skip file');await app.receive({...message,runId:'new'});assert.equal(fs.existsSync(newFile),true);assert.ok(prompts.at(-1).includes('Delete file'));
+    app.warning('Delete file');await app.receive({...message,runId:'new'});assert.equal(fs.existsSync(newFile),false);
+    app.settings.set('workspaceContext','off');await app.receive({type:'ask',question:'Follow-up question'});
+    assert.doesNotMatch(JSON.stringify(app.requests),/Rewound to step|beforeHash|afterHash|rewind-v1/);
+    await app.commands.get('tvijo.export')();assert.doesNotMatch(JSON.stringify(app.docs),/Rewound to step|beforeHash|afterHash|rewind-v1/);
+    const count=app.requests.length;await app.receive({...message,workspaceKey:'old-workspace'});assert.equal(app.requests.length,count);assert.match(app.errors.at(-1),/Action failed/);
+  }finally{app.close();}
+});
+
+test('checkpoint I/O failure blocks actual Agent Apply and never leaks storage errors into later model turns',async()=>{
+  const fs=require('node:fs');const root=fs.mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'failed-rewind-'));
+  const file=path.join(root,'code.js');fs.writeFileSync(file,'before');let actualApplies=0;
+  const app=host({root,chatContent:'{"tool":"write_file","path":"code.js","content":"agent"}',applyEdit:async()=>{actualApplies++;return true;}});
+  try {
+    const dir=path.join(app.storage,'rewind-v1');fs.writeFileSync(path.join(dir,'00000000.json'),'INVALID_LOCAL_STORAGE_SENTINEL');
+    app.settings.set('workspaceContext','off');app.settings.set('agentAutoApply',true);app.settings.set('agentMaxSteps',1);
+    app.editor({document:{uri:app.Uri.file(file),version:1,isClosed:false,getText:()=> 'before',positionAt:n=>n}});
+    await app.commands.get('tvijo.agent')();assert.equal(actualApplies,0);assert.equal(fs.readFileSync(file,'utf8'),'before');
+    const outbound=JSON.stringify(app.requests);for(const value of [app.storage,'rewind-v1','00000000.json','INVALID_LOCAL_STORAGE_SENTINEL','JSON.parse','SyntaxError'])assert.ok(!outbound.includes(value));
+    const result=app.posts.find(item=>item.type==='agent' && item.event.type==='result');assert.equal(result.event.result.ok,false);assert.equal(result.event.result.error,'The edit could not be safely applied.');
+  }finally{app.close();}
 });

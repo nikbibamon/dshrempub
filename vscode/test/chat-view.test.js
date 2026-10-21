@@ -364,3 +364,13 @@ test('narrow sidebar styles wrap footer actions without character-by-character c
   assert.match(html, /overflow-wrap:break-word/);
   assert.match(html, /min-width:0;max-width:100%;white-space:normal;word-break:normal/);
 });
+
+test('Rewind header action shows metadata only, localizes and returns to chat with restore note',()=>{
+  const view=sidebar();view.emit('commands:click',{});assert.equal(view.element('actions-menu').hidden,false);
+  view.emit('rewind-action:click',{});assert.equal(view.outgoing.at(-1).type,'rewind');
+  const runs=[{id:'r',title:'Test run',time:1,steps:[{step:2,time:1,model:'synthetic',files:['src/a.js']}]}];
+  view.emit('window:message',{data:{type:'rewind',workspaceKey:'w',runs}});assert.equal(view.element('rewind').hidden,false);assert.equal(view.element('messages').hidden,true);
+  view.emit('lang:click',{});assert.equal(view.element('rewind-title').textContent,'Восстановление');
+  view.emit('window:message',{data:{type:'rewindResult',workspaceKey:'other',text:'stale'}});assert.equal(view.element('rewind').hidden,false);
+  view.emit('window:message',{data:{type:'rewindResult',workspaceKey:'w',text:'Rewound to step 2: 1 files restored'}});assert.equal(view.element('rewind').hidden,true);assert.equal(view.element('messages').hidden,false);
+});

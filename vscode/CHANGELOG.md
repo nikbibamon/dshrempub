@@ -1,3 +1,15 @@
+## 0.7.0 — 2026-10-21
+
+- SPEC-215 slice 1: local Rewind checkpoints before Agent write/replace, Quick Edit,
+  and reviewed coding proposal Apply. Disk bytes and editor input are preserved under
+  global storage, with SHA256 verification, a seven-day TTL and a 50 MiB total cap.
+- Header **… → Rewind…**, **Tvijo: Rewind** and `/rewind`: recent runs → step time,
+  files and model → restore before that step and undo later steps in the same run.
+- Changed files/buffers require Overwrite or Skip; deleting newly created files always
+  requires confirmation. Recovery data never joins service requests, exports or logs.
+  A local chat note reports restored/skipped counts. No new settings or server endpoint.
+- Agent Map now shows both scrollbars, starts at the top, and keeps its details pane.
+
 ## 0.6.1 — 2026-10-21
 
 - Assistant Markdown: headings, emphasis, inline/fenced code with language labels and Copy,

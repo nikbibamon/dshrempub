@@ -23,11 +23,27 @@ const quickEdit = require('./lib/quick-edit');
 const { runAgent } = require('./lib/agent');
 const { createTools, safePath, autoCommand } = require('./lib/local-tools');
 const { createMetrics } = require('./lib/metrics');
+const { createCheckpoints } = require('./lib/checkpoints');
 const AUTH_KEY = 'tvijo.auth';
 const CONTEXT_CONSENT = 'tvijo.contextConsent';
 
 function activate(context) {
   let chatView = null;
+  const checkpoints = createCheckpoints(context.globalStorageUri?.fsPath);
+  const rewindNotes = [];
+  if (context.globalStorageUri?.fsPath) {
+    const pruneRewind = () => { try { checkpoints.prune(); } catch { /* Edits fail closed if local storage is unsafe or unavailable. */ } };
+    pruneRewind();
+    const timer = setInterval(pruneRewind, 60 * 60 * 1000); timer.unref?.();
+    context.subscriptions.push({dispose:() => clearInterval(timer)});
+  }
+  let rewindBusy = false;
+  let pendingRewind = null;
+  function captureRewind(checkpoint) {
+    try { return checkpoints.capture(checkpoint); }
+    catch { throw new core.ServiceError('edit_recovery_unavailable', 'The edit could not be safely applied.'); }
+  }
+
   const agentMaps = new Map();
   function mapSession(auth) {
     const key = auth.viewScope || currentViewScope(auth.scope);
@@ -336,6 +352,7 @@ function activate(context) {
       const boundary = item.role === 'assistant' && typeof content === 'string' ? content.lastIndexOf('\n---\nTask ') : -1;
       return boundary < 0 ? {role:item.role, content} : {role:item.role, content:content.slice(0,boundary), footer:content.slice(boundary + 5)};
     });
+    messages.push(...rewindNotes.filter(note => note.root === vscode.workspace.workspaceFolders?.[0]?.uri.fsPath).map(note => ({role:'assistant', content:note.text})));
     let options = null;
     let pack = null;
     if (signedIn) {
@@ -462,6 +479,9 @@ function activate(context) {
       let firstAgentAnswer = null;
       const exchanges = [];
       const writeVersions = new Map();
+      const rewindRunId = randomUUID();
+      let rewindStep = 1;
+      const checkpointWrite = file => captureRewind({root:folder.uri.fsPath, runId:rewindRunId, step:rewindStep, model:agentModel, title:goal, files:[file]});
       const tools = createTools({
         root: folder.uri.fsPath, guard,
         confirmRun: async info => {
@@ -489,6 +509,9 @@ function activate(context) {
             edit.createFile(uri, { overwrite: false, ignoreIfExists: false });
             edit.insert(uri, new vscode.Position(0, 0), content);
             await guard();
+            checkpointWrite({absolute,content});
+            await guard();
+            safePath(folder.uri.fsPath, absolute);
             if (!await vscode.workspace.applyEdit(edit)) throw new core.ServiceError('file_changed', 'The new file could not be created.');
             return;
           }
@@ -497,12 +520,13 @@ function activate(context) {
           const version = writeVersions.get(absolute);
           await guard();
           if (document.version !== version || document.getText() !== previous) throw new core.ServiceError('file_changed', 'Editor content changed.');
-          await quickEdit.apply(vscode, document, content);
+          await quickEdit.apply(vscode, document, content, () => checkpointWrite({absolute,content,document}));
         }
       });
       const result = await runAgent({
         goal, tree, history: agentHistory, planMode, maxSteps, budgetUsd, signal: abort.signal, tools,
         ask: async ({ messages, step, signal, finalization = false }) => {
+          rewindStep = step;
           await guard();
           const remaining = Number(budgetUsd) - agentSpent;
           if (!Number.isFinite(remaining) || remaining <= 0) throw Object.assign(new Error('Agent budget exhausted'), { code: 'agent_budget', spent: agentSpent, budget: budgetUsd });
@@ -633,12 +657,12 @@ function activate(context) {
   function command(id, fn) {
     handlers.set(id, fn);
     context.subscriptions.push(vscode.commands.registerCommand(id, async (...args) => {
-      try { await fn(...args); } catch (error) { report(error); } finally { await refreshStatus(); }
+      try { await fn(...args); } catch (error) { report(error); } finally { if (id !== 'tvijo.rewind') await refreshStatus(); }
     }));
   }
 
   function ensureIdle() {
-    if (busy || attaching) throw new core.ServiceError('busy', 'Wait for the current question or attachment to finish.');
+    if (rewindBusy || busy || attaching) throw new core.ServiceError('busy', 'Wait for the current question or attachment to finish.');
   }
 
   async function loadSharedThread(auth, selected) {
@@ -857,6 +881,62 @@ function activate(context) {
     else await showDocument('plaintext', content);
     await postChatState();
   });
+  function rewindWorkspace() {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) throw new Error(L('Open a workspace folder to Rewind.', 'Откройте папку проекта для восстановления.'));
+    return {root, key:root + ':' + workspaceEpoch};
+  }
+  async function showRewind() {
+    ensureIdle();
+    const {root,key} = rewindWorkspace();
+    const runs = checkpoints.list(root);
+    await vscode.commands.executeCommand('tvijo.chat.focus');
+    if (rewindWorkspace().key !== key) throw new Error('The Rewind workspace changed.');
+    pendingRewind = {type:'rewind',workspaceKey:key,runs};
+    await chatView?.webview.postMessage(pendingRewind);
+  }
+  async function restoreRewind(message) {
+    ensureIdle();
+    const {root,key} = rewindWorkspace(), epoch = workspaceEpoch;
+    if (message.workspaceKey !== key || typeof message.runId !== 'string' || !Number.isInteger(message.step)) throw new Error('The Rewind workspace changed. Open Rewind again.');
+    const guard = async () => { if (workspaceEpoch !== epoch || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath !== root) throw new Error('The Rewind workspace changed.'); };
+    rewindBusy = true;
+    try {
+      const result = await checkpoints.restore({root,runId:message.runId,step:message.step,guard,
+        inspect:async target => vscode.workspace.textDocuments?.find(doc => !doc.isClosed && doc.uri.scheme === 'file' && doc.uri.fsPath === target) || null,
+        confirm:async info => {
+          const apply = info.deletion ? L('Delete file','Удалить файл') : L('Overwrite file','Перезаписать файл');
+          const skip = L('Skip file','Пропустить файл');
+          const text = info.deletion
+            ? L('Rewind will delete ' + info.path + ' because it did not exist before this step.', 'Восстановление удалит ' + info.path + ': до этого шага файла не было.')
+            : L(info.path + ' changed after the agent edit. Overwrite it?', info.path + ' изменён после правки агента. Перезаписать?');
+          return await vscode.window.showWarningMessage(text, {modal:true}, apply, skip) === apply;
+        },
+        applyBuffer:async (target,text,document,expected) => {
+          if (!document) return;
+          await guard();
+          const version = document.version;
+          if (document.isClosed || version !== expected.version || document.getText() !== expected.text) throw new Error('File changed during Rewind.');
+          const edit = new vscode.WorkspaceEdit();
+          if (text === null) edit.deleteFile(vscode.Uri.file(target),{ignoreIfNotExists:true});
+          else edit.replace(document.uri,new vscode.Range(document.positionAt(0),document.positionAt(document.getText().length)),text);
+          if (document.version !== version || !await vscode.workspace.applyEdit(edit)) throw new Error('The editor refused Rewind.');
+        }
+      });
+      const text = L('Rewound to step ' + message.step + ': ' + result.restored + ' files restored', 'Возврат к шагу ' + message.step + ': восстановлено файлов — ' + result.restored) + (result.skipped ? L(' · ' + result.skipped + ' skipped', ' · пропущено — ' + result.skipped) : '');
+      rewindNotes.push({root,text});
+      await chatView?.webview.postMessage({type:'rewindResult',workspaceKey:key,text});
+      await postChatState();
+    } catch (error) {
+      if (error.restored) {
+        const text = L('Rewind stopped: ' + error.restored + ' files restored; review the remaining files.', 'Восстановление остановлено: восстановлено файлов — ' + error.restored + '. Проверьте остальные файлы.');
+        rewindNotes.push({root,text}); await postChatState();
+      }
+      throw error;
+    } finally { rewindBusy = false; }
+  }
+  command('tvijo.rewind', showRewind);
+
   command('tvijo.quickEdit', async () => {
     ensureIdle();
     const auth = await requireAuth();
@@ -929,7 +1009,7 @@ function activate(context) {
       if (document.version !== originalVersion) throw new core.ServiceError('file_changed', 'File version changed.');
       safePath(folder.uri.fsPath, relative);
       await editGuard();
-      await quickEdit.apply(vscode, document, proposed);
+      await quickEdit.apply(vscode, document, proposed, () => captureRewind({root:folder.uri.fsPath, runId:idempotencyKey, step:1, model:config.get('model', 'coding'), title:'Quick Edit: ' + relative, files:[{absolute:document.uri.fsPath,content:proposed,document}]}));
       await metrics.record({ event: 'edit', outcome: 'applied', model: config.get('model', 'coding'), path: relative, duration_ms: Date.now() - startedAt });
       vscode.window.showInformationMessage(L('Tvijo edit applied to the buffer. Review and save explicitly.', 'Правка Tvijo применена в буфер. Просмотрите и сохраните явно.'));
     } catch (error) {
@@ -1111,7 +1191,7 @@ function activate(context) {
     if (!botToken || !botConfig.ownerId) throw new core.ServiceError('bot_account_setup', 'Configure Telegram bot for this signed-in account first. Older unassigned bot credentials remain preserved and are not reused.');
     let botPendingId = null;
     customerBot = createBot({ botToken, ownerId: botConfig.ownerId, apiBase: auth.api_base, accessToken: auth.access_token, allowedServices: config.get('telegram.allowedServices', []),
-      withAction: async action => { if (busy) throw new Error('Editor is busy. Retry your command after it finishes.'); busy = true; try { return await action(); } finally { busy = false; await postChatState(); } },
+      withAction: async action => { if (rewindBusy || busy) throw new Error('Editor is busy. Retry your command after it finishes.'); busy = true; try { return await action(); } finally { busy = false; await postChatState(); } },
       load: async () => {
         const pending = local.pending(auth.scope) || null;
         botPendingId = pending?.idempotencyKey || pending?.taskId || null;
@@ -1609,6 +1689,7 @@ function activate(context) {
     const applyEpoch = authAttempt, applyWorkspaceEpoch = workspaceEpoch, applyScope = currentViewScope(review.auth.scope);
     const guardSync = () => { if (authAttempt !== applyEpoch || workspaceEpoch !== applyWorkspaceEpoch || client().base !== review.auth.api_base || identity?.token !== review.auth.access_token || currentViewScope(review.auth.scope) !== applyScope) throw new core.ServiceError('account_changed','The coding apply scope changed.'); };
     const applied = await coding.apply({vscode,snapshot:review.snapshot,artifact:review.artifact,guard:review.guard,guardSync,
+      beforeWrite:checks => captureRewind({root:review.snapshot.root,runId:randomUUID(),step:1,model:review.artifact.model || '—',title:'Reviewed coding proposal',files:checks.map(entry => ({absolute:entry.target,content:entry.edit.content,document:entry.document}))}),
       revalidate:() => coding.codingClient(core.createClient({base:review.auth.api_base}),review.auth.access_token).artifact(review.artifact.task_id),
       confirm:async () => (await vscode.window.showWarningMessage('Apply exactly the reviewed Tvijo edits to the selected workspace? Existing selected files must still match their captured bytes. New files must still be absent.', {modal:true}, 'Apply reviewed edits')) === 'Apply reviewed edits' });
     if (applied) { codingReview = null; await vscode.window.showInformationMessage('Tvijo reviewed edits were applied to editor buffers. Review and save them explicitly.'); }
@@ -1656,7 +1737,13 @@ function activate(context) {
             const auth = await requireAuth();
             if (message.scopeKey !== currentViewScope(auth.scope)) return;
           }
-          if (message?.type === 'agentMap') {
+          if (message?.type === 'rewind') {
+            await showRewind();
+          } else if (message?.type === 'rewindShown') {
+            if (pendingRewind?.workspaceKey === message.workspaceKey) pendingRewind = null;
+          } else if (message?.type === 'rewindRestore') {
+            await restoreRewind(message);
+          } else if (message?.type === 'agentMap') {
             const auth = await requireAuth(); auth.viewScope = currentViewScope(auth.scope);
             await refreshMap(auth, message.refresh === true);
           } else if (message?.type === 'openExternal') {
@@ -1693,6 +1780,7 @@ function activate(context) {
             await postChatState();
           } else if (message?.type === 'ready') {
             await refreshStatus();
+            if (pendingRewind && pendingRewind.workspaceKey === rewindWorkspace().key) await view.webview.postMessage(pendingRewind);
             if (pendingDraft) {
               const draft = pendingDraft; pendingDraft = null;
               await view.webview.postMessage({ type: 'draft', text: draft.text, mode: draft.mode });

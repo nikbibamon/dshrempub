@@ -2,7 +2,7 @@
   "name": "tvijo-dshrem",
   "displayName": "Tvijo DSHREM",
   "description": "Managed coding and bounded reviews for shared projects with a per-task spending cap. Provider API credentials remain on the service.",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/nikbibamon/dshrempub.git",
@@ -264,6 +264,11 @@
       {
         "command": "tvijo.nativeSettings",
         "title": "Edit native VS Code settings",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.rewind",
+        "title": "Rewind",
         "category": "Tvijo"
       }
     ],

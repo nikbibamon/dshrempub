@@ -5,6 +5,7 @@ const { THEME_CSS, COPY } = require('./product-theme');
 const { renderMarkdown, safeExternalUrl } = require('./markdown');
 const { renderAgentMap, buildAgentMap } = require('./agent-map');
 const { CHAT_CSS } = require('./chat-presentation');
+const { renderRewind, REWIND_CSS } = require('./rewind-view');
 
 function chatHtml(webview) {
   const nonce = randomBytes(16).toString('base64');
@@ -15,11 +16,12 @@ function chatHtml(webview) {
 <style nonce="${nonce}">
 ${THEME_CSS}
 ${CHAT_CSS}
+${REWIND_CSS}
 header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
 </style></head><body>
 <header><strong id="brand"><span id="brand-mark" aria-hidden="true">›_</span>DSHREM</strong><button id="pack-picker" type="button" hidden aria-haspopup="dialog"></button><button id="agent-map-button" type="button" aria-expanded="false" aria-controls="agent-map">⑂ Agent map</button><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="signin" type="button">Sign in</button><button id="new" class="icon" type="button" title="New session" aria-label="New session">＋</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings">⚙</button></header>
 <nav aria-label="Workspace"><button id="tab-chat" type="button" aria-selected="true">Chat</button><button id="tab-context" type="button" aria-selected="false">Context</button><button id="tab-usage" type="button" aria-selected="false">Usage</button><button id="tab-terminal" type="button" aria-selected="false">Terminal</button></nav>
-<main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
+<div id="actions-menu" role="menu" aria-label="Actions" hidden><button id="rewind-action" type="button" role="menuitem">Rewind…</button><button id="all-actions" type="button" role="menuitem">All commands…</button></div><section id="rewind" aria-labelledby="rewind-title" hidden><div id="rewind-heading"><h2 id="rewind-title">Rewind</h2><button id="rewind-close" type="button">Back to chat</button></div><p id="rewind-hint"></p><p id="rewind-status" role="status"></p><div id="rewind-list"></div></section><main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
 <div id="agent-log" role="log" aria-live="polite"></div>
 <div class="product-links"><button id="product-guide" type="button">Tvijo AI guide</button><button id="connections" type="button">Connections</button><button id="tasks" type="button">Server task history</button><button id="context-preview" type="button">Preview context</button><button id="quick-edit" type="button">Quick edit</button></div>
@@ -35,6 +37,7 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   const safeExternalUrl = ${safeExternalUrl.toString()};
   const renderMarkdown = ${renderMarkdown.toString()};
   const renderAgentMap = ${renderAgentMap.toString()};
+  const renderRewind = ${renderRewind.toString()};
   const buildAgentMap = ${buildAgentMap.toString()};
   const vscode = acquireVsCodeApi();
   const messages = document.getElementById('messages');
@@ -74,6 +77,14 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   let lastUsageScope = null;
   let pending = false;
   let scopeKey = null;
+  let rewindRuns = [], rewindChosen = null, rewindWorkspaceKey = null;
+  const rewindPanel = document.getElementById('rewind');
+  const actionsMenu = document.getElementById('actions-menu');
+  actionsMenu.hidden = true;
+  function closeActions() {actionsMenu.hidden=true;document.getElementById('commands').setAttribute('aria-expanded','false');}
+  function drawRewind() {
+    renderRewind(document,document.getElementById('rewind-list'),rewindRuns,locale,id => {rewindChosen=id;drawRewind();},(runId,step) => {post({type:'rewindRestore',workspaceKey:rewindWorkspaceKey,runId,step});},rewindChosen);
+  }
   let mapOpen = false;
   let mapModel = buildAgentMap();
   let mapSelection = () => 'request';
@@ -86,10 +97,7 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
     const hadTree = canvas.querySelector?.('.map-children');
     mapSelection = renderAgentMap(document, canvas, details, mapModel, locale, mapSelection());
     canvas.scrollLeft = left || 0; canvas.scrollTop = top || 0; details.scrollTop = detailTop || 0;
-    if (!hadTree && mapModel.children.length) {
-      const root = canvas.querySelector?.('.map-node');
-      if (root) canvas.scrollTop = Math.max(0, root.offsetTop - canvas.clientHeight / 2 + root.offsetHeight / 2);
-    }
+    if (!hadTree) canvas.scrollTop = 0;
     if (focusedId) for (const button of canvas.querySelectorAll('button')) if (button.getAttribute('data-map-id') === focusedId) { button.focus({preventScroll:true}); break; }
   }
   function mapVisibility(open) {
@@ -99,6 +107,7 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
     if (mapTimer) clearTimer(mapTimer);
     mapTimer = null;
     if (open) {
+      rewindPanel.hidden = true;
       messages.hidden = true; document.getElementById('context-panel').className = '';
       drawMap();
       if (scopeKey) {
@@ -258,11 +267,17 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   }
   function setLocale(next) {
     locale = next; document.documentElement.lang = locale;
+    document.getElementById('rewind-title').textContent = locale === 'ru' ? 'Восстановление' : 'Rewind';
+    document.getElementById('rewind-action').textContent = locale === 'ru' ? 'Восстановление…' : 'Rewind…';
+    document.getElementById('all-actions').textContent = locale === 'ru' ? 'Все команды…' : 'All commands…';
+    document.getElementById('rewind-close').textContent = locale === 'ru' ? 'Вернуться к чату' : 'Back to chat';
+    document.getElementById('rewind-hint').textContent = locale === 'ru' ? 'Только на этом устройстве · 7 дней · до 50 МиБ. Изменённые файлы и удаление требуют подтверждения.' : 'On this machine only · 7 days · up to 50 MiB. Changed files and deletions need confirmation.';
+    if (!rewindPanel.hidden) drawRewind();
     document.getElementById('agent-map-button').textContent = locale === 'ru' ? '⑂ Карта агентов' : '⑂ Agent map';
     document.getElementById('map-title').textContent = locale === 'ru' ? 'Карта агентов' : 'Agent map';
     document.getElementById('map-canvas').setAttribute('aria-label', locale === 'ru' ? 'Карта агентов' : 'Agent map');
     document.getElementById('map-close').textContent = locale === 'ru' ? 'Вернуться к чату' : 'Back to chat';
-    document.getElementById('map-hint').textContent = locale === 'ru' ? 'Только выполненные шаги · — нет данных · ← → ↑ ↓ переход, Enter подробности' : 'Executed steps only · — unknown · Arrow keys navigate, Enter shows details';
+    document.getElementById('map-hint').textContent = locale === 'ru' ? 'Только выполненные шаги · — нет данных · Прокрутка ↔ ↕ · Стрелки — переход, Enter — подробности' : 'Executed steps only · — unknown · Scroll ↔ ↕ · Arrow keys navigate, Enter shows details';
     if (mapOpen) drawMap();
     document.getElementById('lang').textContent = locale === 'en' ? 'EN / RU' : 'RU / EN';
     document.getElementById('tab-chat').textContent = t('chat');
@@ -322,6 +337,7 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   }
   function setTab(tab) {
     mapVisibility(false);
+    rewindPanel.hidden = true;
     for (const name of ['chat','context','terminal','usage']) document.getElementById('tab-' + name).setAttribute('aria-selected', String(name === tab));
     messages.hidden = tab !== 'chat';
     document.getElementById('context-panel').className = tab === 'context' || tab === 'terminal' || tab === 'usage' ? 'visible' : '';
@@ -468,6 +484,17 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   }
   window.addEventListener('message', event => {
     const data = event.data;
+    if (data.type === 'rewind') {
+      setTab('chat'); messages.hidden = true; rewindPanel.hidden = false;
+      rewindRuns = data.runs || []; rewindChosen = null; rewindWorkspaceKey = data.workspaceKey;
+      document.getElementById('rewind-status').textContent = '';
+      drawRewind(); document.getElementById('rewind-close').focus(); post({type:'rewindShown',workspaceKey:rewindWorkspaceKey}); return;
+    }
+    if (data.type === 'rewindResult') {
+      if (data.workspaceKey !== rewindWorkspaceKey) return;
+      document.getElementById('rewind-status').textContent = data.text;
+      setTab('chat'); return;
+    }
     if (data.type === 'agentMap') {
       if (data.scopeKey !== scopeKey) return;
       mapModel = data.model || buildAgentMap(); if (mapOpen) drawMap(); return;
@@ -482,6 +509,7 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
       if (scopeKey !== nextScope) {
         if (scopeKey) drafts[scopeKey] = question.value;
         scopeKey = nextScope;
+        rewindPanel.hidden = true; rewindRuns = []; rewindWorkspaceKey = null;
         mapModel = buildAgentMap(); mapSelection = () => 'request';
         if (mapOpen) { setTab('chat'); drawMap(); }
         question.value = scopeKey ? (drafts[scopeKey] || '') : '';
@@ -572,7 +600,17 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   document.getElementById('context-preview').addEventListener('click', () => post({ type: 'contextPreview' }));
   document.getElementById('quick-edit').addEventListener('click', () => post({ type: 'quickEdit' }));
   document.getElementById('workflow').addEventListener('click', () => { plusMenu.className = ''; document.getElementById('plus').setAttribute('aria-expanded','false'); const open = optionsMenu.className !== 'open'; optionsMenu.className = open ? 'open' : ''; document.getElementById('workflow').setAttribute('aria-expanded', String(open)); });
-  for (const type of ['commands','workspace','selection','path']) document.getElementById(type).addEventListener('click', () => { plusMenu.className = ''; optionsMenu.className = ''; document.getElementById('plus').setAttribute('aria-expanded','false'); post({type}); });
+  document.getElementById('commands').setAttribute('aria-haspopup','menu');
+  document.getElementById('commands').addEventListener('click', () => { actionsMenu.hidden = !actionsMenu.hidden; document.getElementById('commands').setAttribute('aria-expanded',String(!actionsMenu.hidden)); if (!actionsMenu.hidden) document.getElementById('rewind-action').focus(); });
+  document.getElementById('rewind-action').addEventListener('click', () => {closeActions();post({type:'rewind'});});
+  document.getElementById('all-actions').addEventListener('click', () => {closeActions();post({type:'commands'});});
+  document.getElementById('rewind-close').addEventListener('click', () => {setTab('chat');document.getElementById('commands').focus();});
+  document.getElementById('rewind').addEventListener('keydown', event => {if(event.key === 'Escape') {setTab('chat');document.getElementById('commands').focus();}});
+  actionsMenu.addEventListener('keydown', event => {
+    if(event.key === 'Escape') {closeActions();document.getElementById('commands').focus();}
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {event.preventDefault(); const next=document.activeElement?.id === 'rewind-action' ? 'all-actions' : 'rewind-action';document.getElementById(next).focus();}
+  });
+  for (const type of ['workspace','selection','path']) document.getElementById(type).addEventListener('click', () => { plusMenu.className = ''; optionsMenu.className = ''; document.getElementById('plus').setAttribute('aria-expanded','false'); post({type}); });
   document.getElementById('tab-usage').addEventListener('click', () => { setTab('usage'); post({type:'usage'}); });
   document.getElementById('connections').addEventListener('click', () => post({type:'connections'}));
   document.getElementById('product-guide').addEventListener('click', () => post({type:'productGuide'}));

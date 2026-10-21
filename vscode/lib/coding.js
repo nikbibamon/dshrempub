@@ -266,7 +266,7 @@ function sameProposal(before, after) {
   const edits = value => JSON.stringify(value.edits.map(edit => [edit.path,edit.base_sha256,edit.new_sha256]).sort((a,b)=>a[0].localeCompare(b[0])));
   if (edits(before) !== edits(after)) refuse('The proposed edit hashes changed after review.');
 }
-async function apply({ vscode, snapshot, artifact, guard = async () => {}, guardSync = () => {}, confirm, revalidate }) {
+async function apply({ vscode, snapshot, artifact, guard = async () => {}, guardSync = () => {}, confirm, revalidate, beforeWrite = () => {} }) {
   if (artifact.workflow && artifact.workflow !== 'single' && typeof revalidate !== 'function') refuse('Review workflows require a fresh server artifact after confirmation.');
   await prepareApply({ vscode, snapshot, artifact, guard });
   const approved = await checked(guard, confirm());
@@ -288,6 +288,7 @@ async function apply({ vscode, snapshot, artifact, guard = async () => {}, guard
       edit.replace(uri, new vscode.Range(entry.document.positionAt(0), entry.document.positionAt(entry.document.getText().length)), entry.edit.content);
     }
   }
+  await beforeWrite(checks);
   await guard();
   guardSync();
   finalChecks(snapshot,checks,vscode);
