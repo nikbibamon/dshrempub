@@ -179,3 +179,7 @@ no live-provider claim. OperatorVSCodeServer installation and version0.7.1 verif
 VSIX SHA256:551182554a095f7ac03f188540bb3a7fd4e97bce32a82ca6e22b8655c027c48b.
 31entries match source/receipt, GalleryFlags Public, private absent, zero pack
 text/host-path/key-pattern hits. All baseline artifacts remain preserved.
+
+## 0.7.2 — independent acceptance, 2026-10-21
+Source3d04ff7. Root reran full9 CLI+371extension tests, all pass; four EN/RU280/640px menu/keyboard/mode checks passed. Archive8c8a9c592f69ce162052dbd38a60a39ae2feafe80ff2d78bc713f846d7659037: Public, settings unchanged, pack instructions/host paths/key hits0. Installed operator VSCodeServer0.7.2 and copied root VSIX/receipt.
+Actual official VSCode1.142.0 installed VSIX test with synthetic loopback backend passed: allfour mode presets; actual Error/Warning vs Info/outside/secret/symlink diagnostic filtering; observed shell integration; standalone references cause no model task; inline contexts reach actual Agent HTTP; export removes visible fake token and hidden attachment content; Agent dirty buffer/manual save/Rewind originalSHA256. Provider calls0; no live-provider claim. Evidence: volume codex-orchestration-20261021/worker-native-qa/runs/2026-10-21T01-57-26-001Z-2399140/evidence.json, actions-browser-BFTnNq. Earlier failed harness setup attempts retained.
