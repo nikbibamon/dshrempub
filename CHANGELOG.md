@@ -2,6 +2,14 @@
 
 Extension release notes. The detailed history is in [vscode/CHANGELOG.md](vscode/CHANGELOG.md).
 
+## 0.9.3 — 2026-10-21
+
+- Add per-folder Full access through native consent bound to host-local identity; refuse it in untrusted workspaces.
+- Show a persistent warning with one-click revert; keep ordinary preset settings unchanged.
+- Automatically approve edits and commands under Full access while retaining hard command/path/secret/budget guards and mandatory Rewind checkpoints.
+- Harden force-push tokens and recursive removal outside the workspace before command approval.
+- Prepared for review; the website release catalog remains unchanged.
+
 ## 0.9.2 — 2026-10-21
 
 - Capture Error/Warning diagnostics before each Agent write and send new/resolved items plus the count of unchanged pre-existing items.

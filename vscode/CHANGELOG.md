@@ -1,3 +1,25 @@
+## 0.10.0 — 2026-10-21
+
+- Add read-only Data & privacy view using authenticated server preferences; unavailable, malformed and changed-account responses stay unknown.
+- Add bilingual Resources picker with the verified public Learn, Knowledge base, Policies and Changelog links.
+- Respect VS Code telemetry capability for every local metadata log write; existing log contents remain intact.
+- Require an explicit telemetry capability and extension storage; validate metadata fields and use verified localized resource URLs.
+- Candidate prepared for independent backend, test and native-host acceptance. No package build or release verification is claimed.
+
+Русский:
+- «Данные и конфиденциальность» показывает только ответ сервера; ошибки, неполные данные и смена аккаунта оставляют состояние неизвестным.
+- «Материалы» открывает проверенные ссылки на обучение, базу знаний, правила и журнал изменений на выбранном языке.
+- Журнал метаданных требует разрешённой телеметрии VS Code и хранилища расширения; сохраняются только проверенные поля, прежние записи не удаляются.
+- Версия остаётся кандидатом до независимой приёмки; публикация не заявляется.
+
+## 0.9.3 — 2026-10-21
+
+- Add per-folder Full access through native consent bound to host-local identity; refuse it in untrusted workspaces.
+- Show a persistent warning with one-click revert; keep ordinary preset settings unchanged.
+- Automatically approve edits and commands under Full access while retaining hard command/path/secret/budget guards and mandatory Rewind checkpoints.
+- Harden force-push tokens and recursive removal outside the workspace before command approval.
+- Prepared for review; the website release catalog remains unchanged.
+
 ## 0.9.2 — 2026-10-21
 
 - Capture Error/Warning diagnostics before each Agent write and send new/resolved items plus the count of unchanged pre-existing items.

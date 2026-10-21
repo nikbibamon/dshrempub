@@ -78,3 +78,27 @@ test('quoted forwarding wrappers, filesystem tools and opaque git config never a
     '"/bin/rm" "--recursive" "--force" "//"'
   ]) assert.equal(analyzeCommand(raw).ok,false,raw);
 });
+
+
+test('force-push forms are hard token denials before any approval',async()=>{
+  const root=await workspace();let approvals=0;const tools=createTools({root,confirmRun:async()=>{approvals++;return true;}});
+  for(const command of ['git push --force','"/usr/bin/git" -C . push origin --force-with-lease','git push -f origin HEAD','git push origin +HEAD:main','git push --mirror','git push --force-if-includes','git push --mir origin','git push --fo origin','git push --force-with-l origin']){
+    assert.equal(analyzeCommand(command).denied,true,command);await assert.rejects(tools.execute({tool:'run_command',command}),/blocked/);
+  }
+  assert.equal(approvals,0);
+});
+
+test('recursive removal outside workspace, through symlinks, or of the root never reaches approval',async()=>{
+  const root=await workspace(),outside=await workspace();let approvals=0;
+  await fs.writeFile(path.join(outside,'keep'),'CANARY');await fs.symlink(outside,path.join(root,'escape'));
+  const tools=createTools({root,confirmRun:async()=>{approvals++;return true;}});
+  for(const command of ['rm -rf '+outside,'rm -rf ../outside','rm -rf .','rm -rf escape','rm -r -- '+outside,'"/bin/rm" --recursive --force '+outside,'rm -rf '+outside+' -- inside-canary','rm --rec '+outside])await assert.rejects(tools.execute({tool:'run_command',command}),/blocked/);
+  assert.equal(approvals,0);assert.equal(await fs.readFile(path.join(outside,'keep'),'utf8'),'CANARY');
+});
+
+
+test('removal paths are rechecked when an approved operand parent becomes a symlink',async()=>{
+  const root=await workspace(),outside=await workspace(),inside=path.join(root,'inside');await fs.mkdir(inside);await fs.writeFile(path.join(inside,'keep'),'INSIDE');await fs.writeFile(path.join(outside,'keep'),'OUTSIDE');
+  const tools=createTools({root,confirmRun:async()=>{await fs.rename(inside,path.join(root,'inside-original'));await fs.symlink(outside,inside);return true;}});
+  await assert.rejects(tools.execute({tool:'run_command',command:'rm -rf inside/keep'}),/blocked/);assert.equal(await fs.readFile(path.join(outside,'keep'),'utf8'),'OUTSIDE');
+});

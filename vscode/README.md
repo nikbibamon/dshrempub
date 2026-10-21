@@ -1,8 +1,27 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.9.2. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.9.3. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
+
+## Permission presets
+
+Plan is read-only. Manual, Edit automatically and Auto retain their existing
+approval behavior. **Full access** approves edits, including whole-file and
+whitespace fallback replacements, and supported commands without further prompts.
+Enable it for the active editor's workspace folder (or the first open folder)
+through the native modal. It requires a trusted workspace and a permission record
+bound to this host's local folder identity; workspace settings cannot enable it.
+
+A persistent warning lists enabled folders. **Revert** stops active work using
+that permission and removes it in one click. Full access leaves normal preset
+settings unchanged, so reverting restores their behavior. Explicitly choosing
+another Agent preset also revokes Full access for the current folder.
+
+Hard command denials, file-tool workspace/symlink/secret guards, task budget
+ceilings and reservations remain mandatory. Edits still require Rewind checkpoints
+and leave editor buffers unsaved. Commands use local host permissions; this preset
+does not provide an operating-system sandbox. Restricted Mode cannot enable it.
 
 ## Diagnostics after Agent edits
 
@@ -402,7 +421,28 @@ and pre-fills a read-only plan request you can edit before sending.
 
 **Local usage metrics** (`/metrics`) shows a summary of the extension's own metadata
 log: event counts, outcomes, spend and duration. It stores no prompts, file contents,
-command output or credentials.
+command output or credentials. Writes follow VS Code's live telemetry setting; when
+telemetry is disabled, new rows are not recorded and existing rows are preserved.
+
+## Data, privacy and resources
+
+Local metrics require the current VS Code telemetry capability and extension storage.
+Only validated metadata fields are appended; prompts, arbitrary extra fields and
+caller-supplied timestamp/version overrides are omitted. Existing logs remain intact.
+
+Локальный журнал требует разрешённой телеметрии VS Code и хранилища расширения.
+Записываются только проверенные поля метаданных; запросы, произвольные поля и
+подмена времени или версии не сохраняются. Прежние записи остаются на месте.
+
+Use **Tvijo: Data & privacy** for a read-only view of preferences returned by the
+authenticated service. It reads `GET /data-preferences`; until that endpoint and its
+response contract are available, states remain **Unknown**. This extension does not
+grant or change consent. Use **Tvijo: Resources** for the verified Learn, Knowledge
+base, Axes skills, privacy, terms and changelog pages. These commands are also in
+**Settings and how it works** and **All commands**.
+
+Version 0.10.0 is a prepared candidate. Backend integration, full test-suite and native
+host acceptance are pending; this note does not claim a published or installable release.
 
 ## Commands
 

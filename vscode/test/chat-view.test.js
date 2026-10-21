@@ -363,6 +363,47 @@ test('mode menu supports keyboard navigation and Shift+Tab remains ordinary focu
   assert.equal(view.element('mode').textContent,selected);
 });
 
+test('Full access is host-gated, waits for acknowledgement, and warning stays until host state clears it',()=>{
+  const view=sidebar();
+  const options={models:[{id:'coding',name:'Coding'}],model:'coding',agentPreset:'manual'};
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',signedIn:true,options}});
+  view.element('mode').click();
+  let full=view.element('mode-menu').children.find(item=>item.attributes['data-mode']==='full');
+  assert.equal(full.disabled,true);
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',signedIn:true,options,fullAccess:{available:true,enabled:false,folder:'/work',scopeKey:'a'.repeat(64),active:[]}}});
+  view.element('mode').click();
+  full=view.element('mode-menu').children.find(item=>item.attributes['data-mode']==='full');
+  assert.equal(full.disabled,false);
+  full.click();
+  const request=view.outgoing.at(-1);
+  assert.equal(request.type,'agentPreset'); assert.equal(request.preset,'full'); assert.ok(request.requestId);
+  assert.equal(view.element('mode').textContent,'Chat','mode waits for host acknowledgement');
+  view.emit('window:message',{data:{type:'presetResult',scopeKey:'tenant-a',requestId:request.requestId,preset:'full',ok:true}});
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',options:{...options,agentPreset:'full'},fullAccess:{available:true,enabled:true,folder:'/work',scopeKey:'a'.repeat(64),active:[]}}});
+  assert.equal(view.element('mode').textContent,'Full access');
+
+  const folder='<img src=x onerror="alert(1)">';
+  const fullAccess={available:true,enabled:true,folder,scopeKey:'b'.repeat(64),active:[{folder,scopeKey:'b'.repeat(64)}]};
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',options:{...options,agentPreset:'full'},fullAccess,busy:true}});
+  const warning=view.element('full-access-warning');
+  assert.equal(warning.hidden,false);
+  assert.ok(warning.children[1].children.some(node=>node.textContent===folder));
+  assert.equal(warning.children[1].children.some(node=>node.tag==='img'),false);
+  assert.match(warning.children[0].textContent,/Full access is active/);
+  assert.notEqual(warning.children[1].children[1].disabled,true,'revert stays usable while running');
+  view.element('tab-context').click();
+  assert.equal(warning.hidden,false);
+  view.element('tab-chat').click();
+  assert.equal(warning.hidden,false);
+  warning.children[1].children[1].click();
+  assert.deepEqual({...view.outgoing.at(-1)},{type:'fullAccessRevert',fullAccessScope:'b'.repeat(64),scopeKey:'tenant-a'});
+  assert.equal(warning.hidden,false,'revert waits for host state');
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',options,fullAccess:{available:true,enabled:false,folder,scopeKey:'b'.repeat(64),active:[]}}});
+  assert.equal(warning.hidden,true);
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',options}});
+  assert.equal(warning.hidden,true,'missing state hides the warning');
+});
+
 test('external non-preset flags display Custom and failed preset update does not change mode',()=>{
   const view=sidebar();
   view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',signedIn:true,options:{models:[{id:'coding',name:'Coding'}],model:'coding',agentPreset:'custom',agentAutoApply:false,agentAutoRun:true}}});

@@ -41,3 +41,10 @@ test('Plan composer refuses configuring a syntax tool that would run native prob
   assert.equal(isPlanBypass('/syntax',{command:'tvijo.configureAutoLint'}),true);
   assert.equal(isPlanBypass('/syntax-off',{command:'tvijo.disableAutoLint'}),false);
 });
+
+
+test('Full access is an explicit host grant overlay, independent of normal preset flags',()=>{
+  assert.deepEqual(PRESETS.full,{agentAutoApply:true,agentAutoRun:true});
+  assert.equal(presetFor(false,false,true),'full');assert.equal(presetFor(true,false,true),'full');assert.equal(presetFor(true,true,true),'full');
+  assert.equal(presetFor(false,false,false),'manual');
+});

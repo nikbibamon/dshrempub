@@ -64,6 +64,10 @@ function gitDanger(args) {
   }
   const sub = args[i];
   const rest = args.slice(i + 1);
+  if (sub === 'push' && rest.some(x => {
+    const option = x.split('=')[0];
+    return x.startsWith('--force') || (option !== '--' && option.startsWith('--') && ['--force','--force-with-lease','--force-if-includes','--mirror'].some(name=>name.startsWith(option))) || /^-[^-]*f/.test(x) || x.startsWith('+');
+  })) return true;
   if (sub === 'reset' && rest.some(x => x === '--hard' || /^-[a-z]*h[a-z]*$/i.test(x))) return true;
   if (sub === 'clean' && rest.some(x => /^-[a-z]*f[a-z]*$/i.test(x) || x.startsWith('--force'))) return true;
   if (sub === 'checkout' && rest.some(x => x === '--' || x === '-f' || x === '--force')) return true;
