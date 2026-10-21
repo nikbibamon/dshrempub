@@ -212,3 +212,39 @@ Accepted candidate2 SHA256de210efbf2d738e0379a7d3186c8985e42607186cbbd5a5206c39e
 Source5cf8ab8107c684cc557631f457b0a7574e953e14. Independent9CLI+464extension tests pass, phaseB-final-tests/tests.log. Sol resolved launch/lifecycle review: Linux FD-pinned approved inode, final synchronous authority check, group absence confirmation and quarantine; other platforms refuse before approval. Interpreter and libraries remain trusted components, without immutable-byte or OS-sandbox claims. Native malformed/correct stdin, actual unchanged disk, source-execution sentinel, invalid-tool probe, scopes, stale/cancel/timeout/overflow/concurrency/EPERM-equivalent unknown group and FD-path replacement checks pass. Own Problems markers clear on edits/disable.
 NativeVSCode1.142 normalGUI: actual command palette, Python profile, real file picker and native approval; actual dirty invalid Python buffer produces generic failed feedback in the third synthetic model payload. Three separately created step tasks, no extra model turn; source disk SHA/mtime unchanged, measured native saves0. Own Problems observed and cleared on disable. Evidence worker-syntax-native/runs/2026-10-21T04-35-46-869Z-2537814. Failed GUI fixtures preserved; their palette prefix/input timing defects were corrected without product changes. Synthetic loopback model/device auth, no live provider test claimed.
 Candidate1 SHA2565744077afd40b3debe7c05c69868c4a96428f2e8eb78955f41d32c14b4acb86c. Public; pack instruction/hostpath/key hits0; setting keys unchanged. EN/RU280/640 pressure checks pass (fit-pressure-e1oEQB). Exact archive installed as0.8.2; active operator window not reloaded. New host-local scope marker requires prior folder-rule approvals to be reviewed again; earlier records retained, not deleted. Arbitrary project linters/plugins remain separate work.
+
+
+## 0.8.3 — process-free Plan inspection, accepted 2026-10-21
+
+Source 406479a plus 4a13d53. Root independently ran 9 CLI and 483 extension tests,
+all passed (pi-aider-20261021T030208Z/phaseC-full2/tests.log). Plan exposes only
+fixed pwd, buffer_status and buffer_diff_stat operations. Status is metadata-only;
+line spans are approximate and omit raw source. Secret, hidden, excluded,
+symlink and outside buffers are skipped. Bounded literal Plan search reads disk
+without rg or shell; Act search keeps its existing behavior. Plan writes and
+commands remain refused before approval even if automatic permissions are on.
+
+Native VS Code 1.142 normal GUI with candidate2 passed real command-palette Plan
+input and six separately created synthetic step tasks: command/write refusals,
+normal-buffer metadata and approximate spans, secret-buffer exclusion, literal
+search of disk versus unsaved editor content, unchanged dirty-buffer text/version,
+unchanged disk SHA/mtime and zero observed saves. Launch argv, driver SHA and VSIX
+SHA are recorded. Evidence: root-plan-native/runs/2026-10-21T04-54-35-397Z-2550597.
+Device auth and model replies were synthetic loopback fixtures; this is not a live
+provider or billing test. Candidate1 and its failed native receipt are preserved:
+that run revealed that real offsetAt requires a VS Code Position. The targeted fix
+and a strict Position regression test passed before rebuilding candidate2.
+
+Accepted candidate2 SHA256:
+b5a03cf7e5033e2968ff2e5b64f8cf3cdbc3a43244b46e20d4fce9f88cdb0e86.
+All 45 entries match source and receipt; Public, no private field, pack instructions,
+host paths or key-pattern hits; setting keys unchanged. EN/RU 280/640 pressure
+checks passed (fit-pressure-qi4qf7). Exact archive copied to the operator checkout,
+installed and listed as 0.8.3. The active user window was not forcibly reloaded.
+
+This completes the bounded Pi/Aider follow-up: explicit folder-rule consent,
+approved Linux syntax checks and process-free Plan inspection. Arbitrary project
+linters/plugins, a Plan shell/Git interface, full whitespace-fuzzy replacement and
+inline completion remain separate work. No pi-ai dependency or new upstream
+source download. Production and the earlier rejected/deferred benchmark are
+unchanged; no paid API task was started in this follow-up.

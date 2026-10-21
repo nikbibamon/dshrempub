@@ -83,3 +83,9 @@ Rewind, command policy, provider credential custody and service budget limits ar
 TVIJO extension0.8.2 optionally checks unsaved Python/Node buffers with explicitly approved
 Linux-host interpreters. Generic errors appear in Problems and Agent feedback. This is bounded
 syntax checking; project linter configurations/plugins are not loaded. Use `/syntax` to configure.
+
+
+TVIJO extension 0.8.3 adds bounded Plan inspection of open dirty buffers and
+approximate line spans. Plan search is literal and reads disk without starting a
+search process. Plan shell and writes stay disabled; buffer summaries are not Git
+status. Existing reservation, context consent and Rewind controls are preserved.
