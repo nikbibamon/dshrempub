@@ -139,3 +139,16 @@ checkpoint suite26/26. EN/RU280/640px Playwright checks passed: identity, conten
 console, Rewind interactions, map reachability, no overflow or remote requests. Native
 VSCode-host validation is pending; no live-provider smoke or installation is claimed here.
 Original0.7.0 artifacts remain preserved; a corrected archive will have a new checksum.
+
+### Corrected0.7.0 release verification
+
+Corrected VSIX SHA256:7ddf404a6d62cab08b7f7b16f25b1c136cf7f1d64363232cbc791105d7cc93bc.
+All30archive entries match source and receipt; GalleryFlags Public, private absent,
+zero pack instruction/host-path/secret-pattern matches. Original archive preserved.
+Native official VSCode1.142.0(commit6d62b1d) with an isolated user profile and installed
+VSIX executed real sign-in, Agent read/replace/finish, explicit document save and
+Rewind via the real webview. Editor+disk SHA256 returned to original. This test used
+a synthetic loopback service, not live inference. Native host exited0; screenshot
+and JSON receipt are retained privately. The corrected archive was separately
+installed on the operator VSCodeServer; listed version0.7.0 confirmed.331extension
+tests plus9root tests passed independently; EN/RU280/640px browser checks passed.
