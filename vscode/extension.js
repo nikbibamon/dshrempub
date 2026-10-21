@@ -1039,12 +1039,12 @@ function activate(context) {
     ensureIdle();
     const auth = await readAuth(); rulesPreviewSecrets = [auth?.access_token, auth?.refresh_token].filter(Boolean);
     const folder = await projectRulesHost.chooseFolder();
-    if (folder && await projectRulesHost.approve(folder)) await vscode.window.showInformationMessage(L('These folder rules are approved. Changed rules need new approval.', 'Правила этой папки одобрены. Изменённые правила потребуют нового одобрения.'));
+    if (folder && await projectRulesHost.approve(folder)) void vscode.window.showInformationMessage(L('These folder rules are approved. Changed rules need new approval.', 'Правила этой папки одобрены. Изменённые правила потребуют нового одобрения.'));
     await postChatState();
   });
   command('tvijo.revokeProjectRules', async () => {
     const folder = await projectRulesHost.chooseFolder();
-    if (folder) { await projectRulesHost.revoke(folder); await vscode.window.showInformationMessage(L('Folder rules trust revoked. Previously sent messages remain in the conversation.', 'Доверие правилам папки отозвано. Ранее отправленные сообщения остаются в разговоре.')); }
+    if (folder) { await projectRulesHost.revoke(folder); void vscode.window.showInformationMessage(L('Folder rules trust revoked. Previously sent messages remain in the conversation.', 'Доверие правилам папки отозвано. Ранее отправленные сообщения остаются в разговоре.')); }
     await postChatState();
   });
   command('tvijo.contextPreview', async () => {
