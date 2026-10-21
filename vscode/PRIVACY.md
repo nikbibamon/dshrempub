@@ -162,3 +162,24 @@ visible user messages rather than hidden generated context. Explicit pasted text
 approved local commands remain the user's responsibility; this is not a sandbox for arbitrary
 project commands. Rule text cannot authorize tools, change budgets or alter provider key custody.
 Private `.tvijo` files are not ordinary attachments or Agent file-tool targets.
+
+
+## Approved syntax tools (0.8.2)
+
+Syntax checks are off until a native approval selects one local folder and an installed native
+Python/Node executable. The host stores its path, SHA-256 and file identity locally. Before each
+Linux check it validates the selected file and executes an open file descriptor, preserving the
+approved inode across pathname replacement. The interpreter and its libraries remain trusted
+host components; the inode's bytes can still be modified in place by fully authorized host code.
+This feature is not an OS sandbox. Other platforms refuse these checks before approval.
+
+The checked buffer goes through stdin to fixed parser arguments in a private empty host-storage
+folder. Provider credentials, project environment variables and startup options are excluded.
+Output is bounded and reduced to generic error positions, buffer version and content hash. Raw
+parser output is not sent to the model. A failed syntax check does not undo or save the edit.
+Unconfirmed process-group termination quarantines the checker until extension-host restart.
+
+Rule approvals also use a small host-local identity marker outside the project, without Settings
+Sync, to prevent identical file URIs on different extension hosts sharing an approval. The marker
+and interpreter approval data are not conversation context or exports. Old rule approvals are
+retained locally but do not authorize the new host-bound scope.

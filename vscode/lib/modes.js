@@ -17,7 +17,7 @@ function presetFor(autoApply, autoRun) {
 function isPlanBypass(question, action) {
   const value = typeof question === 'string' ? question.trim() : '';
   if (value.startsWith('!')) return true;
-  return !!action?.command && ['tvijo.quickEdit', 'tvijo.agent', 'tvijo.applyCoding', 'tvijo.rewind'].includes(action.command);
+  return !!action?.command && ['tvijo.quickEdit', 'tvijo.agent', 'tvijo.applyCoding', 'tvijo.rewind', 'tvijo.configureAutoLint'].includes(action.command);
 }
 
 function autoWritePolicy(operation, previous, matchKind = 'exact') {

@@ -2,7 +2,7 @@
   "name": "tvijo-dshrem",
   "displayName": "Tvijo DSHREM",
   "description": "Managed coding and bounded reviews for shared projects with a per-task spending cap. Provider API credentials remain on the service.",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "repository": {
     "type": "git",
     "url": "https://github.com/nikbibamon/dshrempub.git",
@@ -294,6 +294,16 @@
       {
         "command": "tvijo.revokeProjectRules",
         "title": "Revoke folder rules trust",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.configureAutoLint",
+        "title": "Approve automatic syntax checks",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.disableAutoLint",
+        "title": "Disable automatic syntax checks",
         "category": "Tvijo"
       }
     ],

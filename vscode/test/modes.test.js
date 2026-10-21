@@ -34,3 +34,9 @@ test('Auto write classification trusts only exact dispatcher replacement matches
   assert.equal(autoWritePolicy('write_file','old bytes'),false);
   assert.equal(autoWritePolicy('run_command','old bytes'),false);
 });
+
+test('Plan composer refuses configuring a syntax tool that would run native probes',()=>{
+  const {isPlanBypass}=require('../lib/modes');
+  assert.equal(isPlanBypass('/syntax',{command:'tvijo.configureAutoLint'}),true);
+  assert.equal(isPlanBypass('/syntax-off',{command:'tvijo.disableAutoLint'}),false);
+});

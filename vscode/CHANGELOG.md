@@ -1,3 +1,12 @@
+## 0.8.2 — 2026-10-21
+
+- Add separately approved fixed Python AST / Node syntax checks for unsaved Tvijo edits on Linux extension hosts.
+- Show bounded generic errors in Problems and in the next Agent tool result; clear stale owned markers on edits or disable.
+- Keep checks off by default, use one process at a time and four checks per run, without automatic saving or fixing.
+- Validate the selected native interpreter, probe valid/invalid input and execute its held file through a Linux FD.
+- Bind folder approvals to host-local storage identity. Earlier folder approvals need review again after this update.
+- Other extension features remain available on their supported platforms; these automatic checks currently require Linux.
+
 ## 0.8.1 — 2026-10-21
 
 - Require separate native approval for the exact raw bytes of one local folder's rules.

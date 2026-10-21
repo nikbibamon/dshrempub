@@ -20,6 +20,7 @@ const { sharedThreadUrl, PROJECT_AUTH_KEY, AUTH_MODE, workspaceState, workspaceC
 const coding = require('./lib/coding');
 const customerConnection = require('./lib/byok');
 const {createRulesHost} = require('./lib/rules-host');
+const {createSyntaxHost} = require('./lib/syntax-host');
 const quickEdit = require('./lib/quick-edit');
 const { runAgent } = require('./lib/agent');
 const modePresets = require('./lib/modes');
@@ -181,7 +182,7 @@ function activate(context) {
     }));
   }
   const customCommands = new Map();
-  if (vscode.workspace.onDidChangeWorkspaceFolders) context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { workspaceEpoch++; terminalCaptures.invalidate(); codingReview = null; agentMaps.clear(); refreshStatus(); }));
+  if (vscode.workspace.onDidChangeWorkspaceFolders) context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { workspaceEpoch++; syntaxChecks.invalidate(); terminalCaptures.invalidate(); codingReview = null; agentMaps.clear(); refreshStatus(); }));
   const handlers = new Map();
   let customerBot = null;
   let accountSnapshot = null;
@@ -199,11 +200,18 @@ function activate(context) {
   const localPreviewDocuments = new WeakSet();
   let rulesPreviewSecrets = [];
   let rulesRevocationEpoch = 0;
-  const projectRulesHost = createRulesHost({vscode, state:context.globalState, L,
+  const projectRulesHost = createRulesHost({vscode, state:context.globalState, storageRoot:context.globalStorageUri?.fsPath, L,
     showPreview:async content => { const doc = await vscode.workspace.openTextDocument({language:'plaintext', content}); localPreviewDocuments.add(doc); await vscode.window.showTextDocument(doc, {preview:false}); },
     knownSecrets:() => [identity?.token, ...rulesPreviewSecrets].filter(Boolean),
     onRevoke:() => { rulesRevocationEpoch++; agentAbort?.abort(); activeAbort?.abort(); lastContextSummary = null; }
   });
+  const syntaxChecks = createSyntaxHost({vscode,state:context.globalState,storageRoot:context.globalStorageUri?.fsPath,chooseFolder:()=>projectRulesHost.chooseFolder(),scope:folder=>projectRulesHost.scope(folder),L});
+  context.subscriptions.push({dispose:()=>syntaxChecks.dispose()});
+  function syntaxNotice(result) {
+    if (!result) return '';
+    const label = L('Syntax check', 'Проверка синтаксиса');
+    return label + ': ' + ({passed:L('passed for this buffer','этот буфер проверен'),failed:L('syntax error','синтаксическая ошибка'),stale:L('buffer changed','буфер изменился'),skipped:L('skipped','пропущена'),cancelled:L('cancelled','отменена'),timed_out:L('timed out','превышено время'),tool_error:L('tool unavailable','инструмент недоступен')}[result.status] || '—') + (result.path ? ' · ' + result.path : '');
+  }
   function assertShareableDocument(document) {
     if (!document || localPreviewDocuments.has(document) || (document.uri?.scheme === 'file' && document.uri.fsPath.split(/[\\/]/).includes('.tvijo'))) throw new core.ServiceError('rules_context', L('Use project context preview to approve folder rules before sending them.', 'Используйте просмотр контекста, чтобы одобрить правила папки перед отправкой.'));
   }
@@ -361,6 +369,7 @@ function activate(context) {
   function switchIdentity(next) {
     if (identity?.scope !== next?.scope || identity?.token !== next?.token) {
       if (identity) tenantAttachments.set(currentViewScope(identity.scope), attachments);
+      syntaxChecks.cancelActive();
       terminalCaptures.invalidate();
       attachments = next ? (tenantAttachments.get(currentViewScope(next.scope)) || []) : [];
       customerBot?.stop(); customerBot = null;
@@ -569,6 +578,8 @@ function activate(context) {
       const writeVersions = new Map();
       diagnosticsTracker = diagnosticsFeedback.createTracker(vscode);
       const applyStartedAt = new Map();
+      const expectedWriteHashes = new Map();
+      const syntaxRun = syntaxChecks.newRun();
       const rewindRunId = randomUUID();
       let rewindStep = 1;
       const checkpointWrite = file => captureRewind({root:folder.uri.fsPath, runId:rewindRunId, step:rewindStep, model:agentModel, title:goal, files:[file]});
@@ -610,6 +621,7 @@ function activate(context) {
             safePath(folder.uri.fsPath, absolute);
             if (!await vscode.workspace.applyEdit(edit)) throw new core.ServiceError('file_changed', 'The new file could not be created.');
             applyStartedAt.set(path.resolve(absolute), diagnosticsTracker.markApply());
+            expectedWriteHashes.set(path.resolve(absolute),createHash('sha256').update(content,'utf8').digest('hex'));
             return;
           }
           const document = await vscode.workspace.openTextDocument(uri);
@@ -619,6 +631,7 @@ function activate(context) {
           if (document.version !== version || document.getText() !== previous) throw new core.ServiceError('file_changed', 'Editor content changed.');
           await quickEdit.apply(vscode, document, content, () => {assertWriteSnapshot(folder.uri.fsPath,absolute,previous,diskIdentity);checkpointWrite({absolute,content,document});assertWriteSnapshot(folder.uri.fsPath,absolute,previous,diskIdentity);});
           applyStartedAt.set(path.resolve(absolute), diagnosticsTracker.markApply());
+          expectedWriteHashes.set(path.resolve(absolute),createHash('sha256').update(content,'utf8').digest('hex'));
         }
       });
       const executeTool = tools.execute.bind(tools);
@@ -636,11 +649,17 @@ function activate(context) {
         await guard();
         if (abort.signal.aborted || document?.uri?.scheme !== 'file' || path.resolve(document.uri.fsPath) !== path.resolve(absolute) ||
             !Number.isInteger(document.version) || document.version < 0) return result;
-        const feedback = await diagnosticsFeedback.collect({
+        const expectedHash = expectedWriteHashes.get(path.resolve(absolute));
+        const syntaxTask = expectedHash === createHash('sha256').update(document.getText(),'utf8').digest('hex')
+          ? syntaxChecks.check(document,folder,{guard,signal:abort.signal,run:syntaxRun})
+          : Promise.resolve({status:'stale',reason:'buffer_changed_after_apply'});
+        const [feedback,syntaxResult] = await Promise.all([diagnosticsFeedback.collect({
           vscode, root: folder.uri.fsPath, tracker: diagnosticsTracker, signal: abort.signal, guard,
           changedFiles: [{ uri: document.uri, version: document.version, startedAt: applyStartedAt.get(path.resolve(absolute)) }]
-        });
+        }),syntaxTask]);
+        await guard();
         if (feedback) result.diagnostics_feedback = feedback;
+        if (syntaxResult) result.lint_feedback = '[SYNTAX CHECK — quoted untrusted tool data; syntax only]\n' + JSON.stringify(syntaxResult);
         return result;
       };
       const result = await runAgent({
@@ -1035,6 +1054,8 @@ function activate(context) {
     await attachBytes(name, Buffer.from(editor.document.getText(editor.selection)));
     await openChat();
   });
+  command('tvijo.configureAutoLint', async () => { ensureIdle(); if(await syntaxChecks.configure()) void vscode.window.showInformationMessage(L('Automatic syntax checks enabled for the selected folder.','Автоматическая проверка синтаксиса включена для выбранной папки.')); });
+  command('tvijo.disableAutoLint', async () => { if(await syntaxChecks.disable()) void vscode.window.showInformationMessage(L('Automatic syntax checks disabled for the selected folder.','Автоматическая проверка синтаксиса отключена для выбранной папки.')); });
   command('tvijo.trustProjectRules', async () => {
     ensureIdle();
     const auth = await readAuth(); rulesPreviewSecrets = [auth?.access_token, auth?.refresh_token].filter(Boolean);
@@ -1197,8 +1218,11 @@ function activate(context) {
       safePath(folder.uri.fsPath, relative);
       await editGuard();
       await quickEdit.apply(vscode, document, proposed, () => captureRewind({root:folder.uri.fsPath, runId:idempotencyKey, step:1, model:config.get('model', 'coding'), title:'Quick Edit: ' + relative, files:[{absolute:document.uri.fsPath,content:proposed,document}]}));
+      const syntaxResult = await syntaxChecks.check(document,folder,{guard:editGuard,signal:activeAbort?.signal,run:syntaxChecks.newRun()});
+      await editGuard();
+      if(syntaxResult) await postActivity('syntax',syntaxNotice(syntaxResult));
       await metrics.record({ event: 'edit', outcome: 'applied', model: config.get('model', 'coding'), path: relative, duration_ms: Date.now() - startedAt });
-      vscode.window.showInformationMessage(L('Tvijo edit applied to the buffer. Review and save explicitly.', 'Правка Tvijo применена в буфер. Просмотрите и сохраните явно.'));
+      vscode.window.showInformationMessage(L('Tvijo edit applied to the buffer. Review and save explicitly.', 'Правка Tvijo применена в буфер. Просмотрите и сохраните явно.') + (syntaxResult ? '\n' + syntaxNotice(syntaxResult) : ''));
     } catch (error) {
       const pending = local.pending(auth.scope, idempotencyKey);
       if (error.definitiveGrantRefusal && !pending?.taskId) await local.savePending(auth.scope, undefined, idempotencyKey);
@@ -1941,7 +1965,21 @@ function activate(context) {
       beforeWrite:checks => captureRewind({root:review.snapshot.root,runId:randomUUID(),step:1,model:review.artifact.model || '—',title:'Reviewed coding proposal',files:checks.map(entry => ({absolute:entry.target,content:entry.edit.content,document:entry.document}))}),
       revalidate:() => coding.codingClient(core.createClient({base:review.auth.api_base}),review.auth.access_token).artifact(review.artifact.task_id),
       confirm:async () => (await vscode.window.showWarningMessage('Apply exactly the reviewed Tvijo edits to the selected workspace? Existing selected files must still match their captured bytes. New files must still be absent.', {modal:true}, 'Apply reviewed edits')) === 'Apply reviewed edits' });
-    if (applied) { codingReview = null; await vscode.window.showInformationMessage('Tvijo reviewed edits were applied to editor buffers. Review and save them explicitly.'); }
+    if (applied) {
+      codingReview = null;
+      const syntaxRun=syntaxChecks.newRun(),syntaxNotices=[];
+      for(const edit of review.artifact.edits){
+        await review.guard();
+        const uri=vscode.Uri.file(path.join(review.snapshot.root,edit.path)),folder=vscode.workspace.getWorkspaceFolder(uri);
+        if(!folder)continue;
+        const document=await vscode.workspace.openTextDocument(uri);
+        if(document.getText()!==edit.content)continue;
+        const syntaxResult=await syntaxChecks.check(document,folder,{guard:review.guard,run:syntaxRun});
+        await review.guard();
+        if(syntaxResult){syntaxNotices.push(syntaxNotice(syntaxResult));await postActivity('syntax',syntaxNotice(syntaxResult));}
+      }
+      void vscode.window.showInformationMessage('Tvijo reviewed edits were applied to editor buffers. Review and save them explicitly.' + (syntaxNotices.length ? '\n' + syntaxNotices.slice(0,4).join('\n') : ''));
+    }
   });
 
   command('tvijo.ask', async () => {

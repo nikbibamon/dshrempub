@@ -102,6 +102,7 @@ function host(options = {}) {
       showTextDocument: async doc => { shown.push(doc); },
       showInputBox: async () => 'Account A editor question',
       showQuickPick: async (choices, config) => options.pick?.(choices, config),
+      showOpenDialog: async config => options.openFiles?.(config),
       get activeTextEditor() { return activeEditor; },
       get activeTerminal() { return options.activeTerminal; },
       withProgress: async (_options, fn) => fn({}, { onCancellationRequested() {} })
@@ -1840,5 +1841,25 @@ test('unapproved rules cannot bypass consent through active selection or workspa
     assert.equal(app.requests.filter(x=>x.url.endsWith('/tasks')&&x.method==='POST').length,0);
     assert.ok(app.errors.length>=2);
     assert.ok(!JSON.stringify(app.requests).includes('BLOCK_SELECTION_CANARY'));
+  }finally{app.close();}
+});
+
+test('approved Python syntax checks reach the next Agent turn from the unsaved buffer without saving or extra model calls',{skip:process.platform!=='linux'||!require('node:fs').existsSync('/usr/bin/python3')},async()=>{
+  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'host-syntax-feedback-'));
+  const file=path.join(root,'source.py'),before='print(1)\n',after='print(\n';await fs.writeFile(file,before);
+  let text=before,version=1,document;
+  const app=host({root,pick:choices=>choices.find(x=>x.profileId==='python-ast'),openFiles:()=>[{scheme:'file',authority:'',fsPath:'/usr/bin/python3'}],
+    chatSequence:[JSON.stringify({tool:'replace_in_file',path:'source.py',old:before,new:after}),JSON.stringify({tool:'finish',answer:'Syntax error recorded'})],
+    applyEdit:async edit=>{const operation=edit.operations.find(x=>x.kind==='replace');if(operation){text=operation.text;version++;}return true;}});
+  try{
+    document={uri:app.Uri.file(file),languageId:'python',get version(){return version;},getText:()=>text,positionAt:n=>n};
+    app.editor({document,selection:{isEmpty:true}});app.settings.set('workspaceContext','off');app.settings.set('agentAutoApply',true);app.settings.set('agentMaxSteps',2);
+    app.warning('Approve this syntax tool');await app.commands.get('tvijo.configureAutoLint')({approved:true});
+    assert.equal(app.requests.filter(x=>x.url.endsWith('/tasks')&&x.method==='POST').length,0);
+    const beforeStat=await fs.stat(file,{bigint:true});await app.receive({type:'ask',question:'Apply the fixture change',agent:true});
+    assert.equal(text,after);assert.equal(await fs.readFile(file,'utf8'),before);assert.equal((await fs.stat(file,{bigint:true})).mtimeNs,beforeStat.mtimeNs);
+    const chats=app.requests.filter(x=>x.url.endsWith('/chat'));assert.equal(chats.length,2);
+    const body=JSON.stringify(chats[1].body.messages);assert.match(body,/lint_feedback/);assert.match(body,/Syntax error/);assert.match(body,/python-ast/);assert.match(body,/syntax only/);
+    assert.equal(app.requests.filter(x=>x.url.endsWith('/tasks')&&x.method==='POST').length,2);assert.equal(app.errors.length,0);
   }finally{app.close();}
 });

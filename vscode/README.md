@@ -506,3 +506,21 @@ rules** to review one local folder and confirm its exact rules snapshot in a nat
 file require new approval; Restricted Mode denies inclusion. Use **Tvijo: Revoke folder rules
 trust** to stop current use. Already sent conversation messages remain available. Rules are
 quoted project data and do not grant command, write or budget permissions.
+
+
+### Automatic syntax checks (Linux extension hosts)
+
+Run **Tvijo: Approve automatic syntax checks** (`/syntax`). Choose the folder, Python or Node
+mode and an installed interpreter outside the workspace, then review the native confirmation.
+Python checks `.py`; Node supports `.cjs`/`.mjs` and the explicitly chosen mode for `.js`.
+The tool must pass a valid/invalid input probe before the profile is enabled.
+
+Checks parse the current unsaved buffer after Tvijo edits. Errors appear in Problems and the
+next Agent tool result. User edits clear outdated Tvijo markers; other diagnostic providers
+are untouched. **Disable automatic syntax checks** (`/syntax-off`) revokes the folder profile.
+Checks have a two-second process limit, bounded output and four checks per run. They do not
+run project configuration, plugins, tests or automatic fixes. They are syntax checks, not
+full project lint. Mac/Windows automatic checks await executable and process-tree support.
+
+Folder rule approvals now also bind to a host-local identity. Review earlier approved rules
+again after upgrading; global context consent continues to be separate.

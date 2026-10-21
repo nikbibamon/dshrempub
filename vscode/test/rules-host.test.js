@@ -18,7 +18,8 @@ async function fixture() {
     workspace:{isTrusted:true,workspaceFolders:[folder],getWorkspaceFolder:()=>folder,fs:{readDirectory:async()=>[],stat:async target=>{const s=await fs.lstat(target.fsPath);return {type:s.isDirectory()?2:1};},readFile:target=>fs.readFile(target.fsPath)}},
     window:{showQuickPick:async choices=>choices[0],showWarningMessage:async(...args)=>{warnings.push(args);return 'Trust these rules';}}};
   let revoked=0;
-  const options={vscode,state,showPreview:async text=>{previews.push(text);},onRevoke:()=>{revoked++;}};
+  const storageRoot=await fs.mkdtemp(root+'-host-storage-');
+  const options={vscode,state,storageRoot,showPreview:async text=>{previews.push(text);},onRevoke:()=>{revoked++;}};
   const host=createRulesHost(options);
   return {root,folder,uri,values,previews,warnings,state,vscode,options,host,get revoked(){return revoked;}};
 }
@@ -73,4 +74,14 @@ test('credential-bearing and symlinked rules cannot be approved or previewed as 
   const f=await fixture();await fs.writeFile(path.join(f.root,'.tvijo','rules.md'),'password=NEVER_ECHO\n');
   assert.equal(f.host.inspect(f.folder).status,'rejected');await assert.rejects(f.host.approve(f.folder));assert.equal(f.previews.length,0);
   const link=f.root+'-link';await fs.symlink(f.root,link);assert.equal(f.host.scope({uri:f.uri(link)}),null);
+});
+
+test('shared memento and identical file URI cannot transfer approval to a different extension host storage',async()=>{
+  const f=await fixture();await f.host.approve(f.folder);
+  const otherStorage=await fs.mkdtemp(f.root+'-other-host-');
+  const other=createRulesHost({...f.options,storageRoot:otherStorage});
+  assert.notEqual(other.scope(f.folder),f.host.scope(f.folder));
+  assert.equal((await other.collect({})).summary.rules.status,'unapproved');
+  assert.ok(!(await other.collect({})).text.includes('RULE_APPROVAL_CANARY'));
+  assert.equal((await createRulesHost(f.options).collect({})).summary.rules.status,'included');
 });
