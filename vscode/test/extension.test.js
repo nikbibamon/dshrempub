@@ -113,6 +113,7 @@ function host(options = {}) {
   try {
     Module._load = function (id, ...args) {
       if (id === 'vscode') return vscode;
+      if (id === './lib/syntax-host' && options.syntaxHost) return {createSyntaxHost:() => options.syntaxHost};
       if (id === './lib/attachments' && options.prepareAttachment) return { ...originalLoad.call(this, id, ...args), prepareAttachment: options.prepareAttachment };
       if (id === './lib/telegram-bot' && options.captureBot) return { createBot: adapter => {
         botAdapter = adapter;
@@ -365,7 +366,7 @@ test('successful Agent apply sends bounded diagnostics for that changed file to 
       '{"tool":"replace_in_file","path":"src/changed.js","old":"oldValue","new":"newValue"}',
       '{"tool":"finish","answer":"Reviewed diagnostics"}'
     ],
-    diagnosticsFor: uri => uri.fsPath === file ? [
+    diagnosticsFor: uri => uri.fsPath === file ? version < 5 ? [] : [
       { severity: 0, message: 'SYNTHETIC_CHANGED_ERROR', source: 'test-provider', range: { start: { line: 2, character: 3 } } },
       { severity: 2, message: 'SYNTHETIC_INFORMATION_OMIT' }
     ] : [{ severity: 0, message: 'SYNTHETIC_UNRELATED_ERROR' }],
@@ -411,7 +412,7 @@ test('successful new Agent file apply also sends only that file diagnostics to t
     root,
     chatSequence: ['{"tool":"write_file","path":"src/created.js","content":"const fresh = true;\\n"}', '{"tool":"finish","answer":"Created"}'],
     documentFor: docFor,
-    diagnosticsFor: uri => uri.fsPath === file ? [{ severity: 1, message: 'SYNTHETIC_NEW_FILE_WARNING' }] : [{ severity: 0, message: 'SYNTHETIC_UNRELATED_ERROR' }],
+    diagnosticsFor: uri => uri.fsPath === file ? version === 0 ? [] : [{ severity: 1, message: 'SYNTHETIC_NEW_FILE_WARNING' }] : [{ severity: 0, message: 'SYNTHETIC_UNRELATED_ERROR' }],
     applyEdit: async (edit, { fireDiagnostics }) => {
       const inserted = edit.operations.find(operation => operation.kind === 'insert');
       await fs.writeFile(file, inserted.text);
@@ -2157,4 +2158,64 @@ test('indentation hint reaches the next model turn and allows an exact retry wit
     assert.equal(app.warnings.length,0);assert.equal(app.applied().text,'def go():\n'+after);assert.equal(chats.length,3);
     assert.equal(await fs.readFile(file,'utf8'),before);assert.equal(app.errors.length,0);
   }finally{app.close();}
+});
+
+
+test('Agent baseline is captured after confirmation and before apply; next turn carries only the delta',async()=>{
+  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'host-delta-'));
+  const file=path.join(root,'code.js');let content='const old = 1;\n',version=1;await fs.writeFile(file,content);
+  const diag=(message,line=0)=>({severity:0,message,code:23,source:'synthetic',range:{start:{line,character:0},end:{line,character:1}}});
+  const unchanged=Array.from({length:12},(_,n)=>diag('UNCHANGED_DETAIL_'+n+'x'.repeat(90),n));
+  let items=[diag('OUTDATED_BEFORE_CONFIRM')],baselineReads=0;
+  const app=host({root,chatSequence:[JSON.stringify({tool:'replace_in_file',path:'code.js',old:'old',new:'next'}),JSON.stringify({tool:'finish',answer:'Delta received'})],
+    onWarning:async()=>{items=[...unchanged,diag('RESOLVED_BEFORE_APPLY',14)];},
+    diagnosticsFor:()=>{if(version===1)baselineReads++;return items;},
+    applyEdit:async(edit,{fireDiagnostics})=>{content=edit.operations[0].text;version++;await fs.writeFile(file,content);items=[...unchanged,diag('NEW_AFTER_APPLY',15)];fireDiagnostics([edit.operations[0].uri]);return true;}});
+  try{
+    app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);app.warning('Write file');
+    app.editor({document:{uri:app.Uri.file(file),get version(){return version;},getText:()=>content,positionAt:n=>n}});
+    await app.receive({type:'ask',question:'Update code and inspect diagnostics',agent:true});
+    const chats=app.requests.filter(req=>req.url.endsWith('/chat')),tool=JSON.parse(chats[1].body.messages.find(m=>m.content.startsWith('TOOL_RESULT ')).content.slice(12));
+    const row=JSON.parse(tool.diagnostics_feedback.split('\n')[2]);
+    assert.equal(baselineReads,1);assert.equal(row.baselineDocumentVersion,1);assert.equal(row.documentVersion,2);assert.equal(row.unchangedCount,12);
+    assert.deepEqual(row.new.map(d=>d.message),['NEW_AFTER_APPLY']);assert.deepEqual(row.resolved.map(d=>d.message),['RESOLVED_BEFORE_APPLY']);
+    assert.match(row.freshness,/observed after edit/);assert.doesNotMatch(JSON.stringify(chats[1].body),/UNCHANGED_DETAIL_|OUTDATED_BEFORE_CONFIRM/);assert.equal(app.errors.length,0);
+  }finally{app.close();}
+});
+
+test('a user edit racing after Agent apply makes diagnostics delta unavailable rather than resolved',async()=>{
+  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'host-delta-stale-'));
+  const file=path.join(root,'code.js');let content='const old = 1;\n',version=1;await fs.writeFile(file,content);
+  const app=host({root,chatSequence:[JSON.stringify({tool:'replace_in_file',path:'code.js',old:'old',new:'next'}),JSON.stringify({tool:'finish',answer:'Stale diagnostics'})],diagnosticsFor:()=>version===1?[{severity:0,message:'OLD_ERROR'}]:[],
+    applyEdit:async(edit,{fireDiagnostics})=>{content='USER_CHANGED_AFTER_APPLY';version+=2;fireDiagnostics([edit.operations[0].uri]);return true;}});
+  try{
+    app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);app.warning('Write file');
+    app.editor({document:{uri:app.Uri.file(file),get version(){return version;},getText:()=>content,positionAt:n=>n}});
+    await app.receive({type:'ask',question:'Update this file',agent:true});
+    const chats=app.requests.filter(req=>req.url.endsWith('/chat')),tool=JSON.parse(chats[1].body.messages.find(m=>m.content.startsWith('TOOL_RESULT ')).content.slice(12)),row=JSON.parse(tool.diagnostics_feedback.split('\n')[2]);
+    assert.equal(row.deltaAvailable,false);assert.equal(row.resolvedCount,null);assert.deepEqual(row.resolved,[]);assert.match(row.freshness,/changed again/);assert.equal(content,'USER_CHANGED_AFTER_APPLY');assert.equal(app.errors.length,0);
+  }finally{app.close();}
+});
+
+
+test('a user edit while syntax checking is pending invalidates an already collected diagnostics delta',async()=>{
+  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'host-delta-syntax-race-'));
+  const file=path.join(root,'code.js');let content='const old = 1;\n',version=1,afterReads=0;await fs.writeFile(file,content);
+  let releaseSyntax,syntaxStarted=false;
+  const syntaxHost={dispose(){},cancelActive(){},invalidate(){},newRun:()=>({}),check:async()=>{syntaxStarted=true;return new Promise(resolve=>{releaseSyntax=()=>resolve({status:'ok'});});}};
+  const app=host({root,syntaxHost,chatSequence:[JSON.stringify({tool:'replace_in_file',path:'code.js',old:'old',new:'next'}),JSON.stringify({tool:'finish',answer:'Stale delta refused'})],
+    diagnosticsFor:()=>{if(version>1)afterReads++;return version===1?[{severity:0,message:'WOULD_BE_RESOLVED'}]:[];},
+    applyEdit:async(edit,{fireDiagnostics})=>{content=edit.operations[0].text;version++;fireDiagnostics([edit.operations[0].uri]);return true;}});
+  try{
+    app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);app.warning('Write file');
+    app.editor({document:{uri:app.Uri.file(file),get version(){return version;},getText:()=>content,positionAt:n=>n}});
+    const running=app.receive({type:'ask',question:'Exercise delayed syntax race',agent:true});
+    for(let n=0;n<200&&(!syntaxStarted||afterReads===0);n++)await new Promise(resolve=>setTimeout(resolve,5));
+    assert.equal(syntaxStarted,true);assert.equal(afterReads,1);assert.equal(app.requests.filter(req=>req.url.endsWith('/chat')).length,1);
+    content='USER_EDIT_DURING_SYNTAX';version++;releaseSyntax();await running;
+    const chats=app.requests.filter(req=>req.url.endsWith('/chat')),tool=JSON.parse(chats[1].body.messages.find(m=>m.content.startsWith('TOOL_RESULT ')).content.slice(12)),row=JSON.parse(tool.diagnostics_feedback.split('\n')[2]);
+    assert.equal(row.documentVersion,2);assert.equal(row.currentDocumentVersion,3);assert.equal(row.deltaAvailable,false);assert.equal(row.snapshotAvailable,false);
+    assert.equal(row.resolvedCount,null);assert.equal(row.newCount,null);assert.equal(row.unchangedCount,null);assert.deepEqual(row.new,[]);assert.deepEqual(row.resolved,[]);assert.match(row.freshness,/changed again/);
+    assert.match(tool.lint_feedback,/stale/);assert.doesNotMatch(tool.diagnostics_feedback,/WOULD_BE_RESOLVED/);assert.equal(content,'USER_EDIT_DURING_SYNTAX');assert.equal(app.errors.length,0);
+  }finally{releaseSyntax?.();app.close();}
 });

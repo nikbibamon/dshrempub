@@ -676,6 +676,7 @@ function activate(context) {
       const writeVersions = new Map();
       diagnosticsTracker = diagnosticsFeedback.createTracker(vscode);
       const applyStartedAt = new Map();
+      const diagnosticBaselines = new Map();
       const expectedWriteHashes = new Map();
       const syntaxRun = syntaxChecks.newRun();
       const rewindRunId = randomUUID();
@@ -718,8 +719,11 @@ function activate(context) {
             assertWriteSnapshot(folder.uri.fsPath,absolute,previous,diskIdentity);
             await guard();
             safePath(folder.uri.fsPath, absolute);
+            const baseline = diagnosticsFeedback.captureBaseline({vscode,root:folder.uri.fsPath,uri,version:0});
+            const diagnosticsStartedAt = diagnosticsTracker.markApply();
             if (!await vscode.workspace.applyEdit(edit)) throw new core.ServiceError('file_changed', 'The new file could not be created.');
-            applyStartedAt.set(path.resolve(absolute), diagnosticsTracker.markApply());
+            applyStartedAt.set(path.resolve(absolute), diagnosticsStartedAt);
+            diagnosticBaselines.set(path.resolve(absolute),baseline);
             expectedWriteHashes.set(path.resolve(absolute),createHash('sha256').update(content,'utf8').digest('hex'));
             return;
           }
@@ -728,8 +732,11 @@ function activate(context) {
           const version = writeVersions.get(absolute);
           await guard();
           if (document.version !== version || document.getText() !== previous) throw new core.ServiceError('file_changed', 'Editor content changed.');
+          const baseline = diagnosticsFeedback.captureBaseline({vscode,root:folder.uri.fsPath,uri:document.uri,version:document.version});
+          const diagnosticsStartedAt = diagnosticsTracker.markApply();
           await quickEdit.apply(vscode, document, content, () => {assertWriteSnapshot(folder.uri.fsPath,absolute,previous,diskIdentity);checkpointWrite({absolute,content,document});assertWriteSnapshot(folder.uri.fsPath,absolute,previous,diskIdentity);});
-          applyStartedAt.set(path.resolve(absolute), diagnosticsTracker.markApply());
+          applyStartedAt.set(path.resolve(absolute), diagnosticsStartedAt);
+          diagnosticBaselines.set(path.resolve(absolute),baseline);
           expectedWriteHashes.set(path.resolve(absolute),createHash('sha256').update(content,'utf8').digest('hex'));
         }
       });
@@ -749,14 +756,23 @@ function activate(context) {
         if (abort.signal.aborted || document?.uri?.scheme !== 'file' || path.resolve(document.uri.fsPath) !== path.resolve(absolute) ||
             !Number.isInteger(document.version) || document.version < 0) return result;
         const expectedHash = expectedWriteHashes.get(path.resolve(absolute));
-        const syntaxTask = expectedHash === createHash('sha256').update(document.getText(),'utf8').digest('hex')
+        const feedbackVersion = document.version;
+        const contentMatches = expectedHash === createHash('sha256').update(document.getText(),'utf8').digest('hex');
+        const syntaxTask = contentMatches
           ? syntaxChecks.check(document,folder,{guard,signal:abort.signal,run:syntaxRun})
           : Promise.resolve({status:'stale',reason:'buffer_changed_after_apply'});
-        const [feedback,syntaxResult] = await Promise.all([diagnosticsFeedback.collect({
+        let [feedback,syntaxResult] = await Promise.all([diagnosticsFeedback.collect({
           vscode, root: folder.uri.fsPath, tracker: diagnosticsTracker, signal: abort.signal, guard,
-          changedFiles: [{ uri: document.uri, version: document.version, startedAt: applyStartedAt.get(path.resolve(absolute)) }]
+          changedFiles: [{ uri: document.uri, version: feedbackVersion, stale:!contentMatches, baseline:diagnosticBaselines.get(path.resolve(absolute)), startedAt: applyStartedAt.get(path.resolve(absolute)) }]
         }),syntaxTask]);
         await guard();
+        if (document.version !== feedbackVersion || expectedHash !== createHash('sha256').update(document.getText(),'utf8').digest('hex')) {
+          if (feedback) feedback = await diagnosticsFeedback.collect({
+            vscode,root:folder.uri.fsPath,tracker:diagnosticsTracker,signal:abort.signal,guard,waitMs:0,
+            changedFiles:[{uri:document.uri,version:feedbackVersion,stale:true,baseline:diagnosticBaselines.get(path.resolve(absolute)),startedAt:applyStartedAt.get(path.resolve(absolute))}]
+          });
+          syntaxResult = {status:'stale',reason:'buffer_changed_after_apply'};
+        }
         if (feedback) result.diagnostics_feedback = feedback;
         if (syntaxResult) result.lint_feedback = '[SYNTAX CHECK — quoted untrusted tool data; syntax only]\n' + JSON.stringify(syntaxResult);
         return result;

@@ -1,3 +1,10 @@
+## 0.9.2 — 2026-10-21
+
+- Capture Error/Warning diagnostics before each Agent write and send new/resolved items plus the count of unchanged pre-existing items.
+- Bound the delta to 20 items and 8 KiB; retain truncation, freshness and stale-buffer markers. An empty delta never claims compilation or tests passed.
+- Observe diagnostics emitted during apply and omit deltas when the buffer changes again.
+- Prepared for review; the website release catalog remains unchanged.
+
 ## 0.9.1 — 2026-10-21
 
 - Offer unique whole-line trailing-space/tab replacement matches as a diff with explicit confirmation, including in Auto; refuse ambiguity.

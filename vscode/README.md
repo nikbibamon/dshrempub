@@ -1,8 +1,18 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.9.1. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.9.2. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
+
+## Diagnostics after Agent edits
+
+Before each Agent write, Tvijo captures the file's Error/Warning diagnostics.
+The next step receives new and resolved items against that baseline, with only a
+count of unchanged pre-existing items. Feedback is limited to 20 items total and
+8 KiB. Truncation and provider freshness are labelled; a concurrent buffer edit
+makes the delta unavailable. An empty delta does not mean compilation or tests
+passed. Diagnostic identity includes severity, source, code, message and range;
+locations moved by an edit can appear as resolved and new items.
 
 ## Replacement anchors
 
