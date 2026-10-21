@@ -79,3 +79,7 @@ background-work list with bounded lifecycle evidence and no command output.
 TVIJO extension0.8.1 adds separate native approval and revocation for exact folder rules.
 Global context consent does not approve `.tvijo/rules.md`; changed rules need another review.
 Rewind, command policy, provider credential custody and service budget limits are preserved.
+
+TVIJO extension0.8.2 optionally checks unsaved Python/Node buffers with explicitly approved
+Linux-host interpreters. Generic errors appear in Problems and Agent feedback. This is bounded
+syntax checking; project linter configurations/plugins are not loaded. Use `/syntax` to configure.
