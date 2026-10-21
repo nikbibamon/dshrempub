@@ -1,8 +1,27 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.9.2. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.9.3. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
+
+## Permission presets
+
+Plan is read-only. Manual, Edit automatically and Auto retain their existing
+approval behavior. **Full access** approves edits, including whole-file and
+whitespace fallback replacements, and supported commands without further prompts.
+Enable it for the active editor's workspace folder (or the first open folder)
+through the native modal. It requires a trusted workspace and a permission record
+bound to this host's local folder identity; workspace settings cannot enable it.
+
+A persistent warning lists enabled folders. **Revert** stops active work using
+that permission and removes it in one click. Full access leaves normal preset
+settings unchanged, so reverting restores their behavior. Explicitly choosing
+another Agent preset also revokes Full access for the current folder.
+
+Hard command denials, file-tool workspace/symlink/secret guards, task budget
+ceilings and reservations remain mandatory. Edits still require Rewind checkpoints
+and leave editor buffers unsaved. Commands use local host permissions; this preset
+does not provide an operating-system sandbox. Restricted Mode cannot enable it.
 
 ## Diagnostics after Agent edits
 

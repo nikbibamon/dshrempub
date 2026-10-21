@@ -33,6 +33,7 @@ const diagnosticsFeedback = require('./lib/diagnostics-feedback');
 const { createMetrics } = require('./lib/metrics');
 const { createCheckpoints } = require('./lib/checkpoints');
 const { createRunJournal } = require('./lib/run-journal');
+const { createFullAccess } = require('./lib/full-access');
 const AUTH_KEY = 'tvijo.auth';
 const CONTEXT_CONSENT = 'tvijo.contextConsent';
 
@@ -198,7 +199,7 @@ function activate(context) {
     }));
   }
   const customCommands = new Map();
-  if (vscode.workspace.onDidChangeWorkspaceFolders) context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { workspaceEpoch++; syntaxChecks.invalidate(); terminalCaptures.invalidate(); codingReview = null; agentMaps.clear(); refreshStatus(); }));
+  if (vscode.workspace.onDidChangeWorkspaceFolders) context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { workspaceEpoch++; fullAccess.invalidate(); syntaxChecks.invalidate(); terminalCaptures.invalidate(); codingReview = null; agentMaps.clear(); refreshStatus(); }));
   const handlers = new Map();
   let customerBot = null;
   let accountSnapshot = null;
@@ -222,6 +223,16 @@ function activate(context) {
     onRevoke:() => { rulesRevocationEpoch++; agentAbort?.abort(); activeAbort?.abort(); lastContextSummary = null; }
   });
   const syntaxChecks = createSyntaxHost({vscode,state:context.globalState,storageRoot:context.globalStorageUri?.fsPath,chooseFolder:()=>projectRulesHost.chooseFolder(),scope:folder=>projectRulesHost.scope(folder),L});
+  const fullAccess = createFullAccess({vscode,state:context.globalState,scope:folder=>projectRulesHost.scope(folder),L,
+    onRevoke:() => { agentAbort?.abort(); activeAbort?.abort(); }});
+  function permissionFolder() {
+    return (vscode.window.activeTextEditor && vscode.workspace.getWorkspaceFolder(vscode.window.activeTextEditor.document.uri)) || vscode.workspace.workspaceFolders?.[0];
+  }
+  function fullAccessState() {
+    return {...fullAccess.status(permissionFolder()),active:(vscode.workspace.workspaceFolders || []).map(folder=>fullAccess.status(folder)).filter(item=>item.enabled).map(({folder,scopeKey})=>({folder,scopeKey}))};
+  }
+  if (vscode.window.onDidChangeActiveTextEditor) context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(() => { void postChatState(); }));
+  if (vscode.workspace.onDidGrantWorkspaceTrust) context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(() => { fullAccess.invalidate(); void postChatState(); }));
   context.subscriptions.push({dispose:()=>syntaxChecks.dispose()});
   function syntaxNotice(result) {
     if (!result) return '';
@@ -390,7 +401,7 @@ function activate(context) {
       agentMode: configuration.get('agentMode', 'single'),
       agentAutoApply: !!configuration.get('agentAutoApply', false),
       agentAutoRun: !!configuration.get('agentAutoRun', false),
-      agentPreset: modePresets.presetFor(configuration.get('agentAutoApply', false), configuration.get('agentAutoRun', false)),
+      agentPreset: modePresets.presetFor(configuration.get('agentAutoApply', false), configuration.get('agentAutoRun', false),fullAccess.status(permissionFolder()).enabled),
       agentModel,
       reasoningMethod: configuration.get('reasoningMethod', 'evidence-first'),
       contextMode: configuration.get('workspaceContext', 'ask'),
@@ -540,7 +551,7 @@ function activate(context) {
       try { options = chatOptions(auth, selection.pack); } catch { options = null; }
     } else updatePackStatus(null, null);
     if(view!==chatView || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
-    await view.webview.postMessage({ type: 'state', scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length, account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
+    await view.webview.postMessage({ type: 'state', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length, account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'coding') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
       status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
@@ -620,7 +631,9 @@ function activate(context) {
     const editor = vscode.window.activeTextEditor;
     const folder = (editor && vscode.workspace.getWorkspaceFolder(editor.document.uri)) || (vscode.workspace.workspaceFolders || [])[0];
     if (!folder) throw new core.ServiceError('no_workspace', L('Open a project folder before starting the agent.', 'Откройте папку проекта, прежде чем запускать агента.'));
-    const guard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
+    const baseGuard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
+    const fullGrant = planMode ? null : fullAccess.capture(folder);
+    const guard = async() => { await baseGuard(); if (fullGrant) fullAccess.assertCurrent(folder,fullGrant); };
     if (attachmentScope !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account or thread changed before the agent started.');
     const api = core.createClient({ base: auth.api_base });
     const config = vscode.workspace.getConfiguration('tvijo');
@@ -690,7 +703,7 @@ function activate(context) {
         confirmRun: async info => {
           if (planMode) return false;
           await guard();
-          const approved = autoRun && safeAutoCommand(info.command) ? true : await confirmAgentRun(info);
+          const approved = fullGrant || (autoRun && safeAutoCommand(info.command)) ? true : await confirmAgentRun(info);
           await guard(); return approved;
         },
         confirmWrite: async info => {
@@ -702,7 +715,7 @@ function activate(context) {
             writeVersions.set(info.absolute, doc.version);
           }
           const autoSafe = autoApply && autoRun && modePresets.autoWritePolicy(info.operation, info.previous, info.matchKind);
-          const approved = info.matchKind && info.matchKind !== 'exact' ? await confirmAgentWrite(info) : autoSafe ? true : autoRun ? await confirmAgentWrite(info) : autoApply ? (await showProposedWrite(info.path, info.previous, info.content), true) : await confirmAgentWrite(info);
+          const approved = fullGrant ? true : info.matchKind && info.matchKind !== 'exact' ? await confirmAgentWrite(info) : autoSafe ? true : autoRun ? await confirmAgentWrite(info) : autoApply ? (await showProposedWrite(info.path, info.previous, info.content), true) : await confirmAgentWrite(info);
           await guard(); return approved;
         },
         applyWrite: async ({ absolute, previous, content, diskIdentity }) => {
@@ -857,19 +870,23 @@ function activate(context) {
     const commandDecision = analyzeCommand(command);
     if (!commandDecision.ok) throw new core.ServiceError('command_policy', commandDecision.reason);
     const auth = await requireAuth();
-    const commandGuard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
+    const shellBaseGuard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
+    const shellGrant = fullAccess.capture(folder);
+    const commandGuard = async() => { await shellBaseGuard(); if (shellGrant) fullAccess.assertCurrent(folder,shellGrant); };
     await commandGuard();
-    if (typeof vscode.window.showWarningMessage !== 'function') return;
+    if (!shellGrant && typeof vscode.window.showWarningMessage !== 'function') return;
     const run = L('Run command', 'Выполнить команду');
-    const answer = await vscode.window.showWarningMessage(
+    const answer = shellGrant ? run : await vscode.window.showWarningMessage(
       L('Run this command in ', 'Выполнить эту команду в ') + folder.uri.fsPath + '?\n' + command,
       { modal: true, detail: L('This is your own shell command; no model task is created.', 'Это ваша собственная shell-команда; платная задача модели не создаётся.') }, run);
     if (answer !== run) return;
     await commandGuard();
     ensureIdle();
+    const abort = new AbortController();
+    activeAbort = abort;
     const commandSession=beginMap(auth,'Local command');
     commandSession.localOnlyCommand=true;
-    const tools = createTools({ root: folder.uri.fsPath, guard:commandGuard, onCommandLifecycle:observeCommand(auth,commandSession), confirmRun: async () => true, confirmWrite: async () => false });
+    const tools = createTools({ root: folder.uri.fsPath, guard:commandGuard, signal:abort.signal, onCommandLifecycle:observeCommand(auth,commandSession), confirmRun: async () => true, confirmWrite: async () => false });
     const startedAt = Date.now();
     const terminalCaptureEpoch = terminalCaptures.epoch;
     busy = true;
@@ -890,7 +907,7 @@ function activate(context) {
       await finishMap(auth,'failed');
       await metrics.record({ event: 'shell', outcome: 'error', error_code: error?.code || 'unknown', duration_ms: Date.now() - startedAt });
       throw error;
-    } finally { busy = false; await postActivity('done', ''); await postChatState(); }
+    } finally { if (activeAbort === abort) activeAbort = null; busy = false; await postActivity('done', ''); await postChatState(); }
   }
 
   function localizedMessage(error) {
@@ -1270,7 +1287,9 @@ function activate(context) {
     const document = editor.document;
     const folder = vscode.workspace.getWorkspaceFolder(document.uri);
     if (!folder) throw new core.ServiceError('outside_workspace', L('Quick edit works only inside an open workspace folder.', 'Быстрая правка работает только внутри открытой папки проекта.'));
-    const editGuard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
+    const editBaseGuard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
+    const editGrant = fullAccess.capture(folder);
+    const editGuard = async() => { await editBaseGuard(); if (editGrant) fullAccess.assertCurrent(folder,editGrant); };
     const recoveryKey = recoveryScope(auth);
     safePath(folder.uri.fsPath, path.relative(folder.uri.fsPath, document.uri.fsPath));
     const original = document.getText();
@@ -1334,7 +1353,7 @@ function activate(context) {
       if (quickEdit.same(original, proposed)) { vscode.window.showInformationMessage(L('Tvijo: the model proposed no changes.', 'Tvijo: модель не предложила изменений.')); editCompleted = true; return; }
       await quickEdit.preview(vscode, document, proposed, 'Tvijo edit: ' + relative);
       const applyLabel = L('Apply to buffer', 'Применить в буфер');
-      if (!config.get('autoApply', false)) {
+      if (!editGrant && !config.get('autoApply', false)) {
         const pick = await vscode.window.showWarningMessage(L('Apply the reviewed edit to the editor buffer? The file is not saved automatically.', 'Применить просмотренную правку в буфер редактора? Файл не сохраняется автоматически.'), { modal: true }, applyLabel);
         if (pick !== applyLabel) { editCompleted = true; return; }
       }
@@ -2219,9 +2238,15 @@ function activate(context) {
             if (message.key === 'workspaceContext' && message.value === 'ask') await context.globalState.update(CONTEXT_CONSENT, undefined);
             await vscode.workspace.getConfiguration('tvijo').update(message.key, message.value, vscode.ConfigurationTarget.Global);
             await postChatState();
+          } else if (message?.type === 'fullAccessRevert') {
+            const folder = (vscode.workspace.workspaceFolders || []).find(folder=>fullAccess.status(folder).scopeKey === message.fullAccessScope);
+            if (!folder || typeof message.fullAccessScope !== 'string') throw new core.ServiceError('invalid_option','This Full access folder is no longer available.');
+            const persisted = await fullAccess.disable(folder);
+            await postChatState();
+            if (!persisted) throw new core.ServiceError('permission_storage','Full access stopped for this session, but its saved permission could not be removed.');
           } else if (message?.type === 'agentPreset') {
             const settings = modePresets.PRESETS[message.preset];
-            if (!settings || !['manual', 'edit', 'plan', 'auto'].includes(message.preset)) throw new core.ServiceError('invalid_option', 'Unknown agent preset.');
+            if (!settings || !['manual', 'edit', 'plan', 'auto', 'full'].includes(message.preset)) throw new core.ServiceError('invalid_option', 'Unknown agent preset.');
             const scope = message.scopeKey;
             const epoch = workspaceEpoch;
             let validScope = false;
@@ -2243,6 +2268,15 @@ function activate(context) {
               if (modeUpdatePending || rewindBusy || busy || attaching) throw new core.ServiceError('busy', 'Wait for the current question, attachment or mode update to finish.');
               modeUpdatePending = true;
               ownsModeLock = true;
+              const folder = permissionFolder();
+              if (message.preset === 'full') {
+                const enabled = folder && await fullAccess.enable(folder,{guard:() => assertCurrent(auth)});
+                await postChatState();
+                await assertCurrent(auth);
+                await view.webview.postMessage({type:'presetResult',scopeKey:scope,requestId:message.requestId,preset:'full',ok:!!enabled});
+                return;
+              }
+              if (fullAccess.status(folder).enabled && !await fullAccess.disable(folder)) throw new core.ServiceError('permission_storage','Full access could not be revoked durably.');
               const target = vscode.ConfigurationTarget.Global;
               const keys = ['agentAutoApply', 'agentAutoRun'];
               const inspect = () => {

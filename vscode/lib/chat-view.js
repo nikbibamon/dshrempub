@@ -18,11 +18,13 @@ ${THEME_CSS}
 ${CHAT_CSS}
 ${REWIND_CSS}
 #recovery{flex-shrink:0;max-height:260px;overflow:auto;padding:8px 12px;border-top:1px solid var(--border)}#recovery h2{font-size:13px;margin:0 0 6px}.recovery-card{padding:8px;margin:6px 0;border:1px solid var(--border);border-radius:6px}.recovery-card p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 6px}.recovery-actions{display:flex;flex-wrap:wrap;gap:6px}.recovery-actions button{font-size:11px}#recovery-notes{font-size:11px;overflow-wrap:anywhere}
+#full-access-warning{flex-shrink:0;margin:6px 10px;padding:8px;border:1px solid #d99b32;border-radius:6px;background:rgba(217,155,50,.12);font-size:12px;overflow-wrap:anywhere;max-width:calc(100% - 36px);max-height:180px;overflow:auto}#full-access-warning[hidden]{display:none}.full-access-row{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;margin-top:5px}.full-access-folder{min-width:0;overflow-wrap:anywhere;flex:1 1 120px}.full-access-row button{max-width:100%;white-space:normal}
 header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(--vscode-contrastBorder,var(--border));border-radius:999px;background:var(--surface);color:var(--text)}#elapsed-chip{white-space:nowrap}#agent-map-button{white-space:nowrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
 </style></head><body>
 <header><strong id="brand"><span id="brand-mark" aria-hidden="true">›_</span>DSHREM</strong><span id="elapsed-chip" class="run-chip" aria-label="Elapsed time">Elapsed —</span><button id="agent-map-button" class="run-chip" type="button" title="Observed running agents; opens Agent Map" aria-expanded="false" aria-controls="agent-map">Agents —</button><button id="pack-picker" type="button" hidden aria-haspopup="dialog"></button><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="signin" type="button">Sign in</button><button id="new" class="icon" type="button" title="New session" aria-label="New session">＋</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings">⚙</button></header>
 <nav aria-label="Workspace"><button id="tab-chat" type="button" aria-selected="true">Chat</button><button id="tab-context" type="button" aria-selected="false">Context</button><button id="tab-usage" type="button" aria-selected="false">Usage</button><button id="tab-terminal" type="button" aria-selected="false">Terminal</button></nav>
 <section id="rewind" aria-labelledby="rewind-title" hidden><div id="rewind-heading"><h2 id="rewind-title">Rewind</h2><button id="rewind-close" type="button">Back to chat</button></div><p id="rewind-hint"></p><p id="rewind-status" role="status"></p><div id="rewind-list"></div></section><main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
+<section id="full-access-warning" role="region" aria-label="Full access warning" hidden></section>
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
 <section id="recovery" aria-labelledby="recovery-title" hidden><h2 id="recovery-title">Interrupted run</h2><p id="recovery-notes" role="status"></p><div id="recovery-list"></div></section>
 <div id="agent-log" role="log" aria-live="polite"></div>
@@ -36,6 +38,8 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
 <div id="notice" role="alert"><p id="notice-text"></p><button id="notice-action" type="button">Resolve task</button></div>
 <script nonce="${nonce}">
   const COPY = ${JSON.stringify(COPY)};
+  Object.assign(COPY.en,{modeFull:'Full access',modeFullHint:'Automatically approves edits and commands; hard limits still apply.',fullAccessWarning:'Full access is active',fullAccessRevert:'Revert'});
+  Object.assign(COPY.ru,{modeFull:'Полный доступ',modeFullHint:'Автоматически подтверждать правки и команды; жёсткие ограничения сохраняются.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
   const safeExternalUrl = ${safeExternalUrl.toString()};
   const renderMarkdown = ${renderMarkdown.toString()};
   const renderAgentMap = ${renderAgentMap.toString()};
@@ -64,6 +68,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   const activityDetail = document.getElementById('activity-detail');
   const activityTime = document.getElementById('activity-time');
   let optionState = null;
+  let fullAccess = null;
   let currentNotice = null;
   let lastContext = null;
   let activityTimer = null;
@@ -256,7 +261,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       { key: 'workspaceContext', value: 'on', current: optionState.contextMode, label: t('contextOn'), hint: '' },
       { key: 'workspaceContext', value: 'off', current: optionState.contextMode, label: t('contextOff'), hint: '' }
     ]);
-    group('applySection', [
+    if (optionState.agentPreset !== 'full') group('applySection', [
       { key: 'autoApply', value: false, current: optionState.autoApply, label: t('autoApplyOff'), hint: '' },
       { key: 'autoApply', value: true, current: optionState.autoApply, label: t('autoApplyOn'), hint: '' }
     ]);
@@ -269,7 +274,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   }
   function updateMode() {
     const preset = uiMode === 'plan' ? 'plan' : optionState?.agentPreset || 'manual';
-    const labelKey = uiMode === 'chat' ? 'modeChat' : uiMode === 'plan' ? 'modePlan' : ({manual:'modeManual',edit:'modeEdit',auto:'modeAuto',custom:'modeCustom'}[preset] || 'modeCustom');
+    const labelKey = uiMode === 'chat' ? 'modeChat' : uiMode === 'plan' ? 'modePlan' : ({manual:'modeManual',edit:'modeEdit',auto:'modeAuto',full:'modeFull',custom:'modeCustom'}[preset] || 'modeCustom');
     const label = t(labelKey);
     modeButton.textContent = label;
     modeButton.className = 'mini-select ' + (uiMode === 'chat' ? '' : uiMode);
@@ -288,7 +293,8 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       {mode:'manual', label:t('modeManual'), hint:t('modeManualHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'manual'},
       {mode:'edit', label:t('modeEdit'), hint:t('modeEditHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'edit'},
       {mode:'plan', label:t('modePlan'), hint:t('modePlanHint'), checked:uiMode === 'plan'},
-      {mode:'auto', label:t('modeAuto'), hint:t('modeAutoHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'auto'}
+      {mode:'auto', label:t('modeAuto'), hint:t('modeAutoHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'auto'},
+      {mode:'full', label:t('modeFull'), hint:t('modeFullHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'full', disabled:fullAccess?.available !== true}
     ];
     if (optionState?.agentPreset === 'custom') rows.push({mode:'custom', label:t('modeCustom'), hint:'', checked:uiMode === 'agent'});
     for (const row of rows) {
@@ -300,6 +306,22 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       button.addEventListener('click', () => chooseMode(row.mode)); modeMenu.append(button);
     }
     modeButton.disabled = running || submitting || preparing || !!pendingModeRequestId;
+  }
+  function renderFullAccessWarning() {
+    const panel = document.getElementById('full-access-warning');
+    panel.setAttribute('aria-label',t('modeFull'));
+    const active = Array.isArray(fullAccess?.active) ? fullAccess.active : [];
+    panel.replaceChildren(); panel.hidden = !active.length;
+    if (!active.length) return;
+    const message = document.createElement('div'); message.textContent = t('fullAccessWarning'); panel.append(message);
+    for (const row of active) {
+      const line = document.createElement('div'); line.className = 'full-access-row';
+      const folder = document.createElement('span'); folder.className = 'full-access-folder'; folder.textContent = String(row.folder ?? '');
+      const button = document.createElement('button'); button.type = 'button'; button.textContent = t('fullAccessRevert');
+      button.setAttribute('aria-label', t('fullAccessRevert') + ': ' + String(row.folder ?? ''));
+      button.addEventListener('click', () => post({type:'fullAccessRevert',fullAccessScope:row.scopeKey}));
+      line.append(folder,button); panel.append(line);
+    }
   }
   function openModeMenu() {
     if (modeButton.disabled) return;
@@ -316,6 +338,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     if (running || submitting || preparing) return;
     if (mode === 'custom') { closeModeMenu(true); uiMode = 'agent'; updateMode(); saveDraft(); return; }
     const preset = mode === 'plan' ? 'plan' : mode;
+    if (mode === 'full' && fullAccess?.available !== true) return;
     pendingModeRequestId = String(scopeKey || '') + ':' + (++modeRequestSequence);
     closeModeMenu(true); controls();
     post({type:'agentPreset',preset,requestId:pendingModeRequestId});
@@ -371,6 +394,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     document.getElementById('rewind-hint').textContent = locale === 'ru' ? 'Только на этом устройстве · 7 дней · до 50 МиБ. Изменённые файлы и удаление требуют подтверждения.' : 'On this machine only · 7 days · up to 50 MiB. Changed files and deletions need confirmation.';
     if (!rewindPanel.hidden) drawRewind();
     renderRunSession(runSession);
+    renderFullAccessWarning();
     document.getElementById('map-title').textContent = locale === 'ru' ? 'Карта агентов' : 'Agent map';
     document.getElementById('map-canvas').setAttribute('aria-label', locale === 'ru' ? 'Карта агентов' : 'Agent map');
     document.getElementById('map-close').textContent = locale === 'ru' ? 'Вернуться к чату' : 'Back to chat';
@@ -651,6 +675,8 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       packPicker.title = data.pack ? data.pack.summary : '';
       packPicker.setAttribute('aria-label', (locale === 'ru' ? 'Выбрать пакет навыков: ' : 'Choose skill pack: ') + (data.pack?.label || ''));
       if (data.options) renderOptions(data.options);
+      fullAccess = data.fullAccess && typeof data.fullAccess === 'object' ? data.fullAccess : null;
+      renderFullAccessWarning();
       if (data.agentMap) { mapModel = data.agentMap; if (mapOpen) drawMap(); }
       renderContext(data.context);
       if (data.error) showNotice(data.error.text, data.error.action);

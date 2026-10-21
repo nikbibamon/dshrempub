@@ -211,3 +211,9 @@ send bounded matching snippets from disk as untrusted tool results; disk and
 unsaved buffers can differ. Plan does not launch a search subprocess or shell.
 The existing file reads, context consent, task reservations and provider custody
 continue to apply. No additional automatic model request is introduced.
+
+Full access consent is stored locally per workspace folder in extension global
+state, bound to a host-local identity marker. It is not a model instruction or
+workspace setting and is not sent with requests. The warning provides a one-click
+revert. Commands still run with local host permissions; file-tool boundaries and
+hard command/budget checks remain in force.

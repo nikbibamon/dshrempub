@@ -162,10 +162,25 @@ async function runCommand(root, action, confirm, { signal, onLifecycle = () => {
   const command = typeof action.command === 'string' ? action.command : '';
   if (!decision.ok) throw new Error(decision.reason);
   const cwd = action.cwd ? safePath(root, action.cwd) : root;
+  const executable = path.basename(decision.executable).toLowerCase().replace(/\.exe$/,'');
+  const assertRemovalPaths = () => { if (executable === 'rm') {
+    // Bound every removal operand, including those before an option terminator.
+    // This also covers GNU option abbreviations without guessing their effect.
+    let operandsOnly = false;
+    for (const target of decision.args) {
+        if (!operandsOnly && target === '--') { operandsOnly = true; continue; }
+        if (!operandsOnly && target.startsWith('-') && target !== '-') continue;
+        const absolute = path.resolve(cwd,target);
+        if (absolute === path.resolve(root)) throw new Error('This command is blocked by the local safety rules.');
+        try { safePath(root,absolute); } catch { throw new Error('This command is blocked by the local safety rules.'); }
+    }
+  } };
+  assertRemovalPaths();
   const approved = await confirm(Object.freeze({ command, cwd, signal, decision }));
   if (!approved) return { ok: false, refused: true, command, cwd };
   await guard();
   safePath(root, action.cwd || '.');
+  assertRemovalPaths();
   if (signal?.aborted) return { ok:false, cancelled:true, command, cwd, termination:'not_started' };
   const timeout = Math.min(Math.max(Number(action.timeout_ms) || DEFAULT_TIMEOUT, 1000), 180000);
   return await new Promise((resolve) => {
