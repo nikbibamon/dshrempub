@@ -74,3 +74,8 @@ See [Rewind behavior and limits](vscode/README.md#rewind-local-checkpoints).
 The chat header shows elapsed time from the host run timestamps and an observed
 running-agent count. The count opens Agent Map; local commands appear in a separate
 background-work list with bounded lifecycle evidence and no command output.
+
+
+TVIJO extension0.8.1 adds separate native approval and revocation for exact folder rules.
+Global context consent does not approve `.tvijo/rules.md`; changed rules need another review.
+Rewind, command policy, provider credential custody and service budget limits are preserved.
