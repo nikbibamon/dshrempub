@@ -29,3 +29,49 @@ Corrected the status bar to use only `budget.daily_remaining_usd`: EN `$0.95 lef
 Validation: focused pack/extension tests **84/84**; full `nice -n 12 npm test` **269/269** (three additional tests), no failures or skips. `git diff --check` passed. All calls used local test doubles; no provider calls, push or publish.
 
 Rebuilt with `scripts/package_vsix.py --output /tmp/claude-tvijo-ext-0.6/tvijo-dshrem-0.6.0-follow-up.vsix`; receipt: `tvijo-dshrem-0.6.0-follow-up.vsix.sha256.json`. SHA256: `348ba9bf2ff1018dd411fb83f9806956e73a679da8787d570aa213d3ff888e74`. Verified all 25 archive entries, receipt hashes and packaged source bytes; 411,525 bytes. New VSIX/receipt remain local artifacts; original VSIX/receipt and all baseline untracked work are preserved.
+
+## 0.6.1
+
+Implemented on `claude/tvijo-ext-0.6`; implementation commit `d0c64b6`.
+
+Changed: `vscode/{extension.js,workspace.js,package.json,README.md,CHANGELOG.md}`;
+`vscode/lib/{chat-view,client,markdown,agent-map,chat-presentation}.js`;
+renderer/map tests, DOM helper and synthetic receipt fixture; root `README.md` and this report.
+Public repository metadata now points to `nikbibamon/dshrempub`.
+
+Assistant answers render headings, emphasis, inline/fenced code, language labels and Copy,
+lists, blockquotes, tables, rules and highlighted links. Parsing creates allowlisted DOM;
+raw HTML tags are dropped, model images never load, and only HTTP/HTTPS/mailto links open
+through `vscode.env.openExternal` after a click. Strict CSP remains. Rendering is bounded;
+the plain task receipt footer remains visible beyond the body limit.
+
+Design: compact **Agent map / Карта агентов** header button, horizontal scrollable tree,
+independently scrollable details, keyboard arrows/Enter/Space/Escape, preserved focus and
+scroll during updates. Only observed tasks, Agent turns/tools, council calls and coding
+execution branches appear; quotes never create executed nodes. Unknown metrics remain
+**—**; USD and TT stay distinct.
+
+```text
+[Request] ─┬─ [Task / Agent step] ─ [Executed route/tool]
+           └─ [Coding task] ─┬─ [Proposal]
+                            └─ [Review]
+Select node → task ID, route, receipt, short last message
+```
+
+Validation: baseline **269/269**; final **297/297**, 28 added tests, no failures/skips.
+`git diff --check` passed. Playwright passed EN/RU at **280/640 px**: Markdown, Copy,
+click-only links, safe DOM, keyboard navigation, live focus, zero page overflow,
+console errors or remote requests. Screenshots/results remain in `.qa-061/`.
+
+Built using `scripts/package_vsix.py`: `tvijo-dshrem-0.6.1.vsix`, **448,552 bytes**,
+28 entries, `GalleryFlags=Public`, no `private`. Verified receipt hashes, packaged source
+bytes, relative runtime dependencies and exclusion of tests, dependencies and skill text.
+Checksum receipt: `tvijo-dshrem-0.6.1.vsix.sha256.json`.
+
+SHA256: `6c8db49ef5f8bc9ad1253667d6fe0dffad3f1b8794d9f0b41c5772c7687477a5`
+
+Limits: no new server endpoint; open maps poll existing task reads every two seconds.
+Branches appear only when existing responses expose execution records, sometimes after
+completion. Local trees are session-memory data; reopened history requires matching task
+or thread IDs. Installed-host/provider smoke was not run. No provider calls, push or
+publish. Baseline untracked work and prior VSIX artifacts are preserved.
