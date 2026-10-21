@@ -15,17 +15,23 @@
     "status": "prepared",
     "published_at": null,
     "note": {
-      "en": "Prepared candidate only. Backend integration, test and native-host acceptance are pending; no installable package is published.",
-      "ru": "Только подготовленный кандидат. Интеграция с сервером, тесты и проверка в редакторе ожидают приёмки; установочный пакет не опубликован."
+      "en": "Prepared preview. Local tests and native-host checks are recorded; publication and live service integration are not yet verified.",
+      "ru": "Подготовленный preview. Локальные тесты и проверки в редакторе зафиксированы; публикация и работа с живым сервисом ещё не подтверждены."
     }
   },
   "package": {
     "filename": "tvijo-dshrem-0.10.0.vsix",
-    "editor_requirement": "^1.90.0"
+    "editor_requirement": "^1.90.0",
+    "sha256": "caca1e52be6202f82fdffda6052f2a2e034cf498fb275f77e0dd17c1af3d2814",
+    "bytes": 740631,
+    "source_commit": "1ef3704",
+    "verified_environment": "VS Code 1.142.0 on Linux (isolated profile; synthetic local service)"
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
-    "issues": "https://github.com/nikbibamon/dshrempub/issues"
+    "issues": "https://github.com/nikbibamon/dshrempub/issues",
+    "source": "https://github.com/nikbibamon/dshrempub/tree/1ef3704",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/1ef3704/vscode/CHANGELOG.md"
   },
   "features": [
     {
@@ -105,13 +111,25 @@
     {
       "version": "0.10.0",
       "date": "2026-10-21",
-      "title": {"en": "Data, privacy and resources", "ru": "Данные, конфиденциальность и материалы"},
+      "title": {
+        "en": "Data, privacy and resources",
+        "ru": "Данные, конфиденциальность и материалы"
+      },
       "changes": [
-        {"en": "Add a read-only, authenticated server preference view. Unavailable or malformed data remains Unknown; the extension cannot grant consent.", "ru": "Добавлен просмотр настроек сервера только для чтения с авторизацией. Недоступные или неверные данные остаются неизвестными; расширение не выдаёт согласия."},
-        {"en": "Add a bilingual resource picker with verified public Tvijo links and respect the live VS Code telemetry capability before each metadata write.", "ru": "Добавлен двуязычный список проверенных общедоступных материалов Tvijo; перед каждой записью метрик проверяется текущая настройка телеметрии VS Code."}
+        {
+          "en": "Add a read-only, authenticated server preference view. Unavailable or malformed data remains Unknown; the extension cannot grant consent.",
+          "ru": "Добавлен просмотр настроек сервера только для чтения с авторизацией. Недоступные или неверные данные остаются неизвестными; расширение не выдаёт согласия."
+        },
+        {
+          "en": "Add a bilingual resource picker with verified public Tvijo links and respect the live VS Code telemetry capability before each metadata write.",
+          "ru": "Добавлен двуязычный список проверенных общедоступных материалов Tvijo; перед каждой записью метрик проверяется текущая настройка телеметрии VS Code."
+        }
       ],
       "limitations": [
-        {"en": "Prepared candidate. Backend contract integration, full tests and native-host acceptance are pending; package hash and build metadata are not available.", "ru": "Подготовленный кандидат. Интеграция серверного контракта, полные тесты и проверка в редакторе ожидают приёмки; хеш и данные сборки пакета пока отсутствуют."}
+        {
+          "en": "A compatible server is required; unavailable preferences stay Unknown. This preview is prepared, not published. Local synthetic tests do not establish live-provider or production readiness.",
+          "ru": "Требуется совместимый сервер; недоступные настройки остаются неизвестными. Preview подготовлен, но не опубликован. Локальные синтетические проверки не подтверждают работу с живым провайдером или готовность прода."
+        }
       ]
     },
     {
@@ -305,11 +323,12 @@
   ],
   "verification": {
     "date": "2026-10-21",
-    "cli_tests": 9,
-    "extension_tests": 483,
+    "cli_tests": 10,
+    "extension_tests": 588,
     "native_gui": {
-      "en": "Actual VS Code UI with synthetic local authentication/model replies; live-provider inference was not tested.",
-      "ru": "Настоящий интерфейс VS Code с синтетическим локальным входом и ответами модели; запросы живому провайдеру не проверялись."
-    }
+      "en": "Installed candidate in actual VS Code1.142.0 with synthetic local authentication and preferences: known states, seven Unknown states on failure, resources and telemetry disabled. No provider inference or production rollout was tested.",
+      "ru": "Установленный кандидат в настоящем VS Code1.142.0 с локальным синтетическим входом и настройками: серверные состояния, семь неизвестных состояний при ошибке, материалы и выключенная телеметрия. Запросы провайдерам и выкатка в прод не проверялись."
+    },
+    "launcher_tests": 7
   }
 }
