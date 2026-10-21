@@ -426,6 +426,14 @@ telemetry is disabled, new rows are not recorded and existing rows are preserved
 
 ## Data, privacy and resources
 
+Local metrics require the current VS Code telemetry capability and extension storage.
+Only validated metadata fields are appended; prompts, arbitrary extra fields and
+caller-supplied timestamp/version overrides are omitted. Existing logs remain intact.
+
+Локальный журнал требует разрешённой телеметрии VS Code и хранилища расширения.
+Записываются только проверенные поля метаданных; запросы, произвольные поля и
+подмена времени или версии не сохраняются. Прежние записи остаются на месте.
+
 Use **Tvijo: Data & privacy** for a read-only view of preferences returned by the
 authenticated service. It reads `GET /data-preferences`; until that endpoint and its
 response contract are available, states remain **Unknown**. This extension does not

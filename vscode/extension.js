@@ -1476,7 +1476,7 @@ function activate(context) {
   command('tvijo.dataPrivacy', showDataPrivacy);
   command('tvijo.resources', async () => {
     const picked = await vscode.window.showQuickPick(resourceHub.choices(uiLocale()), { title:L('Resources','Материалы'), placeHolder:L('Open a verified Tvijo resource','Откройте проверенный ресурс Tvijo') });
-    if (picked && resourceHub.RESOURCES.some(item => item.url === picked.url)) await vscode.env.openExternal(vscode.Uri.parse(picked.url));
+    if (picked && resourceHub.isResourceUrl(picked.url)) await vscode.env.openExternal(vscode.Uri.parse(picked.url));
   });
   const settingProperties = () => require('./package.json').contributes.configuration.properties;
   function settingsValues() {

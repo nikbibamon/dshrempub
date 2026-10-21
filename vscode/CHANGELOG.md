@@ -3,7 +3,14 @@
 - Add read-only Data & privacy view using authenticated server preferences; unavailable, malformed and changed-account responses stay unknown.
 - Add bilingual Resources picker with the verified public Learn, Knowledge base, Policies and Changelog links.
 - Respect VS Code telemetry capability for every local metadata log write; existing log contents remain intact.
+- Require an explicit telemetry capability and extension storage; validate metadata fields and use verified localized resource URLs.
 - Candidate prepared for independent backend, test and native-host acceptance. No package build or release verification is claimed.
+
+Русский:
+- «Данные и конфиденциальность» показывает только ответ сервера; ошибки, неполные данные и смена аккаунта оставляют состояние неизвестным.
+- «Материалы» открывает проверенные ссылки на обучение, базу знаний, правила и журнал изменений на выбранном языке.
+- Журнал метаданных требует разрешённой телеметрии VS Code и хранилища расширения; сохраняются только проверенные поля, прежние записи не удаляются.
+- Версия остаётся кандидатом до независимой приёмки; публикация не заявляется.
 
 ## 0.9.3 — 2026-10-21
 
