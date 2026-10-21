@@ -1577,6 +1577,13 @@ test('step limit retains partial outcome after final idle update', async () => {
     const state = app.posts.filter(p => p.type === 'state').at(-1);
     assert.equal(state.busy, false);
     assert.match(state.status, /Step limit reached.*Partial result/);
+    const runSessions = app.posts.filter(p => p.type === 'runSession');
+    assert.ok(runSessions.some(item => item.session.status === 'running' && item.session.agents === 1));
+    const completed = runSessions.at(-1).session;
+    assert.equal(completed.status, 'completed');
+    assert.equal(completed.agents, 0);
+    assert.ok(Number.isFinite(completed.startedAt) && Number.isFinite(completed.endedAt));
+    assert.ok(completed.endedAt >= completed.startedAt);
     await app.commands.get('tvijo.newConversation')();
     const cleared = app.posts.filter(p => p.type === 'state').at(-1);
     assert.doesNotMatch(cleared.status, /Partial result/);

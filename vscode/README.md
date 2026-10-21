@@ -1,6 +1,6 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.7.3. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.7.4. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
@@ -473,3 +473,5 @@ Rewind publishes each new checkpoint before pruning old recovery points. Publish
 are capped at 50 MiB; atomic staging can temporarily require another 50 MiB. A failed
 capture blocks the edit and preserves previous recovery points. Other processes can still
 change files during recovery; detected conflicts stop recovery and are reported.
+
+The run header uses host session timestamps and observed agent identities. Unknown observations show —; the agent-count button opens Agent Map with separate bounded command lifecycle rows. Stop requests are shown until a child exit is observed; descendant process status remains unknown after cancellation/timeout.

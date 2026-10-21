@@ -8,6 +8,7 @@ const fs = require('node:fs/promises');
 const fssync = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { randomUUID } = require('node:crypto');
 
 const MAX_READ = 64 * 1024;
 const MAX_OUTPUT = 8 * 1024;
@@ -165,25 +166,63 @@ function autoCommand(command) {
   return allowed.includes(command) ? command.split(' ') : null;
 }
 
-async function runCommand(root, action, confirm) {
+async function runCommand(root, action, confirm, { signal, onLifecycle = () => {} } = {}) {
   const command = typeof action.command === 'string' ? action.command.trim() : '';
   if (!command) throw new Error('A command is required.');
   if (BLOCKED_COMMAND.some((pattern) => pattern.test(command))) throw new Error('This command is blocked by the local safety rules.');
   const cwd = action.cwd ? safePath(root, action.cwd) : root;
-  const approved = await confirm({ command, cwd });
+  const approved = await confirm({ command, cwd, signal });
   if (!approved) return { ok: false, refused: true, command, cwd };
+  safePath(root, action.cwd || '.');
+  if (signal?.aborted) return { ok:false, cancelled:true, command, cwd, termination:'not_started' };
   const timeout = Math.min(Math.max(Number(action.timeout_ms) || DEFAULT_TIMEOUT, 1000), 180000);
   return await new Promise((resolve) => {
     const exact = autoCommand(command);
-    const child = exact ? spawn(exact[0], exact.slice(1), { shell: false, cwd, env: cleanEnv(), stdio: ['ignore', 'pipe', 'pipe'] }) : spawn(command, { shell: true, cwd, env: cleanEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = ''; let stderr = ''; let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; child.kill('SIGTERM'); setTimeout(() => child.kill('SIGKILL'), 2000).unref?.(); }, timeout);
+    const id = randomUUID();
+    let child;
+    try {
+      child = exact ? spawn(exact[0], exact.slice(1), { shell: false, cwd, env: cleanEnv(), stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' }) : spawn(command, { shell: true, cwd, env: cleanEnv(), stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
+    } catch (error) {
+      onLifecycle({ type:'error', id, status:'failed', startedAt:null, endedAt:Date.now(), error:error.message });
+      resolve({ ok:false, command, cwd, error:error.message }); return;
+    }
+    let stdout = ''; let stderr = ''; let timedOut = false; let cancelled = false; let startedAt = null; let finished = false;
+    const emit = (type, data = {}) => { try { onLifecycle({ type, id, command:'run_command', ...data }); } catch { /* Telemetry must not break command execution. */ } };
+    const signalOwned = name => {
+      if (process.platform !== 'win32' && Number.isInteger(child.pid)) {
+        try { process.kill(-child.pid, name); return true; } catch { /* The process group may already have exited. */ }
+      }
+      try { return child.kill(name); } catch { return false; }
+    };
+    let killTimer = null;
+    const requestStop = () => {
+      signalOwned('SIGTERM');
+      if (killTimer) clearTimeout(killTimer);
+      killTimer = setTimeout(() => signalOwned('SIGKILL'), 2000);
+      killTimer.unref?.();
+    };
+    const onAbort = () => { if (!finished && !cancelled) { cancelled = true; emit('cancel_requested', { status:'running', startedAt }); requestStop(); } };
+    const timer = setTimeout(() => { timedOut = true; emit('timeout', { status:'running', startedAt }); requestStop(); }, timeout);
     child.stdout.on('data', (chunk) => { if (stdout.length < MAX_OUTPUT * 3) stdout += chunk.toString('utf8'); });
     child.stderr.on('data', (chunk) => { if (stderr.length < MAX_OUTPUT * 3) stderr += chunk.toString('utf8'); });
-    child.on('error', (error) => { clearTimeout(timer); resolve({ ok: false, command, cwd, error: error.message }); });
-    child.on('close', (code, signal) => {
-      clearTimeout(timer);
-      resolve({ ok: code === 0 && !timedOut, command, cwd, exitCode: code, signal, timedOut, stdout: truncate(stdout), stderr: truncate(stderr) });
+    child.once('spawn', () => {
+      startedAt = Date.now();
+      emit('start', { status:'running', startedAt });
+      if (signal?.aborted) onAbort();
+    });
+    signal?.addEventListener('abort', onAbort, { once:true });
+    child.on('error', (error) => {
+      if (finished) return;
+      finished = true; clearTimeout(timer); if (killTimer) clearTimeout(killTimer); signal?.removeEventListener('abort', onAbort);
+      const endedAt = Date.now(); emit('error', { status:'failed', startedAt, endedAt });
+      resolve({ ok:false, command, cwd, error:error.message, timedOut, cancelled, termination:'error' });
+    });
+    child.on('close', (code, exitSignal) => {
+      if (finished) return;
+      finished = true; clearTimeout(timer); if (killTimer) clearTimeout(killTimer); signal?.removeEventListener('abort', onAbort);
+      const endedAt = Date.now(), status = timedOut ? 'timed_out' : cancelled ? 'cancelled' : code === 0 ? 'completed' : 'failed';
+      emit('exit', { status, startedAt, endedAt, exitCode:code, signal:exitSignal });
+      resolve({ ok: code === 0 && !timedOut && !cancelled, command, cwd, exitCode: code, signal:exitSignal, timedOut, cancelled, termination:'observed_exit', stdout: truncate(stdout), stderr: truncate(stderr) });
     });
   });
 }
@@ -245,7 +284,7 @@ async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
   return { ok: true, path: action.path, bytes: Buffer.byteLength(content, 'utf8') };
 }
 
-function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {} }) {
+function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {} }) {
   return {
     root,
     async execute(action, context = {}) {
@@ -258,7 +297,7 @@ function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite =
         case 'search': return { ok: true, ...(await search(root, action.query, action.path, action.max)) };
         case 'write_file': return await writeFile(root, action, confirmWrite, applyWrite, beforeWrite, 'write_file');
         case 'replace_in_file': return await replaceInFile(root, action, confirmWrite, applyWrite, beforeWrite);
-        case 'run_command': return await runCommand(root, action, confirmRun);
+        case 'run_command': await guard(); return await runCommand(root, action, confirmRun, { signal:context.signal || signal, onLifecycle:onCommandLifecycle });
         default: throw new Error('Unknown tool: ' + action.tool);
       }
     }

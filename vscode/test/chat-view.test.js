@@ -86,6 +86,25 @@ test('Agent map opens, updates only its scope, localizes and closes to chat', ()
   assert.equal(view.element('messages').hidden,false);
 });
 
+test('observed run chips anchor to host timestamps, freeze and expose observed count through Agent Map', () => {
+  const view = sidebar();
+  assert.equal(view.element('elapsed-chip').textContent, 'Elapsed —');
+  assert.equal(view.element('agent-map-button').textContent, 'Agents —');
+  const start = Date.now() - 42000;
+  view.emit('window:message',{data:{type:'runSession',scopeKey:'tenant-a',session:{status:'running',startedAt:start,endedAt:null,elapsedMs:42000,agents:1}}});
+  assert.equal(view.element('elapsed-chip').textContent, 'Elapsed 00:42');
+  assert.equal(view.element('agent-map-button').textContent, 'Agents 1');
+  assert.match(view.element('agent-map-button').title,/Observed running agent/);
+  view.emit('window:message',{data:{type:'runSession',scopeKey:'tenant-a',session:{status:'completed',startedAt:start,endedAt:start+42000,elapsedMs:42000,agents:0}}});
+  assert.equal(view.element('elapsed-chip').textContent, 'Elapsed 00:42');
+  assert.equal(view.element('agent-map-button').textContent, 'Agents 0');
+  view.emit('agent-map-button:click',{});
+  assert.equal(view.element('agent-map').hidden,false);
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-b',signedIn:true,messages:[]}});
+  assert.equal(view.element('elapsed-chip').textContent, 'Elapsed —');
+  assert.equal(view.element('agent-map-button').textContent, 'Agents —');
+});
+
 test('compact pack header has an accessible native-picker action and hides unavailable/signed-out packs', () => {
   const view = sidebar();
   const picker = view.element('pack-picker');

@@ -38,3 +38,31 @@ test('blocked command never reaches approval or process spawn; Auto vectors stay
   assert.equal(autoCommand('npm test -- --run'),null);
   for (const name of ['OPENAI_API_KEY','ANTHROPIC_API_KEY','TVIJO_API_KEY']) assert.equal(Object.hasOwn(cleanEnv(),name),false);
 });
+
+test('approved command emits owned start and observed exit lifecycle events', async () => {
+  const root=await workspace(), events=[];
+  const tools=createTools({root,confirmRun:async()=>true,onCommandLifecycle:event=>events.push(event)});
+  const result=await tools.execute({tool:'run_command',command:'node -e "process.stdout.write(\'bounded\')"'});
+  assert.equal(result.ok,true);
+  assert.equal(result.termination,'observed_exit');
+  assert.deepEqual(events.map(event=>event.type),['start','exit']);
+  assert.equal(events[0].status,'running');
+  assert.equal(events[1].status,'completed');
+  assert.ok(events[1].endedAt >= events[0].startedAt);
+  assert.equal(typeof events[0].id,'string');
+});
+
+test('cancellation and timeout signal only the owned child and report exit evidence', async () => {
+  const root=await workspace(), controller=new AbortController(), cancelledEvents=[];
+  const cancelledTools=createTools({root,confirmRun:async()=>true,signal:controller.signal,onCommandLifecycle:event=>cancelledEvents.push(event)});
+  const pending=cancelledTools.execute({tool:'run_command',command:'node -e "setTimeout(()=>{},30000)"'});
+  await new Promise(resolve=>setTimeout(resolve,150)); controller.abort();
+  const cancelled=await pending;
+  assert.equal(cancelled.cancelled,true); assert.equal(cancelled.termination,'observed_exit');
+  assert.deepEqual(cancelledEvents.map(event=>event.type),['start','cancel_requested','exit']);
+  const timeoutEvents=[];
+  const timeoutTools=createTools({root,confirmRun:async()=>true,onCommandLifecycle:event=>timeoutEvents.push(event)});
+  const timed=await timeoutTools.execute({tool:'run_command',command:'node -e "setTimeout(()=>{},30000)"',timeout_ms:1000});
+  assert.equal(timed.timedOut,true); assert.equal(timed.termination,'observed_exit');
+  assert.deepEqual(timeoutEvents.map(event=>event.type),['start','timeout','exit']);
+});

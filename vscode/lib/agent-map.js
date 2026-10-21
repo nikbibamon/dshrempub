@@ -8,7 +8,7 @@ function buildAgentMap(session = {}, now = Date.now()) {
     const result = Number(value); return Number.isFinite(result) && result >= 0 ? result : null;
   };
   const short = (value, max = 300) => typeof value === 'string' ? value.slice(0, max) : '—';
-  const status = value => ({ active:'running', pending:'running', queued:'running', running:'running', completed:'done', settled:'done', success:'done', succeeded:'done', ok:'done', done:'done', error:'failed', failed:'failed', cancelled:'cancelled', canceled:'cancelled', interrupted:'cancelled' }[value] || '—');
+  const status = value => ({ active:'running', pending:'running', queued:'running', running:'running', completed:'done', settled:'done', success:'done', succeeded:'done', ok:'done', done:'done', error:'failed', failed:'failed', timed_out:'failed', cancelled:'cancelled', canceled:'cancelled', interrupted:'cancelled' }[value] || '—');
   const stamp = value => {
     if (typeof value === 'number' && Number.isFinite(value)) return value < 1e12 ? value * 1000 : value;
     const result = typeof value === 'string' ? Date.parse(value) : NaN;
@@ -57,6 +57,10 @@ function buildAgentMap(session = {}, now = Date.now()) {
   const units = new Set(children.map(child => child.metrics.unit));
   root.metrics.tokens = aggregate('tokens'); root.metrics.amount = units.size === 1 ? aggregate('amount') : null; root.metrics.unit = units.size === 1 ? children[0].metrics.unit : null;
   Object.assign(root, fmt(root.metrics));
+  root.commands = (Array.isArray(session.commands) ? session.commands : []).slice(-40).map(command => ({
+    id:short(command?.id, 80), title:'run_command', ...(command?.stopRequested && !Number.isFinite(command?.endedAt) ? {stopping:true} : {}), status:status(command?.status), descendantsUnknown:['timed_out','cancelled'].includes(command?.status),
+    startedAt:stamp(command?.startedAt ?? command?.started_at), endedAt:stamp(command?.endedAt ?? command?.ended_at)
+  }));
   return root;
 }
 
@@ -64,7 +68,7 @@ function buildAgentMap(session = {}, now = Date.now()) {
 // remote assets or model-provided attributes. Native buttons handle Enter/Space.
 function renderAgentMap(document, canvas, details, model, locale = 'en', selection = 'request') {
   const ru = locale === 'ru';
-  const labels = ru ? { running:'Работает', done:'Готово', failed:'Ошибка', cancelled:'Отменено', tokens:'Токены', spend:'Расход', elapsed:'Время', route:'Маршрут', task:'Задача', receipt:'Квитанция', last:'Последнее сообщение', conversation:'Разговор', empty:'Выполненных задач пока нет.' } : { running:'Running', done:'Done', failed:'Failed', cancelled:'Cancelled', tokens:'Tokens', spend:'Spend', elapsed:'Elapsed', route:'Route', task:'Task', receipt:'Receipt', last:'Last message', conversation:'Conversation', empty:'No executed tasks yet.' };
+  const labels = ru ? { running:'Работает', done:'Готово', failed:'Ошибка', cancelled:'Отменено', tokens:'Токены', spend:'Расход', elapsed:'Время', route:'Маршрут', task:'Задача', receipt:'Квитанция', last:'Последнее сообщение', conversation:'Разговор', empty:'Выполненных задач пока нет.', background:'Фоновые команды', command:'Команда run_command' } : { running:'Running', done:'Done', failed:'Failed', cancelled:'Cancelled', tokens:'Tokens', spend:'Spend', elapsed:'Elapsed', route:'Route', task:'Task', receipt:'Receipt', last:'Last message', conversation:'Conversation', empty:'No executed tasks yet.', background:'Background commands', command:'run_command' };
   const make = (tag, text, cls) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (cls) el.className = cls; return el; };
   canvas.replaceChildren(); details.replaceChildren();
   const buttons = [], nodes = [];
@@ -103,6 +107,20 @@ function renderAgentMap(document, canvas, details, model, locale = 'en', selecti
   }
   canvas.append(branch(model).row);
   if (!model.children.length) canvas.append(make('p', labels.empty, 'map-empty'));
+  if (Array.isArray(model.commands) && model.commands.length) {
+    canvas.append(make('h3', labels.background, 'map-background-title'));
+    const list = make('ul', undefined, 'map-background');
+    for (const command of model.commands.slice(-40)) {
+      const item = make('li', undefined, 'map-background-row');
+      item.append(make('strong', labels.command), make('span', command.stopping ? (ru ? 'Остановка запрошена' : 'Stop requested') : labels[command.status] || '—', 'map-meta'));
+      if (command.descendantsUnknown) item.append(make('span', ru ? 'Потомки: статус неизвестен' : 'Descendant process status unknown', 'map-meta'));
+      const start = Number.isFinite(command.startedAt) ? new Date(command.startedAt).toISOString() : '—';
+      const end = Number.isFinite(command.endedAt) ? new Date(command.endedAt).toISOString() : '—';
+      item.append(make('span', (ru ? 'Начало ' : 'Started ') + start + ' · ' + (ru ? 'Завершение ' : 'Ended ') + end, 'map-meta'));
+      list.append(item);
+    }
+    canvas.append(list);
+  }
   show(nodes.find(item => item.id === selection) || model);
   return () => selection;
 }

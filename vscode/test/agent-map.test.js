@@ -78,3 +78,17 @@ test('map bounds wide, deep execution input and omits arbitrary receipt fields',
   assert.ok(count(model) <= 201);
   assert.doesNotMatch(JSON.stringify(model), /DO_NOT_EXPOSE/);
 });
+
+test('map lists bounded background command lifecycle separately without argv or output', () => {
+  const startedAt = Date.parse('2026-10-21T10:00:00Z');
+  const map = buildAgentMap({commands:[
+    {id:'owned-1',title:'secret=never-show',command:'echo secret=never-show',status:'running',startedAt,stdout:'secret=never-show'}
+  ]});
+  assert.deepEqual(map.commands, [{id:'owned-1',title:'run_command',status:'running',descendantsUnknown:false,startedAt,endedAt:null}]);
+  assert.doesNotMatch(JSON.stringify(map), /secret=never-show/);
+  const view = dom(), details = view.document.createElement('section');
+  renderAgentMap(view.document,view.root,details,map,'en');
+  assert.match(text(view.root), /Background commands/);
+  assert.match(text(view.root), /run_command/);
+  assert.doesNotMatch(text(view.root), /secret=never-show/);
+});

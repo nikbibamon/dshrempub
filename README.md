@@ -68,3 +68,9 @@ for Overwrite or Skip. Newly created files always ask before deletion. Local rec
 data stays in extension global storage (seven days, 50 MiB) and is excluded from
 requests, exports and logs. Agent Map scrolls on both axes while keeping file details.
 See [Rewind behavior and limits](vscode/README.md#rewind-local-checkpoints).
+
+## VS Code extension 0.7.4: observed run chips
+
+The chat header shows elapsed time from the host run timestamps and an observed
+running-agent count. The count opens Agent Map; local commands appear in a separate
+background-work list with bounded lifecycle evidence and no command output.

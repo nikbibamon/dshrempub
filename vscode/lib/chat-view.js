@@ -17,9 +17,9 @@ function chatHtml(webview) {
 ${THEME_CSS}
 ${CHAT_CSS}
 ${REWIND_CSS}
-header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
+header{flex-wrap:wrap}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(--vscode-contrastBorder,var(--border));border-radius:999px;background:var(--surface);color:var(--text)}#elapsed-chip{white-space:nowrap}#agent-map-button{white-space:nowrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
 </style></head><body>
-<header><strong id="brand"><span id="brand-mark" aria-hidden="true">›_</span>DSHREM</strong><button id="pack-picker" type="button" hidden aria-haspopup="dialog"></button><button id="agent-map-button" type="button" aria-expanded="false" aria-controls="agent-map">⑂ Agent map</button><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="signin" type="button">Sign in</button><button id="new" class="icon" type="button" title="New session" aria-label="New session">＋</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings">⚙</button></header>
+<header><strong id="brand"><span id="brand-mark" aria-hidden="true">›_</span>DSHREM</strong><span id="elapsed-chip" class="run-chip" aria-label="Elapsed time">Elapsed —</span><button id="agent-map-button" class="run-chip" type="button" title="Observed running agents; opens Agent Map" aria-expanded="false" aria-controls="agent-map">Agents —</button><button id="pack-picker" type="button" hidden aria-haspopup="dialog"></button><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="signin" type="button">Sign in</button><button id="new" class="icon" type="button" title="New session" aria-label="New session">＋</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings">⚙</button></header>
 <nav aria-label="Workspace"><button id="tab-chat" type="button" aria-selected="true">Chat</button><button id="tab-context" type="button" aria-selected="false">Context</button><button id="tab-usage" type="button" aria-selected="false">Usage</button><button id="tab-terminal" type="button" aria-selected="false">Terminal</button></nav>
 <section id="rewind" aria-labelledby="rewind-title" hidden><div id="rewind-heading"><h2 id="rewind-title">Rewind</h2><button id="rewind-close" type="button">Back to chat</button></div><p id="rewind-hint"></p><p id="rewind-status" role="status"></p><div id="rewind-list"></div></section><main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
@@ -66,6 +66,8 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
   let lastContext = null;
   let activityTimer = null;
   let activityStarted = 0;
+  let runSessionTimer = null;
+  let runSession = null;
   let spinIndex = 0;
   let locale = 'en';
   let submitting = false;
@@ -160,6 +162,28 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
       activitySpin.textContent = ACTIVITY[spinIndex++ % ACTIVITY.length];
       activityTime.textContent = Math.max(0, Math.round((Date.now() - activityStarted) / 1000)) + 's';
     }, 120);
+  }
+  function renderRunSession(value) {
+    runSession = value && typeof value === 'object' ? value : {status:'unknown', startedAt:null, endedAt:null, elapsedMs:null, agents:null};
+    if (runSessionTimer) clearTimer(runSessionTimer);
+    runSessionTimer = null;
+    const elapsed = document.getElementById('elapsed-chip');
+    const button = document.getElementById('agent-map-button');
+    const startedAt = Number.isFinite(runSession.startedAt) ? runSession.startedAt : null;
+    const endedAt = Number.isFinite(runSession.endedAt) ? runSession.endedAt : null;
+    const draw = () => {
+      const end = runSession.status === 'running' ? Date.now() : endedAt;
+      const duration = startedAt === null || end === null || end < startedAt ? null : end - startedAt;
+      const seconds = duration === null ? '—' : String(Math.floor(duration / 1000 / 60)).padStart(2, '0') + ':' + String(Math.floor(duration / 1000) % 60).padStart(2, '0');
+      elapsed.textContent = (locale === 'ru' ? 'Время ' : 'Elapsed ') + seconds;
+      const count = Number.isInteger(runSession.agents) && runSession.agents >= 0 ? String(runSession.agents) : '—';
+      button.textContent = (locale === 'ru' ? 'Агенты ' : 'Agents ') + count;
+      button.title = locale === 'ru' ? 'Число наблюдаемых работающих агентов; открыть карту агентов' : 'Observed running agent count; opens Agent Map';
+      button.setAttribute('aria-label', button.title + ': ' + count);
+      elapsed.setAttribute('aria-label', (locale === 'ru' ? 'Время выполнения ' : 'Elapsed run time ') + seconds);
+    };
+    draw();
+    if (runSession.status === 'running' && startedAt !== null) runSessionTimer = setTimer(draw, 1000);
   }
   function renderContext(value) {
     lastContext = value || null;
@@ -317,11 +341,11 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
     document.getElementById('rewind-close').textContent = locale === 'ru' ? 'Вернуться к чату' : 'Back to chat';
     document.getElementById('rewind-hint').textContent = locale === 'ru' ? 'Только на этом устройстве · 7 дней · до 50 МиБ. Изменённые файлы и удаление требуют подтверждения.' : 'On this machine only · 7 days · up to 50 MiB. Changed files and deletions need confirmation.';
     if (!rewindPanel.hidden) drawRewind();
-    document.getElementById('agent-map-button').textContent = locale === 'ru' ? '⑂ Карта агентов' : '⑂ Agent map';
+    renderRunSession(runSession);
     document.getElementById('map-title').textContent = locale === 'ru' ? 'Карта агентов' : 'Agent map';
     document.getElementById('map-canvas').setAttribute('aria-label', locale === 'ru' ? 'Карта агентов' : 'Agent map');
     document.getElementById('map-close').textContent = locale === 'ru' ? 'Вернуться к чату' : 'Back to chat';
-    document.getElementById('map-hint').textContent = locale === 'ru' ? 'Только выполненные шаги · — нет данных · Прокрутка ↔ ↕ · Стрелки — переход, Enter — подробности' : 'Executed steps only · — unknown · Scroll ↔ ↕ · Arrow keys navigate, Enter shows details';
+    document.getElementById('map-hint').textContent = locale === 'ru' ? 'Фактические шаги и фоновые команды · — нет данных · Прокрутка ↔ ↕ · Стрелки — переход, Enter — подробности' : 'Observed execution steps and background commands · — unknown · Scroll ↔ ↕ · Arrow keys navigate, Enter shows details';
     if (mapOpen) drawMap();
     document.getElementById('lang').textContent = locale === 'en' ? 'EN / RU' : 'RU / EN';
     const actionLabels = locale === 'ru' ? {
@@ -557,6 +581,10 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
       if (data.scopeKey !== scopeKey) return;
       mapModel = data.model || buildAgentMap(); if (mapOpen) drawMap(); return;
     }
+    if (data.type === 'runSession') {
+      if (data.scopeKey !== scopeKey) return;
+      renderRunSession(data.session); return;
+    }
     if (data.type === 'agent') {
       if (data.scopeKey !== undefined && data.scopeKey !== scopeKey) return;
       renderAgentEvent(data.event);
@@ -567,6 +595,7 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
       if (scopeKey !== nextScope) {
         if (scopeKey) drafts[scopeKey] = question.value;
         scopeKey = nextScope;
+        renderRunSession(null);
         pendingModeRequestId = null;
         rewindPanel.hidden = true; rewindRuns = []; rewindWorkspaceKey = null;
         mapModel = buildAgentMap(); mapSelection = () => 'request';
@@ -576,6 +605,7 @@ header{flex-wrap:wrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflo
         saveState();
       }
       if (data.locale && data.locale !== locale) setLocale(data.locale);
+      renderRunSession(data.runSession);
       if (data.workflow && !data.options) { window.tvijoWorkflow = data.workflow; document.getElementById('workflow-label').textContent = data.workflow; }
       const packPicker = document.getElementById('pack-picker');
       packPicker.hidden = !data.signedIn || !data.pack;

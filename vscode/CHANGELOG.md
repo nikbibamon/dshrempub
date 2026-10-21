@@ -1,3 +1,10 @@
+## 0.7.4 — 2026-10-21
+
+- Show anchored elapsed time and observed active-agent counts, with unknown state displayed as —.
+- Open Agent Map from the count and list bounded command lifecycle records separately.
+- Pass cancellation to owned command processes; distinguish stop requests from observed exits.
+- Preserve context, diagnostics, checkpoints, settings and service routes.
+
 ## 0.7.3 — 2026-10-21
 
 - SPEC-215 slice 4: after each successful Agent write or replacement, attach Error/Warning
