@@ -169,3 +169,57 @@ test('Plan search treats regex syntax literally without invoking rg', async () =
     await assert.rejects(fs.stat(marker),{code:'ENOENT'});
   } finally {process.env.PATH=previous;}
 });
+
+
+test('unique trailing whitespace replacement previews its exact span and requires approval',async()=>{
+  const root=await workspace(),target=path.join(root,'source.js');
+  const before='prefix\n  first \t\n  second  \nsuffix\n';await fs.writeFile(target,before);
+  let approval;
+  const tools=createTools({root,confirmWrite:async info=>{approval=info;return true;}});
+  const result=await tools.execute({tool:'replace_in_file',path:'source.js',old:'  first\n  second',new:'  next\n  block',matchKind:'exact'});
+  assert.equal(result.ok,true);assert.equal(approval.matchKind,'trailing_whitespace');
+  assert.equal(approval.previous,before);assert.equal(approval.content,'prefix\n  next\n  block\nsuffix\n');
+  assert.equal(autoWritePolicy(approval.operation,approval.previous,approval.matchKind),false);
+  assert.equal(await fs.readFile(target,'utf8'),approval.content);
+});
+
+test('trailing fallback refusal, ambiguity and combined EOL drift preserve original bytes',async()=>{
+  const root=await workspace(),target=path.join(root,'source.js');let approvals=0;
+  const tools=createTools({root,confirmWrite:async()=>{approvals++;return false;}});
+  await fs.writeFile(target,'a  \nb\t\n');
+  assert.equal((await tools.execute({tool:'replace_in_file',path:'source.js',old:'a\nb\n',new:'x\n'})).refused,true);
+  assert.equal(await fs.readFile(target,'utf8'),'a  \nb\t\n');assert.equal(approvals,1);
+  const ambiguous='a \nb\n--\na\nb \n';await fs.writeFile(target,ambiguous);
+  await assert.rejects(tools.execute({tool:'replace_in_file',path:'source.js',old:'a\nb\n',new:'x\n'}),/appears more than once/);
+  assert.equal(await fs.readFile(target,'utf8'),ambiguous);assert.equal(approvals,1);
+  const mixed='a \r\nb\r\n';await fs.writeFile(target,mixed);
+  await assert.rejects(tools.execute({tool:'replace_in_file',path:'source.js',old:'a\nb\n',new:'x\n'}),/not found/);
+  assert.equal(await fs.readFile(target,'utf8'),mixed);assert.equal(approvals,1);
+});
+
+test('exact match retains priority over other trailing-whitespace candidates',async()=>{
+  const root=await workspace(),target=path.join(root,'source.js');let approval;
+  await fs.writeFile(target,'one\ntwo\n--\none \ntwo\t\n');
+  const tools=createTools({root,confirmWrite:async info=>{approval=info;return true;}});
+  await tools.execute({tool:'replace_in_file',path:'source.js',old:'one\ntwo\n',new:'exact\n'});
+  assert.equal(approval.matchKind,'exact');
+  assert.equal(await fs.readFile(target,'utf8'),'exact\n--\none \ntwo\t\n');
+});
+
+test('indentation mismatch returns an exact bounded current block without any write side effects',async()=>{
+  const root=await workspace(),target=path.join(root,'source.js');let effects=0;
+  const before='head\r\n    if ready:\r\n        act() \t\r\ntail\r\n';await fs.writeFile(target,before);
+  const tools=createTools({root,confirmWrite:async()=>{effects++;return true;},beforeWrite:()=>{effects++;},applyWrite:async()=>{effects++;}});
+  const result=await tools.execute({tool:'replace_in_file',path:'source.js',old:'  if ready:\r\n    act()\r\n',new:'changed'});
+  assert.equal(result.ok,false);assert.equal(result.reason,'indentation_mismatch');
+  assert.deepEqual(result.hint,{text:'    if ready:\r\n        act() \t\r\n',startLine:2,endLine:3});
+  assert.equal(effects,0);assert.equal(await fs.readFile(target,'utf8'),before);
+});
+
+test('trailing fallback still refuses changed files after confirmation and before checkpoint write',async()=>{
+  const root=await workspace(),target=path.join(root,'source.js');let checkpoints=0;
+  await fs.writeFile(target,'one \ntwo\n');
+  const tools=createTools({root,confirmWrite:async()=>{await fs.writeFile(target,'USER_CHANGED');return true;},beforeWrite:()=>{checkpoints++;}});
+  await assert.rejects(tools.execute({tool:'replace_in_file',path:'source.js',old:'one\ntwo\n',new:'changed\n'}),/File changed/);
+  assert.equal(checkpoints,0);assert.equal(await fs.readFile(target,'utf8'),'USER_CHANGED');
+});

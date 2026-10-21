@@ -1,8 +1,20 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.9.0. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.9.1. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
+
+## Replacement anchors
+
+Agent replacements try exact text first, then the existing line-ending fallback.
+A unique whole-line match that differs only in trailing spaces or tabs is offered
+as a diff and requires explicit confirmation, including in Auto. Ambiguous matches
+are refused. Leading indentation is never normalized for a replacement.
+
+When only indentation differs in a unique block, the tool returns its exact current
+text (up to 40 lines and 4 KiB) so the next step can retry without a separate read.
+This hint makes no edit. Combined trailing-whitespace and line-ending drift still
+requires the model to retry with exact text.
 
 ## Interrupted runs and drafts
 

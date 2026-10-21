@@ -11,6 +11,7 @@ const { spawn } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { analyzeCommand, isCommandDecision, BLOCKED_COMMAND } = require('./command-policy');
 const planSearch = require('./plan-search');
+const { findTrailingWhitespaceMatch, indentationHint } = require('./replacement-match');
 
 const MAX_READ = 64 * 1024;
 const MAX_OUTPUT = 8 * 1024;
@@ -309,12 +310,6 @@ function findEolMatch(previous, old) {
   }
   if (matches.length > 1) return { ambiguous:true };
   if (matches.length === 1 && matches[0].valid) return { match:matches[0] };
-  const strippedNeedle = lines.map(line => line.trimStart()).join('\n');
-  if (strippedNeedle !== needle) {
-    const strippedSource = source.text.split('\n');
-    if (strippedSource.some((line, index) => line.trimStart() === lines[0].trimStart() && line !== lines[0]))
-      return { match:null, indentHint:'Possible indentation mismatch. Reread the relevant lines and provide exact text.' };
-  }
   return { match:null };
 }
 
@@ -331,8 +326,18 @@ async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
   else {
     const fallback = findEolMatch(previous, action.old);
     if (fallback.ambiguous) throw new Error('The EOL-normalized text appears more than once; include more surrounding context.');
-    if (!fallback.match) throw new Error(fallback.indentHint || 'The old text was not found. Read the file and copy the exact text.');
-    ({ start, end } = fallback.match); matchKind = 'eol';
+    if (fallback.match) { ({ start, end } = fallback.match); matchKind = 'eol'; }
+    else {
+      const trailing = findTrailingWhitespaceMatch(previous, action.old);
+      if (trailing.ambiguous) throw new Error('The trailing-whitespace match appears more than once; include more surrounding context.');
+      if (trailing.match) { ({ start, end } = trailing.match); matchKind = 'trailing_whitespace'; }
+      else {
+        const hint = indentationHint(previous, action.old);
+        if (hint) return { ok:false, path:action.path, reason:'indentation_mismatch',
+          error:'The old text was not found. Indentation differs; no edit was made. Retry with the exact current block in hint.text.', hint };
+        throw new Error('The old text was not found. Read the file and copy the exact text.');
+      }
+    }
   }
   const content = previous.slice(0, start) + action.new + previous.slice(end);
   if(content===previous) return {ok:true,unchanged:true,path:action.path};

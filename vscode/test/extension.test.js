@@ -2106,3 +2106,55 @@ test('a delayed composer message is refused after a workspace-folder change',asy
     assert.equal(journalFor(app).draft(oldKey),null);assert.equal(journalFor(app).draft(newKey),null);
   }finally{app.close();}
 });
+
+
+for(const [autoApply,autoRun] of [[false,false],[true,false],[true,true]]){
+  test(`trailing fallback always previews and confirms with flags ${autoApply}/${autoRun}`,async()=>{
+    const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'host-trailing-'));
+    const file=path.join(root,'code.txt'),before='one \ntwo\t\n';await fs.writeFile(file,before);
+    let applies=0;
+    const app=host({root,chatSequence:[JSON.stringify({tool:'replace_in_file',path:'code.txt',old:'one\ntwo\n',new:'three\nfour\n'}),JSON.stringify({tool:'finish',answer:'Declined'})],applyEdit:async()=>{applies++;return true;},onWarning:async()=>{
+      assert.ok(app.executed.some(item=>item.id==='vscode.diff'));assert.equal(applies,0);
+      assert.deepEqual(app.docs.filter(doc=>typeof doc.content==='string').slice(-2).map(doc=>doc.content),[before,'three\nfour\n']);
+    }});
+    try{
+      app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);
+      app.settings.set('agentAutoApply',autoApply);app.settings.set('agentAutoRun',autoRun);app.warning('Skip file');
+      app.editor({document:{uri:app.Uri.file(file),version:1,getText:()=>before,positionAt:n=>n}});
+      await app.receive({type:'ask',question:'Change this block',agent:true});
+      assert.equal(applies,0);assert.equal(await fs.readFile(file,'utf8'),before);
+      assert.equal(app.warnings.length,1);assert.match(app.warnings[0][0],/wants to write/);assert.equal(app.errors.length,0);
+    }finally{app.close();}
+  });
+}
+
+test('Auto trailing fallback applies only after explicit native approval and records a checkpoint',async()=>{
+  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'host-trailing-yes-'));
+  const file=path.join(root,'code.txt'),before='one \ntwo\t\n';await fs.writeFile(file,before);
+  const app=host({root,chatSequence:[JSON.stringify({tool:'replace_in_file',path:'code.txt',old:'one\ntwo\n',new:'three\nfour\n'}),JSON.stringify({tool:'finish',answer:'Approved'})]});
+  try{
+    app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);app.settings.set('agentAutoApply',true);app.settings.set('agentAutoRun',true);
+    app.warning('Write file');app.editor({document:{uri:app.Uri.file(file),version:1,getText:()=>before,positionAt:n=>n}});
+    await app.receive({type:'ask',question:'Change this block',agent:true});
+    assert.equal(app.warnings.length,1);assert.equal(app.applied().text,'three\nfour\n');assert.equal(await fs.readFile(file,'utf8'),before);
+    assert.ok((await fs.readdir(path.join(app.storage,'rewind-v1'),{recursive:true})).some(name=>name.endsWith('.json')));
+    assert.equal(app.errors.length,0);
+  }finally{app.close();}
+});
+
+test('indentation hint reaches the next model turn and allows an exact retry without rereading',async()=>{
+  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'host-indent-hint-'));
+  const file=path.join(root,'code.py'),before='def go():\n    if ready:\n        act()\n';await fs.writeFile(file,before);
+  const exact='    if ready:\n        act()\n',after='    if ready:\n        next_act()\n';
+  const app=host({root,chatSequence:[JSON.stringify({tool:'replace_in_file',path:'code.py',old:'  if ready:\n    act()\n',new:after}),JSON.stringify({tool:'replace_in_file',path:'code.py',old:exact,new:after}),JSON.stringify({tool:'finish',answer:'Retried exactly'})]});
+  try{
+    app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',3);app.settings.set('agentAutoApply',true);app.settings.set('agentAutoRun',true);
+    app.editor({document:{uri:app.Uri.file(file),version:1,getText:()=>before,positionAt:n=>n}});
+    await app.receive({type:'ask',question:'Change the nested action',agent:true});
+    const chats=app.requests.filter(req=>req.url.endsWith('/chat'));
+    const result=JSON.parse(chats[1].body.messages.find(message=>message.content.startsWith('TOOL_RESULT ')).content.slice(12));
+    assert.equal(result.reason,'indentation_mismatch');assert.deepEqual(result.hint,{text:exact,startLine:2,endLine:3});
+    assert.equal(app.warnings.length,0);assert.equal(app.applied().text,'def go():\n'+after);assert.equal(chats.length,3);
+    assert.equal(await fs.readFile(file,'utf8'),before);assert.equal(app.errors.length,0);
+  }finally{app.close();}
+});

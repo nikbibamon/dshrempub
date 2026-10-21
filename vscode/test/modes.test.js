@@ -30,6 +30,7 @@ test('Auto write classification trusts only exact dispatcher replacement matches
   assert.equal(autoWritePolicy('replace_in_file',null),true);
   assert.equal(autoWritePolicy('replace_in_file','old bytes'),true);
   assert.equal(autoWritePolicy('replace_in_file','old bytes','eol'),false);
+  assert.equal(autoWritePolicy('replace_in_file','old bytes','trailing_whitespace'),false);
   assert.equal(autoWritePolicy('replace_in_file','old bytes','indent'),false);
   assert.equal(autoWritePolicy('write_file','old bytes'),false);
   assert.equal(autoWritePolicy('run_command','old bytes'),false);

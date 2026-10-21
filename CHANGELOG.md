@@ -2,6 +2,13 @@
 
 Extension release notes. The detailed history is in [vscode/CHANGELOG.md](vscode/CHANGELOG.md).
 
+## 0.9.1 — 2026-10-21
+
+- Offer unique whole-line trailing-space/tab replacement matches as a diff with explicit confirmation, including in Auto; refuse ambiguity.
+- Return the exact current block for a unique indentation mismatch, capped at 40 lines and 4 KiB, without normalizing indentation or writing.
+- Preserve exact-match priority, existing EOL fallback, checkpoints and file-change guards.
+- Prepared for review; the website release catalog remains unchanged.
+
 ## 0.9.0 — 2026-10-21
 
 - Save prompts before dispatch and atomically journal Agent/Plan events locally, bounded to 60 events and 64 KiB per run with a seven-day recovery window.
