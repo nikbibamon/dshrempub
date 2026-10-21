@@ -2,11 +2,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const Module = require('node:module');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { scopeKey, tenantState } = require('../lib/tenant-state');
 const { PROJECT_AUTH_KEY, AUTH_MODE } = require('../workspace');
 const memory = () => { const v = new Map(); return { get:k=>v.get(k), keys:()=>[...v.keys()], update:async(k,x)=>v.set(k,x), store:async(k,x)=>v.set(k,x), delete:async k=>v.delete(k) }; };
 function extensionHost(overrides = {}) {
-  const context = { subscriptions: [], secrets: memory(), globalState: memory(), workspaceState: memory() };
+  const context = { subscriptions: [], secrets: memory(), globalState: memory(), workspaceState: memory(), globalStorageUri: { fsPath: fs.mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || os.tmpdir(), 'journal-host-')) } };
   const commands = new Map(), posts = [], errors = [], calls = [];
   const disposable = { dispose() {} };
   const base = 'http://localhost:18106/api/dshrem/v1';

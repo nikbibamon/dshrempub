@@ -1,6 +1,9 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const Module = require('node:module');
 const { workspaceState, workspaceClient, viewScope, PROJECT_AUTH_KEY, AUTH_MODE, sharedTaskCap } = require('../workspace');
 const { scopeKey, tenantState } = require('../lib/tenant-state');
@@ -65,7 +68,7 @@ test('only proven pregrant project-key refusals clear a new request; idempotency
 });
 
 function extensionHost() {
-  const context = { subscriptions: [], secrets: memory(), globalState: memory(), workspaceState: memory() };
+  const context = { subscriptions: [], secrets: memory(), globalState: memory(), workspaceState: memory(), globalStorageUri: { fsPath: fs.mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || os.tmpdir(), 'journal-host-')) } };
   const commands = new Map(), posts = [], errors = [], calls = [];
   const disposable = { dispose() {} };
   const base = 'http://localhost:18106/api/dshrem/v1';

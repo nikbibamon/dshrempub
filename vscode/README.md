@@ -1,8 +1,22 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.8.3. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.9.0. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
+
+## Interrupted runs and drafts
+
+Chat, Agent/Plan and Quick Edit save your prompt locally before dispatch. Agent
+events are retained in a bounded journal: the newest 60 events and at most 64 KiB
+per run. Recovery records are available for seven days and separated by account,
+thread and workspace. Composer drafts are also saved locally after a one-second
+pause in typing.
+
+After a restart, **Interrupted run** offers **Restore transcript** and, when a task
+identifier is known, **Fetch result**. Fetch reads the existing task's available
+result or status. Restoration keeps the transcript in local history; it does not
+resume tools or submit another model task. Recovered logs are excluded from later
+automatic model context. **Dismiss** hides the card without cancelling its task.
 
 ## Actions and context captures
 

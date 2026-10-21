@@ -1,3 +1,11 @@
+## 0.9.0 — 2026-10-21
+
+- Save prompts before dispatch and atomically journal Agent/Plan events locally, bounded to 60 events and 64 KiB per run with a seven-day recovery window.
+- Restore interrupted transcripts into local history, fetch an existing task's result/status, and retain scoped composer drafts after a one-second pause.
+- Keep recovered logs out of later automatic model context; restoration does not replay tools or create a task.
+- Re-check Quick Edit's idle lock immediately before marking the host busy.
+- Prepared for review; the website release catalog remains unchanged.
+
 ## 0.8.4 — 2026-10-21
 
 - Fix a remaining test fixture path for clean CI hosts and check tracked files for private host markers outside changelog history.

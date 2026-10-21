@@ -1,6 +1,9 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { runAgent, conversationContext } = require('../lib/agent');
 
 test('B11 second question sees first user/assistant pair in actual model request', async () => {
@@ -33,7 +36,7 @@ const {scopeKey}=require('../lib/tenant-state');
 const {AUTH_MODE,PROJECT_AUTH_KEY}=require('../workspace');
 const memory=()=>{const m=new Map();return {get:k=>m.get(k),keys:()=>[...m.keys()],update:async(k,v)=>m.set(k,v),store:async(k,v)=>m.set(k,v),delete:async k=>m.delete(k)};};
 function extensionHost() {
-  const context = { subscriptions: [], secrets: memory(), globalState: memory(), workspaceState: memory() };
+  const context = { subscriptions: [], secrets: memory(), globalState: memory(), workspaceState: memory(), globalStorageUri: { fsPath: fs.mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || os.tmpdir(), 'journal-host-')) } };
   const commands = new Map(), posts = [], errors = [], calls = [];
   const disposable = { dispose() {} };
   const base = 'http://localhost:18106/api/dshrem/v1';

@@ -17,12 +17,14 @@ function chatHtml(webview) {
 ${THEME_CSS}
 ${CHAT_CSS}
 ${REWIND_CSS}
+#recovery{flex-shrink:0;max-height:260px;overflow:auto;padding:8px 12px;border-top:1px solid var(--border)}#recovery h2{font-size:13px;margin:0 0 6px}.recovery-card{padding:8px;margin:6px 0;border:1px solid var(--border);border-radius:6px}.recovery-card p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 6px}.recovery-actions{display:flex;flex-wrap:wrap;gap:6px}.recovery-actions button{font-size:11px}#recovery-notes{font-size:11px;overflow-wrap:anywhere}
 header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(--vscode-contrastBorder,var(--border));border-radius:999px;background:var(--surface);color:var(--text)}#elapsed-chip{white-space:nowrap}#agent-map-button{white-space:nowrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
 </style></head><body>
 <header><strong id="brand"><span id="brand-mark" aria-hidden="true">›_</span>DSHREM</strong><span id="elapsed-chip" class="run-chip" aria-label="Elapsed time">Elapsed —</span><button id="agent-map-button" class="run-chip" type="button" title="Observed running agents; opens Agent Map" aria-expanded="false" aria-controls="agent-map">Agents —</button><button id="pack-picker" type="button" hidden aria-haspopup="dialog"></button><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="signin" type="button">Sign in</button><button id="new" class="icon" type="button" title="New session" aria-label="New session">＋</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings">⚙</button></header>
 <nav aria-label="Workspace"><button id="tab-chat" type="button" aria-selected="true">Chat</button><button id="tab-context" type="button" aria-selected="false">Context</button><button id="tab-usage" type="button" aria-selected="false">Usage</button><button id="tab-terminal" type="button" aria-selected="false">Terminal</button></nav>
 <section id="rewind" aria-labelledby="rewind-title" hidden><div id="rewind-heading"><h2 id="rewind-title">Rewind</h2><button id="rewind-close" type="button">Back to chat</button></div><p id="rewind-hint"></p><p id="rewind-status" role="status"></p><div id="rewind-list"></div></section><main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
+<section id="recovery" aria-labelledby="recovery-title" hidden><h2 id="recovery-title">Interrupted run</h2><p id="recovery-notes" role="status"></p><div id="recovery-list"></div></section>
 <div id="agent-log" role="log" aria-live="polite"></div>
 <div class="product-links"><button id="product-guide" type="button">Tvijo AI guide</button><button id="connections" type="button">Connections</button><button id="tasks" type="button">Server task history</button><button id="context-preview" type="button">Preview context</button><button id="quick-edit" type="button">Quick edit</button></div>
 <p id="shared-thread-note" hidden><a id="shared-thread-link" href="#"></a></p>
@@ -80,9 +82,11 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   let lastUsageScope = null;
   let pending = false;
   let scopeKey = null;
+  let composerScope = null;
   let pendingModeRequestId = null;
   let modeRequestSequence = 0;
   let rewindRuns = [], rewindChosen = null, rewindWorkspaceKey = null;
+  let interruptedRuns = [], recoveryNotes = [];
   const rewindPanel = document.getElementById('rewind');
   modeMenu.hidden = true;
   function drawRewind() {
@@ -123,19 +127,43 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   const queue = [];
   const saved = vscode.getState?.();
   const drafts = saved?.drafts && typeof saved.drafts === 'object' ? { ...saved.drafts } : {};
+  const draftTimes = saved?.draftTimes && typeof saved.draftTimes === 'object' ? { ...saved.draftTimes } : {};
+  const draftTtl = 7 * 24 * 60 * 60 * 1000;
   const legacyDraft = typeof saved?.legacyDraft === 'string' ? saved.legacyDraft : typeof saved?.draft === 'string' ? saved.draft : '';
   locale = saved?.locale === 'ru' ? 'ru' : 'en';
   uiMode = ['chat','agent','plan'].includes(saved?.mode) ? saved.mode : 'chat';
   let theme = ['dark','light','system'].includes(saved?.theme) ? saved.theme : 'system';
   document.body.setAttribute('data-theme', theme);
   const t = key => COPY[locale][key] || COPY.en[key] || key;
-  const saveState = () => { if (scopeKey) drafts[scopeKey] = question.value; vscode.setState?.({drafts,legacyDraft,locale,theme,mode:uiMode}); };
+  const saveState = () => { if (scopeKey) drafts[composerScope || scopeKey] = question.value; vscode.setState?.({drafts,draftTimes,legacyDraft,locale,theme,mode:uiMode,composerScope}); };
   const post = message => vscode.postMessage({ ...message, scopeKey });
-  const saveDraft = () => saveState();
+  const saveDraft = () => { if (scopeKey) draftTimes[composerScope || scopeKey] = Date.now(); saveState(); if (scopeKey) post({type:'composerDraft',composerScope,text:question.value,mode:uiMode}); };
   const setTimer = typeof setInterval === 'function' ? setInterval : () => null;
   const clearTimer = typeof clearInterval === 'function' ? clearInterval : () => {};
   const modelLabel = item => item.id === 'auto' ? t('modelAuto') : item.id === 'coding' ? t('modelCoding') : (item.name || item.id);
   const modelHint = item => item.id === 'auto' ? t('modelAutoHint') : item.id === 'coding' ? t('modelCodingHint') : t('activatedRoute');
+  function drawRecovery() {
+    const panel = document.getElementById('recovery'), list = document.getElementById('recovery-list');
+    panel.hidden = !interruptedRuns.length && !recoveryNotes.length;
+    document.getElementById('recovery-title').textContent = locale === 'ru' ? 'Прерванный запуск' : 'Interrupted run';
+    document.getElementById('recovery-notes').textContent = recoveryNotes.join(' ');
+    list.replaceChildren();
+    for (const run of interruptedRuns) {
+      const card = document.createElement('div'); card.className = 'recovery-card';
+      const prompt = document.createElement('p'); prompt.textContent = run.prompt;
+      const names = locale === 'ru' ? {agent:'Агент',chat:'Чат',plan:'План',edit:'Быстрая правка'} : {agent:'Agent',chat:'Chat',plan:'Plan',edit:'Quick Edit'};
+      const detail = document.createElement('p'); detail.textContent = (names[run.kind] || run.kind) + ' · ' + run.events + (locale === 'ru' ? ' событий' : ' events');
+      const actions = document.createElement('div'); actions.className = 'recovery-actions';
+      const button = (label,type,disabled=false) => {
+        const node = document.createElement('button'); node.type = 'button'; node.textContent = label; node.disabled = disabled || running || submitting;
+        node.addEventListener('click',() => post({type,id:run.id})); actions.append(node);
+      };
+      button(run.restored ? (locale === 'ru' ? 'Журнал восстановлен' : 'Transcript restored') : (locale === 'ru' ? 'Восстановить журнал' : 'Restore transcript'),'restoreRun',!!run.restored);
+      if (run.taskId) button(locale === 'ru' ? 'Получить результат' : 'Fetch result','fetchRun');
+      button(locale === 'ru' ? 'Скрыть' : 'Dismiss','dismissRun');
+      card.append(prompt,detail,actions); list.append(card);
+    }
+  }
   function updateWorkflowLabel() {
     if (!optionState) { document.getElementById('workflow-label').textContent = t('options'); return; }
     const selected = uiMode === 'chat' ? optionState.model : optionState.agentModel;
@@ -284,9 +312,9 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   }
   function chooseMode(mode) {
     if (pendingModeRequestId) return;
-    if (mode === 'chat') { closeModeMenu(true); uiMode = 'chat'; updateMode(); saveState(); return; }
+    if (mode === 'chat') { closeModeMenu(true); uiMode = 'chat'; updateMode(); saveDraft(); return; }
     if (running || submitting || preparing) return;
-    if (mode === 'custom') { closeModeMenu(true); uiMode = 'agent'; updateMode(); saveState(); return; }
+    if (mode === 'custom') { closeModeMenu(true); uiMode = 'agent'; updateMode(); saveDraft(); return; }
     const preset = mode === 'plan' ? 'plan' : mode;
     pendingModeRequestId = String(scopeKey || '') + ':' + (++modeRequestSequence);
     closeModeMenu(true); controls();
@@ -335,6 +363,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   }
   function setLocale(next) {
     locale = next; document.documentElement.lang = locale;
+    drawRecovery();
     modeMenu.setAttribute('aria-label', t('mode'));
     document.getElementById('rewind-title').textContent = locale === 'ru' ? 'Восстановление' : 'Rewind';
     document.getElementById('rewind-action').textContent = locale === 'ru' ? 'Восстановление…' : 'Rewind…';
@@ -592,15 +621,24 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     }
     if (data.type === 'state') {
       const nextScope = typeof data.scopeKey === 'string' ? data.scopeKey : null;
-      if (scopeKey !== nextScope) {
-        if (scopeKey) drafts[scopeKey] = question.value;
+      const nextComposerScope = typeof data.composerScope === 'string' ? data.composerScope : nextScope;
+      if (scopeKey !== nextScope || composerScope !== nextComposerScope) {
+        const legacyTime = draftTimes[nextScope];
+        const legacyScopedDraft = scopeKey === null && saved?.composerScope === undefined && nextScope && typeof drafts[nextScope] === 'string' && (!Number.isFinite(legacyTime) || Date.now() - legacyTime < draftTtl) ? drafts[nextScope] : undefined;
+        if (scopeKey) drafts[composerScope || scopeKey] = question.value;
         scopeKey = nextScope;
+        composerScope = nextComposerScope;
         renderRunSession(null);
         pendingModeRequestId = null;
         rewindPanel.hidden = true; rewindRuns = []; rewindWorkspaceKey = null;
         mapModel = buildAgentMap(); mapSelection = () => 'request';
         if (mapOpen) { setTab('chat'); drawMap(); }
-        question.value = scopeKey ? (drafts[scopeKey] || '') : '';
+        const draftKey = composerScope || scopeKey;
+        const cachedTime = draftTimes[draftKey];
+        const cachedDraft = scopeKey && Object.prototype.hasOwnProperty.call(drafts,draftKey) && (!Number.isFinite(cachedTime) ? saved?.draftTimes === undefined : Date.now() - cachedTime < draftTtl);
+        question.value = scopeKey ? (cachedDraft ? drafts[composerScope || scopeKey] : data.composerDraft?.text ?? legacyScopedDraft ?? '') : '';
+        if (!cachedDraft && ['chat','agent','plan'].includes(data.composerDraft?.mode)) uiMode = data.composerDraft.mode;
+        if (scopeKey) draftTimes[draftKey] = cachedDraft && Number.isFinite(cachedTime) ? cachedTime : data.composerDraft?.updatedAt || Date.now();
         submitting = false; uploading = false; queue.length = 0;
         saveState();
       }
@@ -629,6 +667,9 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       state.textContent = lastStatus;
       if (!data.busy && !data.attaching) stopActivity();
       running = !!data.busy;
+      interruptedRuns = Array.isArray(data.interrupted) ? data.interrupted : [];
+      recoveryNotes = Array.isArray(data.recoveryNotes) ? data.recoveryNotes : [];
+      drawRecovery();
       preparing = !!data.attaching;
       pending = !!data.pending;
       controls(); renderAttachments(data.attachments || []);
@@ -641,7 +682,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       document.getElementById('history-note').textContent = data.legacyHistory || legacyDraft ? 'Older unassigned chat/draft is preserved locally and is not sent to this account. Server task history belongs to your signed-in account.' : 'Chat stays in this workspace and is separate from Copilot. Submitted tasks also appear in server history.';
     } else if (data.type === 'presetResult') {
       if (data.scopeKey !== scopeKey || !pendingModeRequestId || data.requestId !== pendingModeRequestId) return;
-      if (data.ok) { uiMode = data.preset === 'plan' ? 'plan' : 'agent'; saveState(); }
+      if (data.ok) { uiMode = data.preset === 'plan' ? 'plan' : 'agent'; saveDraft(); }
       else showNotice(t('modeUpdateFailed'));
       pendingModeRequestId = null; closeModeMenu(true); controls(); updateMode();
     } else if (data.type === 'quote') {
@@ -661,7 +702,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       if (!data.ok) question.focus();
     } else if (data.type === 'draft') {
       if (data.scopeKey !== undefined && data.scopeKey !== scopeKey) return;
-      question.value = typeof data.text === 'string' ? data.text.slice(0, 4000) : '';
+      question.value = typeof data.text === 'string' ? data.text.slice(0, 20000) : '';
       if (['chat','agent','plan'].includes(data.mode)) uiMode = data.mode;
       updateMode(); saveDraft(); question.focus();
     } else if (data.type === 'activity') {

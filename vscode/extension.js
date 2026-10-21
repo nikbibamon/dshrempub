@@ -32,11 +32,26 @@ const { createTools, safePath, autoCommand, analyzeCommand, assertWriteSnapshot 
 const diagnosticsFeedback = require('./lib/diagnostics-feedback');
 const { createMetrics } = require('./lib/metrics');
 const { createCheckpoints } = require('./lib/checkpoints');
+const { createRunJournal } = require('./lib/run-journal');
 const AUTH_KEY = 'tvijo.auth';
 const CONTEXT_CONSENT = 'tvijo.contextConsent';
 
 function activate(context) {
   let chatView = null;
+  const runJournals = createRunJournal(context.globalStorageUri?.fsPath);
+  const activeJournals = new Set();
+  const draftTimers = new Map();
+  let draftSequence = 0;
+  let draftSaveNote = '';
+  function flushDrafts() {
+    for (const [key, draft] of draftTimers) {
+      clearTimeout(draft.timer);
+      try { runJournals.saveDraft(key, draft.text, draft.mode); }
+      catch { draftSaveNote = 'The composer draft could not be saved locally.'; }
+    }
+    draftTimers.clear();
+  }
+  context.subscriptions.push({ dispose: flushDrafts });
   const checkpoints = createCheckpoints(context.globalStorageUri?.fsPath);
   const rewindNotes = [];
   if (context.globalStorageUri?.fsPath) {
@@ -218,8 +233,86 @@ function activate(context) {
   }
 
   const selectShared = async (...args) => { attachments = []; return shared.select(...args); };
-  const historyFor = scope => shared.selection(scope) ? shared.history(scope) : local.history(scope);
+  const historyFor = scope => shared.selection(scope) ? [...shared.history(scope), ...local.history(shared.scope(scope)).filter(item => item.localRecovery)] : local.history(scope);
   const currentViewScope = scope => shared.guard(scope);
+  function recoveryScope(auth) {
+    const folders = (vscode.workspace.workspaceFolders || []).map(folder => [folder.uri.scheme, folder.uri.authority || '', path.resolve(folder.uri.fsPath)]).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    return createHash('sha256').update(JSON.stringify([shared.scope(auth.scope), folders])).digest('hex');
+  }
+  function recoveryState(scope) {
+    if (!scope) return { runs: [], notes: [], draft: null };
+    const key = recoveryScope({scope});
+    try {
+      const { runs, notes } = runJournals.list(key);
+      return { runs: runs.filter(run => !activeJournals.has(run.id) && !runJournals.liveElsewhere(run)).map(run => ({id:run.id, kind:run.kind, prompt:run.prompt.slice(0,300), taskId:run.taskId || null,
+        events:run.events.length, restored:local.history(run.historyScope).some(item => item.recoveryRunId === run.id)})), notes:[...notes.map(() => L('An incomplete or unsafe local recovery record was ignored.', 'Неполная или небезопасная локальная запись восстановления пропущена.')), ...(draftSaveNote ? [draftSaveNote] : [])], draft:runJournals.draft(key) };
+    } catch { return { runs: [], notes: [L('Local recovery storage is unavailable.', 'Локальное хранилище восстановления недоступно.')], draft: null }; }
+  }
+  async function restoreJournal(message) {
+    ensureIdle();
+    const epoch = workspaceEpoch;
+    const auth = await requireAuth();
+    if (message.scopeKey !== currentViewScope(auth.scope) || epoch !== workspaceEpoch) throw new core.ServiceError('account_changed', 'The account or workspace changed.');
+    const run = runJournals.get(recoveryScope(auth), message.id);
+    if (!run || run.status !== 'running' || run.historyScope !== shared.scope(auth.scope)) throw new core.ServiceError('recovery_missing', L('This recovery record has expired or is unavailable.', 'Запись восстановления устарела или недоступна.'));
+    if (runJournals.liveElsewhere(run)) throw new core.ServiceError('busy','This run is active in another extension host.');
+    ensureIdle();
+    busy = true;
+    try {
+      const previous = local.history(run.historyScope);
+      if (!previous.some(item => item.recoveryRunId === run.id)) {
+        const log = run.events.map(event => JSON.stringify(event)).join('\n');
+        const text = L('Interrupted run — recovered local transcript. No action was resumed.', 'Прерванный запуск — восстановлен локальный журнал. Действия не возобновлялись.') +
+          (run.eventsTruncated ? L('\nOnly the retained event window is available.', '\nДоступны только события в сохранённом окне.') : '') + (log ? '\n\n```json\n' + log + '\n```' : '');
+        await local.saveHistory(run.historyScope, [...previous,
+          {role:'user',content:run.prompt,display:run.prompt,localRecovery:true,recoveryRunId:run.id},
+          {role:'assistant',content:text,display:text,localRecovery:true,recoveryRunId:run.id}].slice(-40));
+      }
+    } finally { busy = false; await postChatState(); }
+  }
+  async function saveComposerDraft(message) {
+    const sequence = ++draftSequence, epoch = workspaceEpoch;
+    const auth = await requireAuth();
+    if (sequence !== draftSequence || epoch !== workspaceEpoch || message.scopeKey !== currentViewScope(auth.scope) || message.composerScope !== recoveryScope(auth)) return;
+    if (typeof message.text !== 'string' || message.text.length > 20000 || !['chat','agent','plan'].includes(message.mode)) return;
+    const key = recoveryScope(auth);
+    clearTimeout(draftTimers.get(key)?.timer);
+    const draft = {text:message.text,mode:message.mode};
+    draft.timer = setTimeout(() => {
+      if (draftTimers.get(key) !== draft) return;
+      draftTimers.delete(key);
+      try { runJournals.saveDraft(key,draft.text,draft.mode); draftSaveNote = ''; }
+      catch { draftSaveNote = L('The composer draft could not be saved locally.', 'Не удалось сохранить черновик локально.'); }
+    },1000);
+    draft.timer.unref?.();
+    draftTimers.set(key,draft);
+  }
+  // Shared with Resolve task: inspect the existing task, without creating or replaying it.
+  async function resolvedTask(api, auth, taskId) {
+    const snapshot = await api.request('/tasks/' + encodeURIComponent(taskId), {token:auth.access_token});
+    return {snapshot,state:core.taskStateOf(snapshot)};
+  }
+  async function fetchJournal(message) {
+    ensureIdle();
+    const epoch = workspaceEpoch, auth = await requireAuth();
+    const assertScope = async () => {
+      if (epoch !== workspaceEpoch || message.scopeKey !== currentViewScope(auth.scope) || !await isCurrentAuth(auth)) throw new core.ServiceError('account_changed','The account or workspace changed.');
+    };
+    await assertScope();
+    const run = runJournals.get(recoveryScope(auth),message.id);
+    if (!run?.taskId || run.historyScope !== shared.scope(auth.scope)) throw new core.ServiceError('recovery_missing','This run has no recoverable task identifier.');
+    if (runJournals.liveElsewhere(run)) throw new core.ServiceError('busy','This run is active in another extension host.');
+    ensureIdle(); busy = true;
+    try {
+      const {snapshot,state} = await resolvedTask(core.createClient({base:auth.api_base}),auth,run.taskId);
+      await assertScope();
+      const pending = local.pending(auth.scope);
+      if (pending?.taskId === run.taskId && !core.pendingBlocks(state)) await local.savePending(auth.scope,undefined,pending.idempotencyKey || pending.taskId);
+      const document = await vscode.workspace.openTextDocument({language:'json',content:JSON.stringify(snapshot,null,2)});
+      await assertScope();
+      await vscode.window.showTextDocument(document,{preview:false});
+    } finally { busy = false; await postChatState(); }
+  }
   const sharedCommands = [['tvijo.signInProject', 'Sign in with project key'], ['tvijo.chooseProject', 'Choose shared project'], ['tvijo.chooseThread', 'Open shared server thread'], ['tvijo.refreshThread', 'Refresh shared server thread']];
   const tenantAttachments = new Map();
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 50);
@@ -422,6 +515,7 @@ function activate(context) {
     const scope = signedIn ? identity.scope : null;
     const history = scope ? historyFor(scope) : [];
     const nextAgentScope = scope ? currentViewScope(scope) : null;
+    const journalState = recoveryState(scope);
     if (postChatState.agentScope !== nextAgentScope) {
       await view.webview.postMessage({ type: 'agent', scopeKey: postChatState.agentScope, event: { type: 'reset' } });
       postChatState.agentScope = nextAgentScope;
@@ -446,7 +540,7 @@ function activate(context) {
       try { options = chatOptions(auth, selection.pack); } catch { options = null; }
     } else updatePackStatus(null, null);
     if(view!==chatView || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
-    await view.webview.postMessage({ type: 'state', scopeKey: scope ? currentViewScope(scope) : null, messages, signedIn, pack, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length, account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
+    await view.webview.postMessage({ type: 'state', scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length, account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'coding') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
       status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
@@ -522,7 +616,7 @@ function activate(context) {
     // while it is pending. Snapshot settings only after checking again.
     ensureIdle();
     const agentScope = shared.selection(auth.scope) ? shared.scope(auth.scope) : auth.scope;
-    const agentHistory = (shared.selection(auth.scope) ? [...historyFor(auth.scope), ...local.history(agentScope)] : historyFor(auth.scope)).slice(-40).map(item => ({...item, content:item.role === 'user' ? (item.display || item.content) : item.content}));
+    const agentHistory = (shared.selection(auth.scope) ? [...historyFor(auth.scope), ...local.history(agentScope)] : historyFor(auth.scope)).filter(item => !item.localRecovery).slice(-40).map(item => ({...item, content:item.role === 'user' ? (item.display || item.content) : item.content}));
     const editor = vscode.window.activeTextEditor;
     const folder = (editor && vscode.workspace.getWorkspaceFolder(editor.document.uri)) || (vscode.workspace.workspaceFolders || [])[0];
     if (!folder) throw new core.ServiceError('no_workspace', L('Open a project folder before starting the agent.', 'Откройте папку проекта, прежде чем запускать агента.'));
@@ -540,10 +634,13 @@ function activate(context) {
     let diagnosticsTracker = null;
     agentAbort = abort; agentRunning = true; busy = true; lastError = null; lastAgentOutcome = null;
     const localAgentRunId = randomUUID();
+    const recoveryKey = recoveryScope(auth);
     beginMap(auth, goal.trim(), localAgentRunId);
-    await postRunSession(auth);
-    await postChatState();
     try {
+      runJournals.begin(recoveryKey, {id:localAgentRunId, kind:planMode ? 'plan' : 'agent', prompt:goal.trim(), historyScope:agentScope});
+      activeJournals.add(localAgentRunId);
+      await postRunSession(auth);
+      await postChatState();
       const { pack } = await currentPack(auth);
       const agentModel = packs.packModel(config, 'agentModel', 'ds41f', pack);
       const contextMode = config.get('workspaceContext', 'ask');
@@ -685,7 +782,7 @@ function activate(context) {
             token: auth.access_token, messages: packs.packMessages(bounded, pack), maxUsd: Math.min(1, Math.floor(remaining * 1e9) / 1e9), idempotencyKey,
             title: 'VS Code agent step ' + step + ': ' + goal.trim().slice(0, 50),
             maxTokens: 2048, model: agentModel, mode: 'single', method: config.get('reasoningMethod', 'evidence-first'), signal,
-            onGrant: async grant => { await mapTask(auth, grant.id, {...grant, title:'Agent step ' + step, model:grant.model || agentModel, status:'running', startedAt:Date.now()}); await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); projectRulesHost.assertCurrent(agentRuleGrants); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
+            onGrant: async grant => { runJournals.task(recoveryKey,localAgentRunId,grant.id); await mapTask(auth, grant.id, {...grant, title:'Agent step ' + step, model:grant.model || agentModel, status:'running', startedAt:Date.now()}); await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); projectRulesHost.assertCurrent(agentRuleGrants); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
           }).catch(async error => {
             const pending = local.pending(auth.scope, idempotencyKey);
             if (error.definitiveGrantRefusal && !pending?.taskId) await local.savePending(auth.scope, undefined, idempotencyKey);
@@ -702,6 +799,7 @@ function activate(context) {
           return answer;
         },
         onEvent: event => {
+          runJournals.append(recoveryKey,localAgentRunId,event);
           if (terminalCaptureEpoch === terminalCaptures.epoch && event.type === 'result' && event.action?.tool === 'run_command' && event.result?.cwd) {
             void guard().then(() => terminalCaptures.recordDirect({ root: folder.uri.fsPath, cwd: event.result.cwd, output: [event.result.stdout, event.result.stderr].filter(Boolean).join('\n[stderr]\n'), source: 'Extension run_command output' })).catch(() => {});
           }
@@ -710,7 +808,8 @@ function activate(context) {
       });
       await finishMap(auth, 'completed');
       const history = local.history(agentScope);
-      await local.saveHistory(agentScope, [...history, { role: 'user', content: goal.trim(), display: goal.trim() }, { role: 'assistant', content: result.text, display: result.text, taskIds:mapSession(auth).tasks.map(task => task.id) }].slice(-40));
+      await local.saveHistory(agentScope, [...history, { role: 'user', content: goal.trim(), display: goal.trim(), recoveryRunId:localAgentRunId }, { role: 'assistant', content: result.text, display: result.text, recoveryRunId:localAgentRunId, taskIds:mapSession(auth).tasks.map(task => task.id) }].slice(-40));
+      runJournals.finish(recoveryKey,localAgentRunId);
       await metrics.record({ event: 'agent', outcome: result.reason === 'step_limit' ? 'partial' : 'completed', mode: planMode ? 'plan' : 'agent', model: agentModel, steps: result.steps, cost_usd: result.spent, duration_ms: Date.now() - startedAt });
       lastAgentOutcome = { scope: currentViewScope(auth.scope), text: result.partial
         ? L('Step limit reached (' + result.steps + '). Partial result: review the log and narrow the next task.', 'Лимит шагов достигнут (' + result.steps + '). Частичный результат: проверьте журнал и уточните следующую задачу.')
@@ -728,6 +827,7 @@ function activate(context) {
       throw error;
     } finally {
       diagnosticsTracker?.dispose();
+      activeJournals.delete(localAgentRunId);
       agentAbort = null; agentRunning = false; busy = false;
       await postActivity('done', '');
       await postChatState();
@@ -1155,6 +1255,7 @@ function activate(context) {
     const folder = vscode.workspace.getWorkspaceFolder(document.uri);
     if (!folder) throw new core.ServiceError('outside_workspace', L('Quick edit works only inside an open workspace folder.', 'Быстрая правка работает только внутри открытой папки проекта.'));
     const editGuard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
+    const recoveryKey = recoveryScope(auth);
     safePath(folder.uri.fsPath, path.relative(folder.uri.fsPath, document.uri.fsPath));
     const original = document.getText();
     const originalVersion = document.version;
@@ -1165,12 +1266,18 @@ function activate(context) {
       ignoreFocusOut: true
     });
     if (!instruction?.trim()) return;
+    await editGuard();
+    if (recoveryKey !== recoveryScope(auth)) throw new core.ServiceError('account_changed','The account or workspace changed.');
     const relative = path.relative(folder.uri.fsPath, document.uri.fsPath).split(path.sep).join('/');
     const config = vscode.workspace.getConfiguration('tvijo');
     const idempotencyKey = randomUUID();
     const startedAt = Date.now();
+    let editCompleted = false;
+    ensureIdle();
     busy = true;
     try {
+      runJournals.begin(recoveryKey,{id:idempotencyKey,kind:'edit',prompt:instruction.trim(),historyScope:shared.scope(auth.scope)});
+      activeJournals.add(idempotencyKey);
       await postActivity('model', L('Model is editing ' + relative + '…', 'Модель правит ' + relative + '…'));
       let projectBlock = '';
       let editRuleGrants = [];
@@ -1192,8 +1299,9 @@ function activate(context) {
           token.onCancellationRequested(() => abort.abort());
           projectRulesHost.assertCurrent(editRuleGrants);
           return api.ask({ beforeChat:() => projectRulesHost.assertCurrent(editRuleGrants), token: auth.access_token, messages, idempotencyKey, title: 'VS Code edit: ' + relative, maxTokens: 4096, model: config.get('model', 'coding'), mode: config.get('agentMode', 'single'), method: config.get('reasoningMethod', 'evidence-first'), signal: abort.signal,
-            onGrant: async () => { await editGuard(); projectRulesHost.assertCurrent(editRuleGrants); await postActivity('model', L('Model is working…', 'Модель работает…')); } });
+            onGrant: async grant => { runJournals.task(recoveryKey,idempotencyKey,grant.id); await editGuard(); projectRulesHost.assertCurrent(editRuleGrants); await postActivity('model', L('Model is working…', 'Модель работает…')); } });
         });
+      runJournals.append(recoveryKey,idempotencyKey,{type:'final',text:answer.content});
       if (answer?.taskId) {
         try { if (!core.pendingBlocks(await api.taskState(auth.access_token, answer.taskId))) await local.savePending(auth.scope, undefined, idempotencyKey); } catch { /* Keep the journal until settlement is known. */ }
       }
@@ -1207,12 +1315,12 @@ function activate(context) {
       }
       const eol = original.includes('\r\n') ? '\r\n' : '\n';
       const proposed = parsed.replace(/\r\n/g, '\n').replace(/\n/g, eol);
-      if (quickEdit.same(original, proposed)) { vscode.window.showInformationMessage(L('Tvijo: the model proposed no changes.', 'Tvijo: модель не предложила изменений.')); return; }
+      if (quickEdit.same(original, proposed)) { vscode.window.showInformationMessage(L('Tvijo: the model proposed no changes.', 'Tvijo: модель не предложила изменений.')); editCompleted = true; return; }
       await quickEdit.preview(vscode, document, proposed, 'Tvijo edit: ' + relative);
       const applyLabel = L('Apply to buffer', 'Применить в буфер');
       if (!config.get('autoApply', false)) {
         const pick = await vscode.window.showWarningMessage(L('Apply the reviewed edit to the editor buffer? The file is not saved automatically.', 'Применить просмотренную правку в буфер редактора? Файл не сохраняется автоматически.'), { modal: true }, applyLabel);
-        if (pick !== applyLabel) return;
+        if (pick !== applyLabel) { editCompleted = true; return; }
       }
       if (document.isClosed || document.getText() !== original) throw new core.ServiceError('file_changed', L('The file changed before apply. Nothing was written.', 'Файл изменился до применения. Ничего не записано.'));
       if (!await isCurrentAuth(auth)) throw new core.ServiceError('account_changed', 'Account or workspace changed.');
@@ -1225,14 +1333,17 @@ function activate(context) {
       if(syntaxResult) await postActivity('syntax',syntaxNotice(syntaxResult));
       await metrics.record({ event: 'edit', outcome: 'applied', model: config.get('model', 'coding'), path: relative, duration_ms: Date.now() - startedAt });
       vscode.window.showInformationMessage(L('Tvijo edit applied to the buffer. Review and save explicitly.', 'Правка Tvijo применена в буфер. Просмотрите и сохраните явно.') + (syntaxResult ? '\n' + syntaxNotice(syntaxResult) : ''));
+      editCompleted = true;
     } catch (error) {
       const pending = local.pending(auth.scope, idempotencyKey);
       if (error.definitiveGrantRefusal && !pending?.taskId) await local.savePending(auth.scope, undefined, idempotencyKey);
       await metrics.record({ event: 'edit', outcome: 'error', model: vscode.workspace.getConfiguration('tvijo').get('model', 'coding'), error_code: error?.code || 'unknown', duration_ms: Date.now() - startedAt });
       throw error;
     } finally {
+      activeJournals.delete(idempotencyKey);
       activeAbort = null;
       busy = false;
+      if (editCompleted) runJournals.finish(recoveryKey,idempotencyKey);
       await postActivity('done', '');
       await postChatState();
     }
@@ -1647,7 +1758,7 @@ function activate(context) {
       if (!legacy) await local.savePending(auth.scope, pending);
     }
     await api.cancel(auth.access_token, pending.taskId);
-    const state = await api.taskState(auth.access_token, pending.taskId);
+    const {state} = await resolvedTask(api,auth,pending.taskId);
     if (!core.pendingBlocks(state)) {
       if (legacy) await local.markLegacyReconciled(auth.scope, legacy);
       else await local.savePending(auth.scope, undefined, pending.idempotencyKey || pending.taskId);
@@ -1689,6 +1800,7 @@ function activate(context) {
     const startedAt = Date.now();
     busy = true;
     let mapAuth = null;
+    let chatJournal = null;
     try {
     lastError = null; lastAgentOutcome = null;
     await postChatState();
@@ -1698,6 +1810,9 @@ function activate(context) {
     let selectionState = shared.selection(auth.scope);
     if (selectionState && !selectionState.threadId) { await createSharedThread(auth); selectionState = shared.selection(auth.scope); }
     auth.viewScope = currentViewScope(auth.scope);
+    chatJournal = {scope:recoveryScope(auth),id:randomUUID()};
+    runJournals.begin(chatJournal.scope,{id:chatJournal.id,kind:'chat',prompt:question.trim(),historyScope:shared.scope(auth.scope)});
+    activeJournals.add(chatJournal.id);
     mapAuth = auth; beginMap(auth, question.trim()); await postRunSession(auth);
     const editor = vscode.window.activeTextEditor;
     const config = vscode.workspace.getConfiguration('tvijo');
@@ -1753,10 +1868,10 @@ function activate(context) {
     const content = contextBlock + files.questionWithAttachments(core.questionWithSelection(question.trim(), selection), sentAttachments);
     const { pack } = await currentPack(auth);
     if (!await isCurrentAuth(auth)) throw new core.ServiceError('account_changed', 'The account changed. Submit again from the intended account.');
-    const messages = packs.packMessages([...(selectionState ? [] : history.map((item) => ({ role: item.role, content:item.role === 'user' ? (item.display || item.content) : item.content }))), { role: 'user', content }], pack);
+    const messages = packs.packMessages([...(selectionState ? [] : history.filter(item => !item.localRecovery).map((item) => ({ role: item.role, content:item.role === 'user' ? (item.display || item.content) : item.content }))), { role: 'user', content }], pack);
     core.validateMessages(messages);
     const payer = selectionState ? byokSelection.get(auth,selectionState.projectId) : null;
-    const idempotencyKey = randomUUID();
+    const idempotencyKey = chatJournal.id;
     const grantRequest = { title: `VS Code: ${question.trim().slice(0, 80)}`, max_usd: selectionState ? sharedTaskCap(auth) : '1', model: packs.packModel(config, 'model', 'coding', pack), mode: config.get('agentMode', 'single'), method: config.get('reasoningMethod', 'evidence-first'), idempotency_key: idempotencyKey, ...(selectionState ? { project_id: selectionState.projectId, thread_id: selectionState.threadId } : {}) };
     if (selectionState) { delete grantRequest.model; delete grantRequest.mode; delete grantRequest.max_usd; grantRequest.service_id = config.get('service', 'standard'); grantRequest.max_micro_tvijo = sharedTaskMicroCap(auth); }
     await local.savePending(auth.scope, { idempotencyKey, request: grantRequest, apiBase: auth.api_base, tenantId: auth.tenant_id, projectId: selectionState?.projectId, threadId: selectionState?.threadId, createdAt: new Date().toISOString() });
@@ -1782,13 +1897,14 @@ function activate(context) {
           token: auth.access_token, messages, idempotencyKey, signal: abort.signal,
           model: grantRequest.model, mode: grantRequest.mode, method: grantRequest.method,
           title: `VS Code: ${question.trim().slice(0, 80)}`,
-          onGrant: async (grant) => { taskId = grant.id; projectRulesHost.assertCurrent(chatRuleGrants); await mapTask(auth, grant.id, {...grant, title:question.trim().slice(0,100), model:grant.model || grantRequest.model, status:'running', startedAt:Date.now()}); await postActivity('model', L('Model is working…', 'Модель работает…')); await local.savePending(auth.scope, { idempotencyKey, request: grantRequest, apiBase: auth.api_base, tenantId: auth.tenant_id, projectId: selectionState?.projectId, threadId: selectionState?.threadId, taskId: grant.id, createdAt: new Date().toISOString() }); }
+          onGrant: async (grant) => { taskId = grant.id; runJournals.task(chatJournal.scope,chatJournal.id,grant.id); projectRulesHost.assertCurrent(chatRuleGrants); await mapTask(auth, grant.id, {...grant, title:question.trim().slice(0,100), model:grant.model || grantRequest.model, status:'running', startedAt:Date.now()}); await postActivity('model', L('Model is working…', 'Модель работает…')); await local.savePending(auth.scope, { idempotencyKey, request: grantRequest, apiBase: auth.api_base, tenantId: auth.tenant_id, projectId: selectionState?.projectId, threadId: selectionState?.threadId, taskId: grant.id, createdAt: new Date().toISOString() }); }
         });
       }); } catch (error) {
         const pending = local.pending(auth.scope, idempotencyKey);
         if (error.definitiveGrantRefusal && pending?.idempotencyKey === idempotencyKey && !pending.taskId) await local.savePending(auth.scope, undefined, idempotencyKey);
         throw error;
       }
+      runJournals.append(chatJournal.scope,chatJournal.id,{type:'final',text:answer.content});
       await mapAnswer(auth, answer); await finishMap(auth, 'completed');
       await metrics.record({ event: 'ask', outcome: 'completed', mode: 'chat', model: config.get('model', 'coding'), method: config.get('reasoningMethod', 'evidence-first'), context: !!lastContextSummary, attachments: sentAttachments.length, task_id: answer.taskId, cost_usd: Number(answer.cost?.spent_usd || 0), duration_ms: Date.now() - startedAt });
       await postActivity('settle', L('Checking the task receipt…', 'Проверяю квитанцию задачи…'));
@@ -1797,11 +1913,12 @@ function activate(context) {
       if (reconciled) await local.savePending(auth.scope, undefined, idempotencyKey);
       const formatted = core.formatAnswer({ question: question.trim(), answer });
       const userDisplay = question.trim() + (sentAttachments.length ? '\n\nAttached: ' + sentAttachments.map((item) => `${item.name}${item.kind === 'image' ? ' (image text)' : ''}`).join(', ') : '');
-      const stored = [...history, { role: 'user', content, display: userDisplay }, { role: 'assistant', content: answer.content, display: formatted, taskId:answer.taskId }].slice(-40);
+      const stored = [...history, { role: 'user', content, display: userDisplay, recoveryRunId:chatJournal.id }, { role: 'assistant', content: answer.content, display: formatted, taskId:answer.taskId, recoveryRunId:chatJournal.id }].slice(-40);
       if (selectionState) {
         const thread = await workspaceClient(api, auth.access_token).thread(selectionState.projectId, selectionState.threadId);
         shared.remember(auth.scope, selectionState, thread.messages || []);
       } else await local.saveHistory(auth.scope, stored);
+      runJournals.finish(chatJournal.scope,chatJournal.id);
       const sentIds = new Set(sentAttachments.map((item) => item.id));
       if (await isCurrentAuth(auth)) attachments = attachments.filter((item) => !sentIds.has(item.id));
       else tenantAttachments.set(auth.viewScope, (tenantAttachments.get(auth.viewScope) || []).filter((item) => !sentIds.has(item.id)));
@@ -1814,6 +1931,7 @@ function activate(context) {
       await metrics.record({ event: 'ask', outcome: 'error', mode: 'chat', model: vscode.workspace.getConfiguration('tvijo').get('model', 'coding'), error_code: error?.code || 'unknown', duration_ms: Date.now() - startedAt });
       throw error;
     } finally {
+      if (chatJournal) activeJournals.delete(chatJournal.id);
       activeAbort = null;
       busy = false;
       await postActivity('done', '');
@@ -2026,7 +2144,20 @@ function activate(context) {
             const auth = await requireAuth();
             if (message.scopeKey !== currentViewScope(auth.scope)) return;
           }
-          if (message?.type === 'rewind') {
+          if (message?.type === 'composerDraft') {
+            await saveComposerDraft(message);
+          } else if (message?.type === 'restoreRun') {
+            await restoreJournal(message);
+          } else if (message?.type === 'fetchRun') {
+            await fetchJournal(message);
+          } else if (message?.type === 'dismissRun') {
+            ensureIdle();
+            const epoch = workspaceEpoch, auth = await requireAuth();
+            if (epoch !== workspaceEpoch || message.scopeKey !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed','The account or workspace changed.');
+            ensureIdle();
+            runJournals.finish(recoveryScope(auth),message.id);
+            await postChatState();
+          } else if (message?.type === 'rewind') {
             await showRewind();
           } else if (message?.type === 'rewindShown') {
             if (pendingRewind?.workspaceKey === message.workspaceKey) pendingRewind = null;
@@ -2250,7 +2381,7 @@ function activate(context) {
         finally { if (message?.type === 'attach') await view.webview.postMessage({ type: 'attachmentDone' }); }
       });
       context.subscriptions.push(listener);
-      view.onDidDispose(() => { listener.dispose(); if (chatView === view) chatView = null; });
+      view.onDidDispose(() => { flushDrafts(); listener.dispose(); if (chatView === view) chatView = null; });
     }
   }));
 

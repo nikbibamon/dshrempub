@@ -51,7 +51,8 @@ Avoid selecting credentials or private data you are not authorized to send.
 Unsubmitted attachments and image previews remain in extension-host memory until sent,
 removed, or the host reloads. They are not written to temporary files by this extension.
 After submission, file contents and OCR text are part of conversation history; original
-image bytes are not. The composer draft is kept in VS Code webview state. A separate
+image bytes are not. The composer draft is kept in VS Code webview state and in a
+scoped local draft file after a one-second typing pause. A separate
 **Add file to my knowledge base** command requires confirmation and stores the file's
 text in the service knowledge base. Attaching a file to a question does not add it there.
 
@@ -184,6 +185,22 @@ Sync, to prevent identical file URIs on different extension hosts sharing an app
 and interpreter approval data are not conversation context or exports. Old rule approvals are
 retained locally but do not authorize the new host-bound scope.
 
+
+## Local interrupted-run recovery (0.9.0)
+
+Before dispatch, the extension saves the user's prompt in extension-host global
+storage, separated by account, thread and workspace. Agent step events, including
+tool results and command output, are kept locally in the newest 60-event window,
+with a 64 KiB serialized limit per run and private file permissions. Oversized
+events are visibly marked as truncated. Prompts that cannot fit are refused
+before dispatch. Run records and drafts have a seven-day recovery window;
+expired, corrupt or incomplete records are not restored.
+
+Restoring a transcript writes local conversation history and does not replay
+tools or send a new model request. Recovered log entries are excluded from later
+automatic model context. Fetch result reads the existing task detail through the
+normal task-resolution path; its available result or status is shown locally.
+This journal is separate from the metadata-only usage log described above.
 
 ## Plan buffer summaries (0.8.3)
 

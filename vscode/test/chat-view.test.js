@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const { chatHtml } = require('../lib/chat-view');
 
-function sidebar(initialState = {}) {
+function sidebar(initialState = {}, initialHostState = {}) {
   const listeners = new Map();
   const elements = new Map();
   const created = [];
@@ -34,7 +34,7 @@ function sidebar(initialState = {}) {
   const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
   assert.ok(script, 'webview script exists');
   vm.runInNewContext(script, { document, window, URL, acquireVsCodeApi: () => ({ postMessage: (message) => outgoing.push(message), getState: () => savedState, setState: (next) => { savedState = next; } }) });
-  listeners.get('window:message')({ data: { type: 'state', scopeKey: 'tenant-a', messages: [], signedIn: true, attachments: [] } });
+  listeners.get('window:message')({ data: { type: 'state', scopeKey: 'tenant-a', messages: [], signedIn: true, attachments: [], ...initialHostState } });
   return { element, outgoing, created, document, state: () => savedState, emit: (key, event) => {
     if (event?.data?.type === 'state' && event.data.scopeKey === undefined) event = { data: { ...event.data, scopeKey: 'tenant-a' } };
     return listeners.get(key)(event);
@@ -502,4 +502,57 @@ test('unified plus menu keeps local upload, workspace action, keyboard access an
   view.emit('window:message',{data:{type:'submission',scopeKey:'tenant-a',ok:false,question:'keep draft'}});
   assert.equal(view.element('question').value,'');
   assert.equal(view.element('send').disabled,false);
+});
+
+
+test('interrupted cards use safe text and scoped restore/fetch controls with local notes',()=>{
+  const view=sidebar();
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',signedIn:true,messages:[],interrupted:[{id:'saved',kind:'agent',prompt:'<script>private prompt</script>',events:3,taskId:'known-task'}],recoveryNotes:['A partial local journal was ignored.']}});
+  assert.equal(view.element('recovery').hidden,false);
+  const card=view.element('recovery-list').children[0];
+  assert.equal(card.children[0].textContent,'<script>private prompt</script>');
+  assert.match(view.element('recovery-notes').textContent,/partial/);
+  const buttons=card.children[2].children;
+  buttons[0].click();buttons[1].click();
+  assert.equal(view.outgoing.at(-2).type,'restoreRun');assert.equal(view.outgoing.at(-2).scopeKey,'tenant-a');
+  assert.equal(view.outgoing.at(-1).type,'fetchRun');assert.equal(view.outgoing.at(-1).id,'saved');
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-b',signedIn:true,messages:[]}});
+  assert.equal(view.element('recovery').hidden,true);
+  assert.equal(view.element('recovery-list').children.length,0);
+});
+
+test('durable draft hydrates once, preserves typed changes and separates workspace identities',()=>{
+  const view=sidebar();
+  const state={type:'state',scopeKey:'restart-account',composerScope:'workspace-a',signedIn:true,messages:[],composerDraft:{text:'durable draft',mode:'plan'}};
+  view.emit('window:message',{data:state});
+  assert.equal(view.element('question').value,'durable draft');
+  assert.equal(view.state().mode,'plan');
+  view.element('question').value='new typing';view.emit('question:input',{});
+  assert.equal(view.outgoing.at(-1).type,'composerDraft');assert.equal(view.outgoing.at(-1).text,'new typing');
+  view.emit('window:message',{data:state});
+  assert.equal(view.element('question').value,'new typing');
+  view.emit('window:message',{data:{...state,composerScope:'workspace-b',composerDraft:{text:'other workspace',mode:'chat'}}});
+  assert.equal(view.element('question').value,'other workspace');
+  view.emit('window:message',{data:state});
+  assert.equal(view.element('question').value,'new typing');
+});
+
+
+test('pre-journal account draft migrates on initial hydration without crossing accounts',()=>{
+  const view=sidebar({drafts:{'tenant-a':'existing saved draft'},mode:'chat'},{composerScope:'workspace-a',composerDraft:null});
+  assert.equal(view.element('question').value,'existing saved draft');
+  const other=sidebar({drafts:{'other-account':'private saved draft'},mode:'chat'},{composerScope:'workspace-a',composerDraft:null});
+  assert.equal(other.element('question').value,'');
+  const cleared=sidebar({drafts:{'tenant-a':'older draft'},mode:'chat'},{composerScope:'workspace-a',composerDraft:{text:'',mode:'chat'}});
+  assert.equal(cleared.element('question').value,'');
+});
+
+
+test('expired cached drafts cannot outlive the seven-day disk recovery window',()=>{
+  const saved={drafts:{'workspace-a':'EXPIRED_CACHED_DRAFT'},draftTimes:{'workspace-a':Date.now()-8*24*60*60*1000},composerScope:'workspace-a',mode:'chat'};
+  const view=sidebar(saved,{composerScope:'workspace-a',composerDraft:null});
+  assert.equal(view.element('question').value,'');
+  view.element('question').value='fresh';view.emit('question:input',{});
+  assert.ok(view.state().draftTimes['workspace-a']>Date.now()-1000);
+  assert.equal(view.outgoing.at(-1).composerScope,'workspace-a');
 });

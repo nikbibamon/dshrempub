@@ -48,7 +48,7 @@ function host(options = {}) {
   const disposable = { dispose() {} };
   function fireDiagnostics(uris) { for (const listener of diagnosticsChangeListeners) listener({ uris }); }
   const root = options.root || path.resolve(__dirname, '../..');
-  const storage = require('node:fs').mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'rewind-host-'));
+  const storage = options.storage || require('node:fs').mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'rewind-host-'));
   const settings = new Map();
   const status = { show() {} };
   class Uri { constructor(fsPath) { this.fsPath = fsPath; this.scheme = 'file'; } static file(value) { return new Uri(value); } static parse(value) { return new Uri(value); } static joinPath(base, ...parts) { return new Uri(path.join(base.fsPath, ...parts)); } }
@@ -62,8 +62,8 @@ function host(options = {}) {
     deleteFile(uri) { this.operations.push({kind:'delete',uri}); }
   }
   const context = {
-    subscriptions: [], globalStorageUri: Uri.file(storage), globalState: memory(), workspaceState: memory(),
-    secrets: memory({ 'tvijo.auth': JSON.stringify({ access_token: 'test-token', api_base: base }) })
+    subscriptions: [], globalStorageUri: Uri.file(storage), globalState: options.globalState || memory(), workspaceState: options.workspaceState || memory(),
+    secrets: options.secrets || memory({ 'tvijo.auth': JSON.stringify({ access_token: 'test-token', api_base: base }) })
   };
   const vscode = {
     Uri, Position, Range, WorkspaceEdit, FileType: { File: 1, Directory: 2, SymbolicLink: 64 }, StatusBarAlignment: { Right: 1 }, ProgressLocation: { Notification: 1 }, ViewColumn: { Beside: 2 }, ConfigurationTarget: { Global: 1 },
@@ -100,7 +100,7 @@ function host(options = {}) {
       showErrorMessage: async message => { errors.push(message); }, showInformationMessage: async () => undefined,
       showWarningMessage: async (...args) => { warnings.push(args); if (options.onWarning) await options.onWarning(...args); return warningAnswer; },
       showTextDocument: async doc => { shown.push(doc); },
-      showInputBox: async () => 'Account A editor question',
+      showInputBox: async config => options.inputBox ? options.inputBox(config) : 'Account A editor question',
       showQuickPick: async (choices, config) => options.pick?.(choices, config),
       showOpenDialog: async config => options.openFiles?.(config),
       get activeTextEditor() { return activeEditor; },
@@ -127,6 +127,7 @@ function host(options = {}) {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
     const body = options.body && JSON.parse(options.body);
+    await optionsHost.onRequest?.({url,body,method:options.method});
     requests.push({ url, body, method: options.method, token: options.headers.authorization });
     if (blockedRequest && url.endsWith(blockedRequest.path) && options.method === blockedRequest.method) await new Promise(resolve => { releaseRequest = resolve; });
     if (url.endsWith('/account')) return Response.json({ tenant_id: options.headers.authorization === 'Bearer account-b' ? 'tenant-b' : 'tenant-a', ...optionsHost.account });
@@ -154,7 +155,7 @@ function host(options = {}) {
   });
   const { tenantState, scopeKey } = require('../lib/tenant-state');
   return { vscode, context, posts, docs, shown, warnings, requests, commands, executed, errors, panels, external, copied, base, local: tenantState(context), scope: tenant => scopeKey(base, tenant), receive: (message) => receive(message), workspaceChanged: () => { if (!workspaceChangeListener) return false; workspaceChangeListener({}); return true; }, configurationChanged: () => { for (const listener of configurationChangeListeners) listener({ affectsConfiguration: key => key === 'tvijo.apiBase' }); return configurationChangeListeners.length; },
-    storage, botAdapter: () => botAdapter, settings, status, Uri, Position, Range,
+    root, storage, botAdapter: () => botAdapter, settings, status, Uri, Position, Range,
     grantError: value => { grantError = value; }, lookup: value => { lookup = value; }, warning: value => { warningAnswer = value; }, chat: value => { chatContent = value; }, editor: value => { activeEditor = value; }, applied: () => appliedEdit, taskSnapshot: value => { taskSnapshot = value; },
     fireDiagnostics,
     blockResponse: (requestPath, method = 'GET') => { blockedRequest = { path: requestPath, method }; }, responseWaiting: () => !!releaseRequest,
@@ -1885,5 +1886,223 @@ test('Plan sends scoped dirty-buffer summaries and literal disk search while ref
     assert.equal(results[4].mode,'literal');assert.equal(results[4].matches[0].text,'value = 1');
     assert.equal(applies,0);assert.equal(await fs.readFile(file,'utf8'),before);assert.equal((await fs.stat(file,{bigint:true})).mtimeNs,stat.mtimeNs);
     assert.equal(app.errors.length,0);
+  }finally{app.close();}
+});
+
+
+function recoveryKeyFor(app, scope = app.scope('tenant-a')) {
+  return require('node:crypto').createHash('sha256').update(JSON.stringify([scope,[['file','',path.resolve(app.root)]]])).digest('hex');
+}
+function journalFor(app) { return require('../lib/run-journal').createRunJournal(app.storage); }
+
+test('run prompts are durable before chat, agent and Quick Edit dispatch, and completion hides cards', async () => {
+  for (const kind of ['chat','agent','edit']) {
+    let app, observed = 0;
+    app = host({chatContent:kind === 'agent' ? '{"tool":"finish","answer":"finished"}' : kind === 'edit' ? '<<<FILE>>>\noriginal\n<<<END>>>' : 'answer',
+      onRequest: req => {
+        if (req.method !== 'POST' || !req.url.endsWith('/tasks')) return;
+        const run = journalFor(app).list(recoveryKeyFor(app)).runs[0];
+        assert.equal(run.kind,kind); assert.equal(run.prompt,kind === 'edit' ? 'Account A editor question' : 'durable goal');
+        assert.ok(run.createdAt <= Date.now()); observed++;
+      }});
+    try {
+      app.settings.set('workspaceContext','off');
+      if (kind === 'edit') {
+        app.editor({document:{uri:app.Uri.file(path.join(app.root,'journal-edit.js')),version:1,isUntitled:false,isClosed:false,getText:()=> 'original\n'}});
+        await app.commands.get('tvijo.quickEdit')();
+      } else await app.receive({type:'ask',question:'durable goal',agent:kind === 'agent'});
+      assert.equal(observed,1,kind);
+      assert.equal(app.errors.length,0,kind);
+      assert.deepEqual(journalFor(app).list(recoveryKeyFor(app)).runs,[]);
+      assert.equal(app.posts.filter(p=>p.type==='state').at(-1).interrupted.length,0);
+    } finally { app.close(); }
+  }
+});
+
+test('each agent result is durable before the next dispatch and recovery data never joins requests', async () => {
+  const root = await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'journal-agent-'));
+  await fs.writeFile(path.join(root,'evidence.txt'),'synthetic tool evidence');
+  let app, chats = 0;
+  app=host({root,chatSequence:['{"tool":"read_file","path":"evidence.txt"}','{"tool":"finish","answer":"done"}'],onRequest:req=>{
+    if (!req.url.endsWith('/chat')) return;
+    const run=journalFor(app).list(recoveryKeyFor(app)).runs[0];
+    assert.equal(run.events.at(-1).type,'step');
+    if (++chats===2) {
+      assert.equal(run.events.filter(e=>e.type==='result').length,1);
+      assert.equal(run.events.find(e=>e.type==='result').result.content,'synthetic tool evidence');
+      assert.equal(run.taskId,'task-test');
+    }
+    assert.doesNotMatch(JSON.stringify(req.body),/run-journal-v1|recoveryRunId|historyScope/);
+  }});
+  try {
+    app.settings.set('workspaceContext','off');
+    await app.receive({type:'ask',question:'Inspect one file',agent:true});
+    assert.equal(chats,2); assert.equal(app.errors.length,0);
+  } finally { app.close(); }
+});
+
+test('restart restores an unfinished prompt and N step events once, locally, without dispatch', async () => {
+  const app = host();
+  await app.receive({type:'ready'});
+  const key=recoveryKeyFor(app), j=journalFor(app), historyScope=app.scope('tenant-a');
+  j.begin(key,{id:'killed-run',kind:'agent',prompt:'RECOVERED_GOAL_SENTINEL',historyScope});
+  for(let step=1;step<=3;step++) j.append(key,'killed-run',{type:'result',step,result:{text:'LOCAL_STEP_'+step}});
+  const restartOptions={root:app.root,storage:app.storage,globalState:app.context.globalState,workspaceState:app.context.workspaceState,secrets:app.context.secrets};
+  app.close();
+  const restarted=host(restartOptions);
+  try {
+    restarted.settings.set('workspaceContext','off');
+    await restarted.receive({type:'ready'});
+    const card=restarted.posts.filter(p=>p.type==='state').at(-1).interrupted[0];
+    assert.equal(card.prompt,'RECOVERED_GOAL_SENTINEL'); assert.equal(card.events,3);
+    await restarted.receive({type:'restoreRun',scopeKey:historyScope,id:'killed-run'});
+    await restarted.receive({type:'restoreRun',scopeKey:historyScope,id:'killed-run'});
+    const restored=restarted.local.history(historyScope);
+    assert.equal(restored.length,2); assert.equal(restored[0].content,'RECOVERED_GOAL_SENTINEL');
+    assert.match(restored[1].content,/```json/);
+    for(let step=1;step<=3;step++) assert.match(restored[1].content,new RegExp('LOCAL_STEP_'+step));
+    assert.equal(restarted.requests.filter(req=>req.method==='POST').length,0);
+    await restarted.receive({type:'ask',question:'A separate new goal'});
+    const sent=JSON.stringify(restarted.requests.filter(req=>req.url.endsWith('/chat')).at(-1).body);
+    assert.doesNotMatch(sent,/LOCAL_STEP_|RECOVERED_GOAL_SENTINEL/);
+    assert.equal(restarted.errors.length,0);
+  } finally { restarted.close(); }
+});
+
+test('recovery and draft never cross account or workspace scopes; corrupt files show a note', async () => {
+  const app=host(); await app.receive({type:'ready'});
+  const key=recoveryKeyFor(app),j=journalFor(app),scope=app.scope('tenant-a');
+  j.begin(key,{id:'private-run',kind:'chat',prompt:'ACCOUNT_A_ONLY',historyScope:scope});
+  j.saveDraft(key,'ACCOUNT_A_DRAFT','chat');
+  const folder=path.join(app.storage,'run-journal-v1',key);
+  await fs.writeFile(path.join(folder,'broken.json'),'{"partial":');
+  await app.receive({type:'ready'});
+  assert.equal(app.posts.filter(p=>p.type==='state').at(-1).recoveryNotes.length,1);
+  const opts={storage:app.storage,globalState:app.context.globalState,workspaceState:app.context.workspaceState};
+  app.close();
+  const b=host({...opts,secrets:memory({'tvijo.auth':JSON.stringify({access_token:'account-b',api_base:app.base})})});
+  try {
+    await b.receive({type:'ready'});
+    const state=b.posts.filter(p=>p.type==='state').at(-1);
+    assert.equal(state.interrupted.length,0);assert.equal(state.composerDraft,null);
+    await b.receive({type:'restoreRun',scopeKey:b.scope('tenant-b'),id:'private-run'});
+    assert.doesNotMatch(JSON.stringify(b.posts),/ACCOUNT_A_ONLY|ACCOUNT_A_DRAFT/);
+    assert.equal(b.local.history(b.scope('tenant-b')).length,0);
+  }finally{b.close();}
+  const otherRoot=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'journal-other-workspace-'));
+  const other=host({...opts,root:otherRoot});
+  try{
+    await other.receive({type:'ready'});
+    const state=other.posts.filter(p=>p.type==='state').at(-1);
+    assert.equal(state.interrupted.length,0);assert.equal(state.composerDraft,null);
+  }finally{other.close();}
+});
+
+test('composer draft is debounced for one second and restored after restart, including empty clear', async () => {
+  const app=host();await app.receive({type:'ready'});
+  const key=recoveryKeyFor(app),scope=app.scope('tenant-a');
+  await app.receive({type:'composerDraft',scopeKey:scope,composerScope:key,text:'older',mode:'chat'});
+  await app.receive({type:'composerDraft',scopeKey:scope,composerScope:key,text:'newest draft',mode:'plan'});
+  assert.equal(journalFor(app).draft(key),null);
+  await new Promise(resolve=>setTimeout(resolve,1100));
+  assert.equal(journalFor(app).draft(key).text,'newest draft');
+  const opts={storage:app.storage,globalState:app.context.globalState,workspaceState:app.context.workspaceState,secrets:app.context.secrets};
+  app.close();
+  const restarted=host(opts);
+  try{
+    await restarted.receive({type:'ready'});
+    const state=restarted.posts.filter(p=>p.type==='state').at(-1);
+    assert.equal(state.composerDraft.text,'newest draft');assert.equal(state.composerDraft.mode,'plan');
+    assert.deepEqual(state.recoveryNotes,[]);
+    await restarted.receive({type:'composerDraft',scopeKey:scope,composerScope:key,text:'',mode:'chat'});
+  }finally{restarted.close();}
+  assert.equal(journalFor(restarted).draft(key).text,'');
+});
+
+test('Quick Edit rechecks idle after its input box before taking the busy lock', async () => {
+  let releaseInput,entered;
+  let chat;
+  const inputEntered=new Promise(resolve=>{entered=resolve;});
+  const app=host({inputBox:()=>{entered();return new Promise(resolve=>{releaseInput=resolve;});}});
+  try{
+    app.settings.set('workspaceContext','off');
+    app.editor({document:{uri:app.Uri.file(path.join(app.root,'journal-edit-race.js')),version:1,isUntitled:false,isClosed:false,getText:()=> 'original'}});
+    const edit=app.commands.get('tvijo.quickEdit')();
+    await inputEntered;
+    app.block();chat=app.receive({type:'ask',question:'Own the busy lock'});
+    for(let n=0;n<200&&!app.requests.some(req=>req.method==='POST'&&req.url.endsWith('/tasks'));n++)await new Promise(resolve=>setTimeout(resolve,5));
+    assert.equal(app.requests.filter(req=>req.method==='POST'&&req.url.endsWith('/tasks')).length,1);
+    releaseInput('Another edit');await edit;
+    assert.ok(app.errors.some(error=>/Wait for the current question/i.test(error)));
+    assert.equal(app.requests.filter(req=>req.method==='POST'&&req.url.endsWith('/tasks')).length,1);
+    assert.equal(journalFor(app).list(recoveryKeyFor(app)).runs.some(run=>run.kind==='edit'),false);
+    app.unblock();await chat;
+  }finally{app.unblock();await chat?.catch(()=>{});app.close();}
+});
+
+
+test('Fetch result reuses the Resolve task read/reconciliation path with no replay or cancellation',async()=>{
+  const app=host({taskSnapshot:{status:'completed',budget:{held_usd:'0'},result:{content:'Recovered synthetic result'}}});
+  try{
+    await app.receive({type:'ready'});
+    const scope=app.scope('tenant-a'),key=recoveryKeyFor(app),j=journalFor(app);
+    j.begin(key,{id:'fetch-saved',kind:'chat',prompt:'saved prompt',historyScope:scope});j.task(key,'fetch-saved','task-test');
+    await app.local.savePending(scope,{idempotencyKey:'fetch-money',taskId:'task-test',apiBase:app.base});
+    const before=app.requests.length;
+    await app.receive({type:'fetchRun',scopeKey:scope,id:'fetch-saved'});
+    const calls=app.requests.slice(before);
+    assert.equal(calls.filter(req=>req.url.endsWith('/tasks/task-test')&&req.method==='GET').length,1);
+    assert.equal(calls.filter(req=>req.method==='POST').length,0);
+    assert.equal(app.local.pending(scope),undefined);
+    assert.match(app.shown.at(-1).content,/Recovered synthetic result/);
+    assert.equal(j.get(key,'fetch-saved').status,'running');
+    assert.equal(app.errors.length,0);
+  }finally{app.close();}
+});
+
+test('delayed task fetch cannot show a result after the workspace changes',async()=>{
+  const app=host();
+  try{
+    await app.receive({type:'ready'});
+    const scope=app.scope('tenant-a'),j=journalFor(app),key=recoveryKeyFor(app);
+    j.begin(key,{id:'stale-fetch',kind:'chat',prompt:'saved',historyScope:scope});j.task(key,'stale-fetch','task-test');
+    app.blockResponse('/tasks/task-test');
+    const fetching=app.receive({type:'fetchRun',scopeKey:scope,id:'stale-fetch'});
+    for(let n=0;n<100&&!app.responseWaiting();n++)await new Promise(resolve=>setTimeout(resolve,5));
+    assert.equal(app.responseWaiting(),true);
+    app.workspaceChanged();app.releaseResponse();await fetching;
+    assert.equal(app.shown.length,0);
+    assert.equal(app.requests.filter(req=>req.method==='POST').length,0);
+  }finally{app.releaseResponse();app.close();}
+});
+
+
+test('Quick Edit cannot journal an old input into a changed workspace',async()=>{
+  let entered,releaseInput;const inputEntered=new Promise(resolve=>{entered=resolve;});
+  const app=host({inputBox:()=>{entered();return new Promise(resolve=>{releaseInput=resolve;});}});
+  try{
+    app.editor({document:{uri:app.Uri.file(path.join(app.root,'scope-edit.js')),version:1,isUntitled:false,isClosed:false,getText:()=> 'original'}});
+    const editing=app.commands.get('tvijo.quickEdit')();await inputEntered;
+    const oldKey=recoveryKeyFor(app);
+    const changed=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'changed-edit-scope-'));
+    app.vscode.workspace.workspaceFolders=[{uri:app.Uri.file(changed)}];app.workspaceChanged();
+    releaseInput('PRIVATE_OLD_SCOPE_INSTRUCTION');await editing;
+    assert.equal(app.requests.filter(req=>req.method==='POST').length,0);
+    assert.equal(journalFor(app).list(oldKey).runs.length,0);
+    assert.equal(journalFor(app).list(recoveryKeyFor({...app,root:changed})).runs.length,0);
+    assert.ok(app.errors.some(error=>/changed/i.test(error)));
+  }finally{app.close();}
+});
+
+test('a delayed composer message is refused after a workspace-folder change',async()=>{
+  const app=host();await app.receive({type:'ready'});
+  try{
+    const scope=app.scope('tenant-a'),oldKey=recoveryKeyFor(app);
+    const changed=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'changed-draft-scope-'));
+    app.vscode.workspace.workspaceFolders=[{uri:app.Uri.file(changed)}];app.workspaceChanged();
+    const newKey=recoveryKeyFor({...app,root:changed});
+    await app.receive({type:'composerDraft',scopeKey:scope,composerScope:oldKey,text:'OLD_WORKSPACE_DRAFT',mode:'chat'});
+    app.close();
+    assert.equal(journalFor(app).draft(oldKey),null);assert.equal(journalFor(app).draft(newKey),null);
   }finally{app.close();}
 });
