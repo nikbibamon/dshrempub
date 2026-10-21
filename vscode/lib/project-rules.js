@@ -5,6 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { TextDecoder } = require('node:util');
+const { createHash } = require('node:crypto');
 const {safePath} = require('./local-tools');
 
 const RULES_RELATIVE = path.join('.tvijo', 'rules.md');
@@ -123,8 +124,7 @@ function safeKnownPaths(paths, root) {
   return [...result].sort();
 }
 
-function collect({ root, knownPaths = [], knownSecrets = [], contextMode = 'on' } = {}) {
-  if (contextMode === 'off') return { text: '', status: 'disabled', paths: [] };
+function inspectSnapshot(root, knownSecrets = []) {
   if (!root || typeof root !== 'string') return reject('invalid-root');
   let source;
   try { source = readRules(root); } catch (error) {
@@ -137,10 +137,32 @@ function collect({ root, knownPaths = [], knownSecrets = [], contextMode = 'on' 
   }
   const parsed = parseMetadata(source.text);
   if (parsed.error) return reject(parsed.error);
+  return {
+    status: 'ready',
+    hash: createHash('sha256').update(source.bytes).digest('hex'),
+    rawSource: source.text,
+    parsed
+  };
+}
+
+function inspect({ root, knownSecrets = [] } = {}) {
+  const snapshot = inspectSnapshot(root, knownSecrets);
+  if (snapshot.status !== 'ready') return snapshot;
+  return { status: 'ready', hash: snapshot.hash, text: snapshot.rawSource };
+}
+
+function collect({ root, knownPaths = [], knownSecrets = [], contextMode = 'on', allowRules } = {}) {
+  if (contextMode === 'off') return { text: '', status: 'disabled', paths: [] };
+  const snapshot = inspectSnapshot(root, knownSecrets);
+  if (snapshot.status !== 'ready') return snapshot;
+  const { parsed } = snapshot;
   const known = safeKnownPaths(knownPaths, root);
   let applicable = [];
   if (!parsed.global) applicable = known.filter(file => parsed.regexes.some(regex => regex.test(file)));
   if (!parsed.global && !applicable.length) return { text: '', status: 'unmatched', paths: [] };
+  let approved = false;
+  try { approved = typeof allowRules === 'function' && allowRules(root, snapshot.hash) === true; } catch { approved = false; }
+  if (!approved) return { text: '', status: 'unapproved', paths: applicable, hash: snapshot.hash };
   const status = contextMode === 'preview' ? 'preview' : 'included';
   const scope = parsed.global ? 'applies to all project questions' : 'applies to: ' + applicable.join(', ');
   const metadata = parsed.global ? 'metadata: global scope\n' : 'metadata: ' + JSON.stringify(parsed.patterns) + '\n';
@@ -150,4 +172,4 @@ function collect({ root, knownPaths = [], knownSecrets = [], contextMode = 'on' 
   return { text, status, paths: applicable, bytes: Buffer.byteLength(text, 'utf8') };
 }
 
-module.exports = { collect, compileGlob, MAX_RULES_BYTES, RULES_RELATIVE };
+module.exports = { collect, inspect, compileGlob, MAX_RULES_BYTES, RULES_RELATIVE };

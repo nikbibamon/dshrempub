@@ -1,3 +1,11 @@
+## 0.8.1 — 2026-10-21
+
+- Require separate native approval for the exact raw bytes of one local folder's rules.
+- Offer review/trust/revoke from project context preview and the command palette; no new setting.
+- Deny unapproved rules in automatic context, active selections, file attachments and agent file tools.
+- Recheck prepared rules before model dispatch; changed rules, revocation and Restricted Mode deny inclusion.
+- Preserve local history while excluding hidden project context from subsequent history requests.
+
 ## 0.8.0 — 2026-10-21
 
 - Add uniquely anchored LF/CRLF replacement proposals with explicit confirmation.

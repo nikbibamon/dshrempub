@@ -63,7 +63,7 @@ function workspaceClient(api, token) {
   return {
     services: () => request('/services'),
     usage: projectId => request('/services/usage?project_id=' + segment(projectId)),
-    async askService({ messages, idempotencyKey, title, serviceId = 'standard', method = 'evidence-first', projectId, threadId, maxMicroTvijo, payer = null, signal, onQuote, beforeGrant, onGrant }) {
+    async askService({ messages, idempotencyKey, title, serviceId = 'standard', method = 'evidence-first', projectId, threadId, maxMicroTvijo, payer = null, signal, onQuote, beforeGrant, onGrant, beforeChat }) {
       core.validateMessages(messages);
       if (!projectId || !threadId || !Number.isSafeInteger(maxMicroTvijo) || maxMicroTvijo <= 0 || maxMicroTvijo > 50000000) throw new core.ServiceError('key_limit_unknown', 'A verified shared service-unit limit is required before starting a task.');
       let quote;
@@ -82,6 +82,7 @@ function workspaceClient(api, token) {
       if (onGrant) await onGrant(grant);
       if (beforeGrant) await beforeGrant();
       if (signal?.aborted) throw new core.ServiceError('interrupted', 'Task was reserved but chat was cancelled. Resolve the pending task before retrying.');
+      if (beforeChat) { const result = beforeChat(); if (result && typeof result.then === 'function') throw new core.ServiceError('invalid_guard', 'The final dispatch guard must be synchronous.'); }
       const response = await request(`/tasks/${segment(grant.id)}/chat`, { method: 'POST', signal, timeoutMs: 210000, body: { messages, max_tokens: 2048 } });
       const content = response?.choices?.[0]?.message?.content;
       if (typeof content !== 'string') throw new core.ServiceError('no_output', 'The service returned no assistant text.');

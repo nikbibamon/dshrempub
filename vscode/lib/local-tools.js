@@ -18,7 +18,7 @@ const MAX_LIST = 200;
 const DEFAULT_TIMEOUT = 60_000;
 
 const SECRET_FILE = /^(?:\.env(?:\.|$)|secrets?\.|credentials?\.|auth\.json$|\.npmrc$|\.netrc$|\.pypirc$|id_rsa|id_ed25519|.*\.(?:pem|key|p12|pfx|crt|der)$)/i;
-const EXCLUDED_DIRS = new Set(['.git', '.hg', '.svn', '.ssh', '.aws', 'node_modules', '.venv', 'venv', 'dist', 'build', 'target', '__pycache__', '.pytest_cache']);
+const EXCLUDED_DIRS = new Set(['.git', '.hg', '.svn', '.ssh', '.aws', '.tvijo', 'node_modules', '.venv', 'venv', 'dist', 'build', 'target', '__pycache__', '.pytest_cache']);
 
 function inside(root, target) {
   const rel = path.relative(root, target);

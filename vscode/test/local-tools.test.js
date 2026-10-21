@@ -136,3 +136,13 @@ test('an exact no-op replacement creates no approval, checkpoint or Apply',async
   const result=await tools.execute({tool:'replace_in_file',path:'source.js',old:'const old = 1;',new:'const old = 1;'});
   assert.equal(result.unchanged,true);assert.equal(effects,0);
 });
+
+test('private Tvijo configuration is unavailable through agent tools',async()=>{
+  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || os.tmpdir(),'tools-rules-denied-'));
+  await fs.mkdir(path.join(root,'.tvijo'));await fs.writeFile(path.join(root,'.tvijo','rules.md'),'PRIVATE_RULES_CANARY\n');
+  const tools=createTools({root,confirmRun:async()=>true,confirmWrite:async()=>true});
+  for(const action of [{tool:'read_file',path:'.tvijo/rules.md'},{tool:'search',path:'.tvijo/rules.md',query:'PRIVATE'},{tool:'write_file',path:'.tvijo/rules.md',content:'changed'}]){
+    await assert.rejects(tools.execute(action),/excluded directory/);
+  }
+  assert.equal(await fs.readFile(path.join(root,'.tvijo','rules.md'),'utf8'),'PRIVATE_RULES_CANARY\n');
+});

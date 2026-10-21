@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { collect, compileGlob, MAX_RULES_BYTES } = require('../lib/project-rules');
+const { collect, inspect, compileGlob, MAX_RULES_BYTES } = require('../lib/project-rules');
 
 const base = process.env.TVIJO_FIT_TEST_TMP || path.join(os.tmpdir(), 'tvijo-worker-fit-rules');
 
@@ -30,21 +30,43 @@ test('glob filtering supports literals, star, question and whole-segment double 
   }
 });
 
-test('global rules are included and scoped rules match only already known safe paths', async () => {
+test('global and scoped rules require explicit approval for the exact raw snapshot', async () => {
   const root = await workspace();
   await rules(root, 'Use two spaces.\n');
-  const global = collect({ root });
+  const denied = collect({ root });
+  assert.equal(denied.status, 'unapproved');
+  assert.equal(denied.text, '');
+  assert.doesNotMatch(JSON.stringify(denied), /Use two spaces/);
+  const inspection = inspect({ root });
+  assert.equal(inspection.status, 'ready');
+  assert.equal(inspection.text, 'Use two spaces.\n');
+  assert.match(inspection.hash, /^[a-f0-9]{64}$/);
+  const global = collect({ root, allowRules: (candidateRoot, hash) => candidateRoot === root && hash === inspection.hash });
   assert.equal(global.status, 'included');
   assert.match(global.text, /applies to all project questions/);
   await rules(root, '<!-- tvijo-globs: ["src/**/*.js", "test/*.js"] -->\nUse the existing tests.\n');
   const noMatch = collect({ root, knownPaths: ['README.md'] });
   assert.equal(noMatch.status, 'unmatched');
   assert.equal(noMatch.text, '');
-  const matched = collect({ root, knownPaths: ['src/main.js', '../outside.js', '.env'] });
+  const current = inspect({ root });
+  const matched = collect({ root, knownPaths: ['src/main.js', '../outside.js', '.env'], allowRules: (_root, hash) => hash === current.hash });
   assert.equal(matched.status, 'included');
   assert.deepEqual(matched.paths, ['src/main.js']);
   assert.match(matched.text, /applies to: src\/main\.js/);
   assert.doesNotMatch(matched.text, /outside|\.env/);
+});
+
+test('approval callback must return true synchronously and a changed byte invalidates the hash', async () => {
+  const root = await workspace();
+  await rules(root, 'first\r\n');
+  const before = inspect({ root });
+  assert.equal(collect({ root, allowRules: () => false }).status, 'unapproved');
+  assert.equal(collect({ root, allowRules: () => { throw new Error('deny'); } }).status, 'unapproved');
+  assert.equal(collect({ root, allowRules: () => Promise.resolve(true) }).status, 'unapproved');
+  await rules(root, 'first\n');
+  const after = inspect({ root });
+  assert.notEqual(after.hash, before.hash);
+  assert.equal(collect({ root, allowRules: (_root, hash) => hash === before.hash }).status, 'unapproved');
 });
 
 test('malformed metadata and credentials are refused without echoing rules text', async () => {
@@ -77,7 +99,7 @@ test('rules enforce UTF-8 and byte boundaries, including metadata', async () => 
   await rules(root, Buffer.from([0xff, 0xfe]));
   assert.equal(collect({ root }).reason, 'invalid-utf8');
   await rules(root, 'x'.repeat(MAX_RULES_BYTES));
-  assert.equal(collect({ root }).status, 'included');
+  assert.equal(collect({ root, allowRules: () => true }).status, 'included');
   await rules(root, 'x'.repeat(MAX_RULES_BYTES + 1));
   assert.equal(collect({ root }).reason, 'oversized');
   await rules(root, '<!-- tvijo-globs: ["src/**/*.js"] -->\n' + 'x'.repeat(MAX_RULES_BYTES - 20));
@@ -112,7 +134,10 @@ test('workspace context mode Off disables rules and Preview uses the same comple
   const root = await workspace();
   await rules(root, '<!-- tvijo-globs: ["src/*.js"] -->\nUse semicolons.\n');
   assert.equal(collect({ root, knownPaths: ['src/app.js'], contextMode: 'off' }).status, 'disabled');
-  const preview = collect({ root, knownPaths: ['src/app.js'], contextMode: 'preview' });
+  const unapprovedPreview = collect({ root, knownPaths: ['src/app.js'], contextMode: 'preview' });
+  assert.equal(unapprovedPreview.status, 'unapproved');
+  assert.equal(unapprovedPreview.text, '');
+  const preview = collect({ root, knownPaths: ['src/app.js'], contextMode: 'preview', allowRules: () => true });
   assert.equal(preview.status, 'preview');
   assert.match(preview.text, /Use semicolons/);
 });
@@ -124,7 +149,7 @@ test('partial reads retain the complete rules snapshot and same-size concurrent 
   const originalRead=fs.readSync;
   try{
     fs.readSync=(fd,buffer,offset,length,position)=>originalRead(fd,buffer,offset,Math.min(length,3),position);
-    const complete=collect({root});
+    const complete=collect({root, allowRules: () => true});
     assert.equal(complete.status,'included');assert.ok(complete.text.includes(body.trim()));
   }finally{fs.readSync=originalRead;}
   let changed=false;

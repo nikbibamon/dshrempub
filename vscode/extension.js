@@ -19,7 +19,7 @@ const { scopeKey, tenantState } = require('./lib/tenant-state');
 const { sharedThreadUrl, PROJECT_AUTH_KEY, AUTH_MODE, workspaceState, workspaceClient, sharedTaskCap, sharedTaskMicroCap } = require('./workspace');
 const coding = require('./lib/coding');
 const customerConnection = require('./lib/byok');
-const workspaceContext = require('./lib/workspace-context');
+const {createRulesHost} = require('./lib/rules-host');
 const quickEdit = require('./lib/quick-edit');
 const { runAgent } = require('./lib/agent');
 const modePresets = require('./lib/modes');
@@ -196,6 +196,18 @@ function activate(context) {
   const UI_LOCALE = 'tvijo.uiLocale';
   const uiLocale = () => context.globalState.get(UI_LOCALE) === 'ru' ? 'ru' : 'en';
   const L = (en, ru) => uiLocale() === 'ru' ? ru : en;
+  const localPreviewDocuments = new WeakSet();
+  let rulesPreviewSecrets = [];
+  let rulesRevocationEpoch = 0;
+  const projectRulesHost = createRulesHost({vscode, state:context.globalState, L,
+    showPreview:async content => { const doc = await vscode.workspace.openTextDocument({language:'plaintext', content}); localPreviewDocuments.add(doc); await vscode.window.showTextDocument(doc, {preview:false}); },
+    knownSecrets:() => [identity?.token, ...rulesPreviewSecrets].filter(Boolean),
+    onRevoke:() => { rulesRevocationEpoch++; agentAbort?.abort(); activeAbort?.abort(); lastContextSummary = null; }
+  });
+  function assertShareableDocument(document) {
+    if (!document || localPreviewDocuments.has(document) || (document.uri?.scheme === 'file' && document.uri.fsPath.split(/[\\/]/).includes('.tvijo'))) throw new core.ServiceError('rules_context', L('Use project context preview to approve folder rules before sending them.', 'Используйте просмотр контекста, чтобы одобрить правила папки перед отправкой.'));
+  }
+
   const selectShared = async (...args) => { attachments = []; return shared.select(...args); };
   const historyFor = scope => shared.selection(scope) ? shared.history(scope) : local.history(scope);
   const currentViewScope = scope => shared.guard(scope);
@@ -500,7 +512,7 @@ function activate(context) {
     // while it is pending. Snapshot settings only after checking again.
     ensureIdle();
     const agentScope = shared.selection(auth.scope) ? shared.scope(auth.scope) : auth.scope;
-    const agentHistory = (shared.selection(auth.scope) ? [...historyFor(auth.scope), ...local.history(agentScope)] : historyFor(auth.scope)).slice(-40);
+    const agentHistory = (shared.selection(auth.scope) ? [...historyFor(auth.scope), ...local.history(agentScope)] : historyFor(auth.scope)).slice(-40).map(item => ({...item, content:item.role === 'user' ? (item.display || item.content) : item.content}));
     const editor = vscode.window.activeTextEditor;
     const folder = (editor && vscode.workspace.getWorkspaceFolder(editor.document.uri)) || (vscode.workspace.workspaceFolders || [])[0];
     if (!folder) throw new core.ServiceError('no_workspace', L('Open a project folder before starting the agent.', 'Откройте папку проекта, прежде чем запускать агента.'));
@@ -526,6 +538,7 @@ function activate(context) {
       const agentModel = packs.packModel(config, 'agentModel', 'ds41f', pack);
       const contextMode = config.get('workspaceContext', 'ask');
       let tree = '';
+      let agentRuleGrants = [];
       if (contextMode !== 'off') {
         let enabled = contextMode === 'on';
         if (contextMode === 'ask') {
@@ -542,8 +555,9 @@ function activate(context) {
           }
         }
         if (enabled) {
-          const collected = await workspaceContext.collect(vscode, { knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: 16000 });
+          const collected = await projectRulesHost.collect({ knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: 16000 });
           tree = collected.text;
+          agentRuleGrants = collected.ruleGrants;
           lastContextSummary = collected.summary;
         }
       } else lastContextSummary = null;
@@ -644,11 +658,13 @@ function activate(context) {
           await guard();
           const idempotencyKey = randomUUID();
           await local.savePending(auth.scope, { idempotencyKey, apiBase: auth.api_base, tenantId: auth.tenant_id, createdAt: new Date().toISOString() });
+          projectRulesHost.assertCurrent(agentRuleGrants);
           const answer = await api.ask({
+            beforeChat:() => projectRulesHost.assertCurrent(agentRuleGrants),
             token: auth.access_token, messages: packs.packMessages(bounded, pack), maxUsd: Math.min(1, Math.floor(remaining * 1e9) / 1e9), idempotencyKey,
             title: 'VS Code agent step ' + step + ': ' + goal.trim().slice(0, 50),
             maxTokens: 2048, model: agentModel, mode: 'single', method: config.get('reasoningMethod', 'evidence-first'), signal,
-            onGrant: async grant => { await mapTask(auth, grant.id, {...grant, title:'Agent step ' + step, model:grant.model || agentModel, status:'running', startedAt:Date.now()}); await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
+            onGrant: async grant => { await mapTask(auth, grant.id, {...grant, title:'Agent step ' + step, model:grant.model || agentModel, status:'running', startedAt:Date.now()}); await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); projectRulesHost.assertCurrent(agentRuleGrants); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
           }).catch(async error => {
             const pending = local.pending(auth.scope, idempotencyKey);
             if (error.definitiveGrantRefusal && !pending?.taskId) await local.savePending(auth.scope, undefined, idempotencyKey);
@@ -907,6 +923,7 @@ function activate(context) {
 
   async function prepareAndAdd(name, bytes, scope, expectedAuthAttempt = authAttempt, expectedWorkspaceEpoch = workspaceEpoch, workspaceFile = null) {
     if (!identity || authAttempt !== expectedAuthAttempt || currentViewScope(identity.scope) !== scope || expectedWorkspaceEpoch !== workspaceEpoch) throw new core.ServiceError('account_changed', 'The context scope changed. Attach it again.');
+    if (typeof name === 'string' && name.replace(/\\/g, '/').split('/').includes('.tvijo')) throw new core.ServiceError('rules_context', 'Use the project rules preview and approval flow.');
     const digest = createHash('sha256').update(bytes).digest('hex');
     const duplicate=attachments.find(item=>item.sha256===digest);
     if (duplicate) {if(workspaceFile) duplicate.workspaceFile=workspaceFile;return;}
@@ -950,7 +967,7 @@ function activate(context) {
     if (stat.isSymbolicLink() || relative.startsWith('..' + path.sep) || relative === '..' || path.isAbsolute(relative) || !stat.isFile()) throw new core.ServiceError('attachment_path', 'Attach a regular workspace file, without symlinks or paths outside the workspace.');
     if (stat.size > files.MAX_FILE_BYTES) throw new core.ServiceError('attachment_size', 'Each attachment is limited to 2 MiB.');
     const label = path.relative(folder.uri.fsPath, uri.fsPath).split(path.sep).join('/');
-    if (label.split('/').some((part) => ['.git', '.ssh', '.aws'].includes(part))) throw new core.ServiceError('attachment_refused', 'Private configuration folders cannot be attached.');
+    if (label.split('/').some((part) => ['.git', '.ssh', '.aws', '.tvijo'].includes(part))) throw new core.ServiceError('attachment_refused', 'Private configuration folders cannot be attached.');
     const nameRefusal = core.checkKnowledgeFile(label, Buffer.alloc(0));
     if (nameRefusal) throw new core.ServiceError('attachment_refused', nameRefusal);
     const handle = await fs.open(resolved, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
@@ -1013,20 +1030,40 @@ function activate(context) {
     ensureIdle();
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.selection.isEmpty) throw new core.ServiceError('no_selection', 'Select code in the editor first.');
+    assertShareableDocument(editor.document);
     const name = `${path.basename(editor.document.uri.fsPath)} lines ${editor.selection.start.line + 1}-${editor.selection.end.line + 1}`;
     await attachBytes(name, Buffer.from(editor.document.getText(editor.selection)));
     await openChat();
   });
+  command('tvijo.trustProjectRules', async () => {
+    ensureIdle();
+    const auth = await readAuth(); rulesPreviewSecrets = [auth?.access_token, auth?.refresh_token].filter(Boolean);
+    const folder = await projectRulesHost.chooseFolder();
+    if (folder && await projectRulesHost.approve(folder)) await vscode.window.showInformationMessage(L('These folder rules are approved. Changed rules need new approval.', 'Правила этой папки одобрены. Изменённые правила потребуют нового одобрения.'));
+    await postChatState();
+  });
+  command('tvijo.revokeProjectRules', async () => {
+    const folder = await projectRulesHost.chooseFolder();
+    if (folder) { await projectRulesHost.revoke(folder); await vscode.window.showInformationMessage(L('Folder rules trust revoked. Previously sent messages remain in the conversation.', 'Доверие правилам папки отозвано. Ранее отправленные сообщения остаются в разговоре.')); }
+    await postChatState();
+  });
   command('tvijo.contextPreview', async () => {
     ensureIdle();
-    // The preview is read locally from the workspace; it needs no account.
-    const editor = vscode.window.activeTextEditor;
-    const auth = await readAuth();
-    const collected = await workspaceContext.collect(vscode, { knownSecrets: [auth?.access_token, auth?.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), contextMode: 'preview', document: editor?.document || null, maxBytes: vscode.workspace.getConfiguration('tvijo').get('workspaceContextMaxBytes', 48000) });
+    const folder = await projectRulesHost.chooseFolder();
+    if (!folder) return;
+    const editor = vscode.window.activeTextEditor, auth = await readAuth();
+    rulesPreviewSecrets = [auth?.access_token, auth?.refresh_token].filter(Boolean);
+    const collected = await projectRulesHost.collect({folder, knownSecrets:[auth?.access_token, auth?.refresh_token].filter(Boolean), knownPaths:knownAttachmentPaths(editor?.document), contextMode:'preview', document:localPreviewDocuments.has(editor?.document) ? null : editor?.document || null, maxBytes:vscode.workspace.getConfiguration('tvijo').get('workspaceContextMaxBytes',48000)});
     lastContextSummary = collected.summary;
-    const content = '# Bounded project context preview\n\nRules: ' + (collected.summary.rules?.status || 'unknown') + '\n\n' + (collected.text || L('No workspace folder is open.', 'Папка проекта не открыта.'));
-    if (auth) await showPrivateDocument('plaintext', content, auth);
-    else await showDocument('plaintext', content);
+    const content = '# Bounded project context preview\n\nRules: ' + (collected.summary.rules?.status || 'unknown') + '\n\n' + collected.text;
+    const doc = await vscode.workspace.openTextDocument({language:'plaintext', content}); localPreviewDocuments.add(doc); await vscode.window.showTextDocument(doc,{preview:false});
+    await postChatState();
+    const action = await vscode.window.showQuickPick([
+      {label:L('Review and trust folder rules…','Просмотреть и одобрить правила папки…'),id:'trust'},
+      {label:L('Revoke folder rules trust','Отозвать доверие правилам папки'),id:'revoke'}
+    ],{title:L('Project rules — separate from context consent','Правила проекта — отдельное согласие')});
+    if (action?.id === 'trust') await projectRulesHost.approve(folder);
+    else if (action?.id === 'revoke') await projectRulesHost.revoke(folder);
     await postChatState();
   });
   function rewindWorkspace() {
@@ -1113,6 +1150,7 @@ function activate(context) {
     try {
       await postActivity('model', L('Model is editing ' + relative + '…', 'Модель правит ' + relative + '…'));
       let projectBlock = '';
+      let editRuleGrants = [];
       let contextEnabled = config.get('workspaceContext', 'ask') === 'on';
       if (config.get('workspaceContext', 'ask') === 'ask') {
         const saved = context.globalState.get(CONTEXT_CONSENT);
@@ -1120,7 +1158,7 @@ function activate(context) {
         else { const send = L('Send context', 'Отправить контекст'); contextEnabled = await vscode.window.showWarningMessage(L('Send project context with this edit?', 'Отправить контекст проекта с правкой?'), { modal: true }, send, L('No context', 'Без контекста')) === send; }
       }
       await editGuard();
-      if (contextEnabled) { const collected = await workspaceContext.collect(vscode, { knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), document: null, knownPaths: [...knownAttachmentPaths(document), relative], maxBytes: 16000 }); if (collected.text) projectBlock = collected.text + '\n\n'; }
+      if (contextEnabled) { const collected = await projectRulesHost.collect({ knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), document: null, folder, knownPaths: [...knownAttachmentPaths(document), relative], maxBytes: 16000 }); editRuleGrants = collected.ruleGrants; if (collected.text) projectBlock = collected.text + '\n\n'; }
       const messages = [{ role: 'user', content: projectBlock + quickEdit.instruction(relative, document.languageId) + '\n\n--- FILE ---\n' + original + '\n--- END FILE ---\n\nInstruction: ' + instruction.trim() }];
       await local.savePending(auth.scope, { idempotencyKey, apiBase: auth.api_base, tenantId: auth.tenant_id, createdAt: new Date().toISOString() });
       const answer = await vscode.window.withProgress(
@@ -1129,8 +1167,9 @@ function activate(context) {
           const abort = new AbortController();
           activeAbort = abort;
           token.onCancellationRequested(() => abort.abort());
-          return api.ask({ token: auth.access_token, messages, idempotencyKey, title: 'VS Code edit: ' + relative, maxTokens: 4096, model: config.get('model', 'coding'), mode: config.get('agentMode', 'single'), method: config.get('reasoningMethod', 'evidence-first'), signal: abort.signal,
-            onGrant: async () => { await postActivity('model', L('Model is working…', 'Модель работает…')); } });
+          projectRulesHost.assertCurrent(editRuleGrants);
+          return api.ask({ beforeChat:() => projectRulesHost.assertCurrent(editRuleGrants), token: auth.access_token, messages, idempotencyKey, title: 'VS Code edit: ' + relative, maxTokens: 4096, model: config.get('model', 'coding'), mode: config.get('agentMode', 'single'), method: config.get('reasoningMethod', 'evidence-first'), signal: abort.signal,
+            onGrant: async () => { await editGuard(); projectRulesHost.assertCurrent(editRuleGrants); await postActivity('model', L('Model is working…', 'Модель работает…')); } });
         });
       if (answer?.taskId) {
         try { if (!core.pendingBlocks(await api.taskState(auth.access_token, answer.taskId))) await local.savePending(auth.scope, undefined, idempotencyKey); } catch { /* Keep the journal until settlement is known. */ }
@@ -1638,6 +1677,7 @@ function activate(context) {
     const config = vscode.workspace.getConfiguration('tvijo');
     let selection = null;
     if (includeSelection && editor && !editor.selection.isEmpty) {
+      assertShareableDocument(editor.document);
       const folder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
       selection = {
         path: folder ? path.relative(folder.uri.fsPath, editor.document.uri.fsPath).split(path.sep).join('/') : path.basename(editor.document.uri.fsPath),
@@ -1651,6 +1691,7 @@ function activate(context) {
     // allowed it. It is never written to conversation history; the display
     // text stays exactly the question the user typed.
     let contextBlock = '';
+    let chatRuleGrants = [];
     let contextSummary = null;
     const contextMode = config.get('workspaceContext', 'ask');
     let contextEnabled = contextMode === 'on';
@@ -1670,8 +1711,9 @@ function activate(context) {
     if (contextEnabled) {
       await postActivity('scan', L('Reading the project tree and manifests…', 'Смотрю проект: дерево и манифесты…'));
       try {
-        const collected = await workspaceContext.collect(vscode, { knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: config.get('workspaceContextMaxBytes', 48000) });
+        const collected = await projectRulesHost.collect({ knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: config.get('workspaceContextMaxBytes', 48000) });
         contextSummary = collected.summary;
+        chatRuleGrants = collected.ruleGrants;
         if (collected.text) contextBlock = collected.text + '\n\n';
         lastContextSummary = contextSummary;
         await postActivity('context', contextSummary.root + ' · ' + contextSummary.files + L(' files', ' файлов') + ' · ' + Math.ceil(contextSummary.bytes / 1024) + ' KiB' + (contextSummary.truncated ? L(' · bounded', ' · ограничено') : ''));
@@ -1685,7 +1727,7 @@ function activate(context) {
     const content = contextBlock + files.questionWithAttachments(core.questionWithSelection(question.trim(), selection), sentAttachments);
     const { pack } = await currentPack(auth);
     if (!await isCurrentAuth(auth)) throw new core.ServiceError('account_changed', 'The account changed. Submit again from the intended account.');
-    const messages = packs.packMessages([...(selectionState ? [] : history.map((item) => ({ role: item.role, content: item.content }))), { role: 'user', content }], pack);
+    const messages = packs.packMessages([...(selectionState ? [] : history.map((item) => ({ role: item.role, content:item.role === 'user' ? (item.display || item.content) : item.content }))), { role: 'user', content }], pack);
     core.validateMessages(messages);
     const payer = selectionState ? byokSelection.get(auth,selectionState.projectId) : null;
     const idempotencyKey = randomUUID();
@@ -1704,15 +1746,17 @@ function activate(context) {
           if (taskId) api.cancel(auth.access_token, taskId).catch(() => { /* Best effort; no retry. */ });
         });
         const runner = selectionState ? workspaceClient(api, auth.access_token).askService : api.ask;
+        projectRulesHost.assertCurrent(chatRuleGrants);
         return runner({
+          beforeChat:() => projectRulesHost.assertCurrent(chatRuleGrants),
           serviceId: grantRequest.service_id, maxMicroTvijo: grantRequest.max_micro_tvijo, payer,
-          beforeGrant: async () => { if (!await isCurrentAuth(auth) || (selectionState && byokSelection.get(auth,selectionState.projectId) !== payer)) throw new core.ServiceError('account_changed', 'The account, project or thread changed before reservation.'); },
+          beforeGrant: async () => { projectRulesHost.assertCurrent(chatRuleGrants); if (!await isCurrentAuth(auth) || (selectionState && byokSelection.get(auth,selectionState.projectId) !== payer)) throw new core.ServiceError('account_changed', 'The account, project or thread changed before reservation.'); },
           onQuote: async quote => { await confirmByok(auth,selectionState?.projectId,payer,quote); await postActivity('quote', L('Quote reserved; waiting for the model…', 'Цена зарезервирована; жду модель…')); grantRequest.quote_id = quote.quote_id; grantRequest.tariff_version = quote.tariff_version; await local.savePending(auth.scope, { idempotencyKey, request: grantRequest, apiBase: auth.api_base, tenantId: auth.tenant_id, projectId: selectionState?.projectId, threadId: selectionState?.threadId, createdAt: new Date().toISOString() }); if (chatView) await chatView.webview.postMessage({ type: 'quote', scopeKey: auth.viewScope, quote: { quote_id: quote.quote_id, ceiling_micro_tvijo: quote.ceiling_micro_tvijo, estimated_max_micro_tvijo: quote.estimated_max_micro_tvijo, tariff_version: quote.tariff_version } }); },
           projectId: selectionState?.projectId, threadId: selectionState?.threadId, maxUsd: grantRequest.max_usd,
           token: auth.access_token, messages, idempotencyKey, signal: abort.signal,
           model: grantRequest.model, mode: grantRequest.mode, method: grantRequest.method,
           title: `VS Code: ${question.trim().slice(0, 80)}`,
-          onGrant: async (grant) => { taskId = grant.id; await mapTask(auth, grant.id, {...grant, title:question.trim().slice(0,100), model:grant.model || grantRequest.model, status:'running', startedAt:Date.now()}); await postActivity('model', L('Model is working…', 'Модель работает…')); await local.savePending(auth.scope, { idempotencyKey, request: grantRequest, apiBase: auth.api_base, tenantId: auth.tenant_id, projectId: selectionState?.projectId, threadId: selectionState?.threadId, taskId: grant.id, createdAt: new Date().toISOString() }); }
+          onGrant: async (grant) => { taskId = grant.id; projectRulesHost.assertCurrent(chatRuleGrants); await mapTask(auth, grant.id, {...grant, title:question.trim().slice(0,100), model:grant.model || grantRequest.model, status:'running', startedAt:Date.now()}); await postActivity('model', L('Model is working…', 'Модель работает…')); await local.savePending(auth.scope, { idempotencyKey, request: grantRequest, apiBase: auth.api_base, tenantId: auth.tenant_id, projectId: selectionState?.projectId, threadId: selectionState?.threadId, taskId: grant.id, createdAt: new Date().toISOString() }); }
         });
       }); } catch (error) {
         const pending = local.pending(auth.scope, idempotencyKey);
@@ -1752,7 +1796,9 @@ function activate(context) {
   }
 
   function codingGuard(auth, root, epoch) {
+    const rulesEpoch = rulesRevocationEpoch;
     return async () => {
+      if (rulesEpoch !== rulesRevocationEpoch) throw new core.ServiceError('rules_changed', 'Project rules approval was revoked. Start a new task.');
       if (!await isCurrentAuth(auth) || epoch !== workspaceEpoch || !(vscode.workspace.workspaceFolders || []).some(folder => path.resolve(folder.uri.fsPath) === root)) throw new core.ServiceError('account_changed', 'The account, service, project, thread or workspace changed. Reopen the coding task before proceeding.');
     };
   }

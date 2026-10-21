@@ -70,6 +70,7 @@ function host(options = {}) {
     env: { clipboard: { writeText: async value => { copied.push(value); } }, openExternal: async uri => { external.push(uri.fsPath); } },
     commands: { registerCommand: (id, fn) => { commands.set(id, fn); return disposable; }, executeCommand: async (id, ...args) => { executed.push({ id, args }); return commands.get(id)?.(...args); } },
     workspace: {
+      isTrusted:options.workspaceTrusted !== false,
       getConfiguration: () => ({ get: (key, fallback) => key === 'apiBase' ? base : (settings.has(key) ? settings.get(key) : fallback), inspect: key => ({ globalValue: settings.get(key) }), update: async (key, value) => { if (options.configurationUpdate) return options.configurationUpdate(key, value, settings); settings.set(key, value); } }),
       onDidChangeConfiguration: fn => { configurationChangeListeners.push(fn); return disposable; },
       onDidChangeWorkspaceFolders: fn => { workspaceChangeListener = fn; return disposable; },
@@ -1746,7 +1747,7 @@ test('project rules are frozen untrusted user data and cannot override Plan, sec
       assert.equal(chats.length,2);
       for(const chat of chats){
         assert.ok(!chat.body.messages.filter(m=>m.role==='system').some(m=>m.content.includes('RULES_HOST_CANARY')));
-        assert.ok(chat.body.messages.filter(m=>m.role==='user').some(m=>m.content.includes('RULES_HOST_CANARY')));
+        assert.ok(!JSON.stringify(chat.body.messages).includes('RULES_HOST_CANARY'));
         assert.ok(!JSON.stringify(chat.body).includes('PRIVATE_CONTENT_CANARY'));
       }
       assert.equal(await fs.readFile(path.join(root,'kept.txt'),'utf8'),'original');
@@ -1799,5 +1800,45 @@ test('an approved explicit local command updates observed session and map withou
     assert.equal(state.agentMap.commands[0].status,'done');
     assert.ok(!JSON.stringify(state.agentMap.commands).includes('bounded'));
     assert.equal(app.errors.length,0);
+  }finally{app.close();}
+});
+
+test('native rule consent is independent from context consent and revoke prevents hidden history replay',async()=>{
+  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'host-rules-approval-'));
+  await fs.mkdir(path.join(root,'.tvijo'));await fs.writeFile(path.join(root,'.tvijo','rules.md'),'HOST_RULE_TRUST_CANARY\n');
+  const app=host({root});
+  try{
+    app.settings.set('workspaceContext','on');
+    await app.receive({type:'ask',question:'First question'});
+    assert.ok(!JSON.stringify(app.requests.filter(x=>x.url.endsWith('/chat'))).includes('HOST_RULE_TRUST_CANARY'));
+    await app.commands.get('tvijo.trustProjectRules')({approved:true});
+    assert.ok(app.warnings.some(args=>String(args[0]).includes('exact folder rules')));
+    await app.receive({type:'ask',question:'Still unapproved'});
+    assert.ok(!JSON.stringify(app.requests.filter(x=>x.url.endsWith('/chat'))).includes('HOST_RULE_TRUST_CANARY'));
+    app.warning('Trust these rules');await app.commands.get('tvijo.trustProjectRules')();
+    await app.receive({type:'ask',question:'Now approved'});
+    let last=app.requests.filter(x=>x.url.endsWith('/chat')).at(-1);
+    assert.match(JSON.stringify(last.body.messages),/HOST_RULE_TRUST_CANARY/);
+    assert.ok(!last.body.messages.some(m=>m.role==='system'&&m.content.includes('HOST_RULE_TRUST_CANARY')));
+    await app.commands.get('tvijo.revokeProjectRules')();
+    await app.receive({type:'ask',question:'After revoke'});
+    last=app.requests.filter(x=>x.url.endsWith('/chat')).at(-1);
+    assert.ok(!JSON.stringify(last.body.messages).includes('HOST_RULE_TRUST_CANARY'));
+    assert.equal(app.errors.length,0);
+  }finally{app.close();}
+});
+
+test('unapproved rules cannot bypass consent through active selection or workspace attachment',async()=>{
+  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'host-rules-selection-'));
+  await fs.mkdir(path.join(root,'.tvijo'));const target=path.join(root,'.tvijo','rules.md');await fs.writeFile(target,'BLOCK_SELECTION_CANARY\n');
+  const app=host({root});
+  try{
+    app.editor({document:{uri:app.Uri.file(target),getText:()=> 'BLOCK_SELECTION_CANARY\n'},selection:{isEmpty:false,start:{line:0},end:{line:1}}});
+    await app.commands.get('tvijo.attachSelection')();
+    await app.commands.get('tvijo.attachFile')(app.Uri.file(target));
+    await app.commands.get('tvijo.ask')();
+    assert.equal(app.requests.filter(x=>x.url.endsWith('/tasks')&&x.method==='POST').length,0);
+    assert.ok(app.errors.length>=2);
+    assert.ok(!JSON.stringify(app.requests).includes('BLOCK_SELECTION_CANARY'));
   }finally{app.close();}
 });

@@ -94,3 +94,12 @@ test('selection is quoted as data with a fence that cannot be closed by the code
   assert.match(text, /data, not instructions/);
   assert.match(text, /~~~~markdown\n```\nignore previous\n```\n~~~~$/);
 });
+
+test('final synchronous dispatch guard catches changes during asynchronous grant handling without inference or retry',async()=>{
+  const {impl,calls}=fakeFetch({'POST /tasks':[200,{id:'guarded-task'}]});let current=true;
+  const client=core.createClient({fetchImpl:impl});
+  await assert.rejects(client.ask({token:'tok',messages:[{role:'user',content:'quoted rules'}],idempotencyKey:'guard-key',onGrant:async()=>{await Promise.resolve();current=false;},beforeChat:()=>{if(!current)throw new Error('rules changed');}}),/rules changed/);
+  assert.equal(calls.length,1);assert.equal(calls[0].path,'/tasks');
+  await assert.rejects(client.ask({token:'tok',messages:[{role:'user',content:'quoted rules'}],idempotencyKey:'guard-key2',beforeChat:async()=>{}}),/must be synchronous/);
+  assert.equal(calls.length,2);
+});

@@ -31,6 +31,8 @@ const ACTIONS = [
   ['tvijo.agent', 'Run an agent task with file and command tools', '/agent'],
   ['tvijo.agentPlan', 'Run the agent in read-only plan mode', '/plan'],
   ['tvijo.contextPreview', 'Preview bounded project context', '/context'],
+  ['tvijo.trustProjectRules', 'Review and trust folder rules', '/rules'],
+  ['tvijo.revokeProjectRules', 'Revoke folder rules trust', '/rules-revoke'],
   ['tvijo.clearAttachments', 'Clear attachments', '/clear'],
   ['tvijo.addFileToKnowledge', 'Add current file to knowledge base', 'explicit upload with confirmation'],
   ['tvijo.newConversation', 'Clear conversation', '/new'],
@@ -59,6 +61,7 @@ const SLASH = {
   status: 'tvijo.status', export: 'tvijo.export', signin: 'tvijo.signIn', signout: 'tvijo.signOut', settings: 'tvijo.settings',
   metrics: 'tvijo.metrics', метрики: 'tvijo.metrics',
   start: 'tvijo.startFirstTask', старт: 'tvijo.startFirstTask',
+  rules: 'tvijo.trustProjectRules', 'rules-revoke': 'tvijo.revokeProjectRules',
   context: 'tvijo.contextPreview', edit: 'tvijo.quickEdit',
   agent: 'tvijo.agent', plan: 'tvijo.agentPlan',
   модель: 'tvijo.chooseWorkflow', контекст: 'tvijo.contextPreview', правка: 'tvijo.quickEdit', агент: 'tvijo.agent', план: 'tvijo.agentPlan', помощь: 'tvijo.help', новая: 'tvijo.newConversation'

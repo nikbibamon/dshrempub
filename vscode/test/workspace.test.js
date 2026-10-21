@@ -368,3 +368,15 @@ test('a project sign-out awaiting its secret deletion cannot overwrite a newer d
     assert.equal(app.state().signedIn, true);
   } finally { releaseDelete?.(); app.close(); }
 });
+
+test('shared service applies final rules guard after every asynchronous reservation callback',async()=>{
+  const calls=[];let current=true;
+  const client=workspaceClient({request:async(url,options)=>{
+    calls.push({url,...options});
+    if(url==='/services/quote')return {quote_id:'q',service_id:'standard',project_id:'p',thread_id:'t',tariff_version:'v1',ceiling_micro_tvijo:100,expires_at:Date.now()/1000+60};
+    if(url==='/tasks')return {id:'t1'};
+    throw new Error('Unexpected inference');
+  }},'test-token');
+  await assert.rejects(client.askService({messages:[{role:'user',content:'quoted rules'}],idempotencyKey:'shared-guard',title:'Guard',projectId:'p',threadId:'t',maxMicroTvijo:1000,onGrant:async()=>{await Promise.resolve();current=false;},beforeChat:()=>{if(!current)throw new Error('rules changed');}}),/rules changed/);
+  assert.deepEqual(calls.map(x=>x.url),['/services/quote','/tasks']);
+});

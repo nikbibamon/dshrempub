@@ -26,13 +26,14 @@ function host() {
     [path.join(root, '.git'), [['config', 1]]]
   ]);
   const Uri = {
-    joinPath: (base, ...parts) => ({ fsPath: path.join(base.fsPath, ...parts), path: path.join(base.fsPath, ...parts) }),
-    file: value => ({ fsPath: value, path: value })
+    joinPath: (base, ...parts) => ({ fsPath: path.join(base.fsPath, ...parts), path: path.join(base.fsPath, ...parts), scheme: base.scheme, authority: base.authority || '' }),
+    file: value => ({ fsPath: value, path: value, scheme: 'file', authority: '' })
   };
   const vscode = {
     Uri,
     FileType: { File: 1, Directory: 2, SymbolicLink: 64 },
     workspace: {
+      isTrusted: true,
       workspaceFolders: [{ uri: Uri.file(root), name: 'repo' }],
       getWorkspaceFolder: uri => uri?.fsPath?.startsWith(root) ? { uri: Uri.file(root), name: 'repo' } : undefined,
       fs: {
@@ -111,10 +112,11 @@ test('scoped rules use active and explicit known paths; Off and Preview correspo
   await fs.writeFile(path.join(root, '.tvijo', 'rules.md'), '<!-- tvijo-globs: ["src/**/*.js"] -->\nUse the project formatter.\n');
   const uri = { fsPath: root, path: root };
   const vscode = {
-    Uri: { joinPath: (baseUri, ...parts) => ({ fsPath: path.join(baseUri.fsPath, ...parts), path: path.join(baseUri.fsPath, ...parts) }) },
+    Uri: { joinPath: (baseUri, ...parts) => ({ fsPath: path.join(baseUri.fsPath, ...parts), path: path.join(baseUri.fsPath, ...parts), scheme: baseUri.scheme, authority: baseUri.authority || '' }) },
     FileType: { File: 1, Directory: 2, SymbolicLink: 64 },
     workspace: {
-      workspaceFolders: [{ uri }],
+      workspaceFolders: [{ uri: { ...uri, scheme: 'file', authority: '' } }],
+      isTrusted: true,
       getWorkspaceFolder: () => undefined,
       fs: {
         readDirectory: async directory => directory.fsPath === root ? [['.tvijo', 2]] : [],
@@ -128,7 +130,7 @@ test('scoped rules use active and explicit known paths; Off and Preview correspo
   assert.doesNotMatch(off.text, /Use the project formatter/);
   const unmatched = await collect(vscode, { maxBytes: 4096, knownPaths: ['README.md'] });
   assert.equal(unmatched.summary.rules.status, 'unmatched');
-  const preview = await collect(vscode, { maxBytes: 4096, contextMode: 'preview', knownPaths: ['src/a.js'] });
+  const preview = await collect(vscode, { maxBytes: 4096, contextMode: 'preview', knownPaths: ['src/a.js'], allowRules: () => true });
   assert.equal(preview.summary.rules.status, 'preview');
   assert.match(preview.text, /applies to: src\/a\.js/);
   assert.match(preview.text, /Use the project formatter/);
@@ -140,10 +142,67 @@ test('rules are omitted whole when wrapper plus metadata cannot fit the aggregat
   const root = await fs.mkdtemp(path.join(base, 'context-limit-'));
   await fs.mkdir(path.join(root, '.tvijo'));
   await fs.writeFile(path.join(root, '.tvijo', 'rules.md'), 'x'.repeat(12000));
-  const uri = { fsPath: root, path: root };
-  const vscode = { Uri: { joinPath: (baseUri, ...parts) => ({ fsPath: path.join(baseUri.fsPath, ...parts), path: path.join(baseUri.fsPath, ...parts) }) }, FileType: { File: 1, Directory: 2 }, workspace: { workspaceFolders: [{ uri }], getWorkspaceFolder: () => undefined, fs: { readDirectory: async () => [], stat: async target => ({ type: (await fs.stat(target.fsPath)).isDirectory() ? 2 : 1 }), readFile: target => fs.readFile(target.fsPath) } } };
-  const result = await collect(vscode, { maxBytes: 4096 });
+  const uri = { fsPath: root, path: root, scheme: 'file', authority: '' };
+  const vscode = { Uri: { joinPath: (baseUri, ...parts) => ({ fsPath: path.join(baseUri.fsPath, ...parts), path: path.join(baseUri.fsPath, ...parts), scheme: baseUri.scheme, authority: baseUri.authority || '' }) }, FileType: { File: 1, Directory: 2 }, workspace: { isTrusted: true, workspaceFolders: [{ uri }], getWorkspaceFolder: () => undefined, fs: { readDirectory: async () => [], stat: async target => ({ type: (await fs.stat(target.fsPath)).isDirectory() ? 2 : 1 }), readFile: target => fs.readFile(target.fsPath) } } };
+  const result = await collect(vscode, { maxBytes: 4096, allowRules: () => true });
   assert.equal(result.summary.rules.status, 'omitted-limit');
   assert.doesNotMatch(result.text, /PROJECT RULES|x{20}/);
   assert.ok(Buffer.byteLength(result.text, 'utf8') <= 4096);
+});
+
+test('rules default deny and fail closed in Restricted Mode and when approval throws', async () => {
+  const root = await fs.mkdtemp(path.join(process.env.TVIJO_FIT_TEST_TMP || os.tmpdir(), 'context-gate-'));
+  await fs.mkdir(path.join(root, '.tvijo'));
+  await fs.writeFile(path.join(root, '.tvijo', 'rules.md'), 'RULES_CANARY: never send without approval\n');
+  const uri = { fsPath: root, path: root, scheme: 'file', authority: '' };
+  const vscode = {
+    Uri: { joinPath: (baseUri, ...parts) => ({ fsPath: path.join(baseUri.fsPath, ...parts), path: path.join(baseUri.fsPath, ...parts), scheme: baseUri.scheme, authority: baseUri.authority || '' }) },
+    FileType: { File: 1, Directory: 2, SymbolicLink: 64 },
+    workspace: {
+      isTrusted: true,
+      workspaceFolders: [{ uri }],
+      getWorkspaceFolder: () => undefined,
+      fs: { readDirectory: async () => [], stat: async target => ({ type: (await fs.stat(target.fsPath)).isDirectory() ? 2 : 1 }), readFile: target => fs.readFile(target.fsPath) }
+    }
+  };
+  const denied = await collect(vscode, { maxBytes: 4096 });
+  assert.equal(denied.summary.rules.status, 'unapproved');
+  assert.doesNotMatch(denied.text, /RULES_CANARY/);
+  const thrown = await collect(vscode, { maxBytes: 4096, allowRules: () => { throw new Error('no'); } });
+  assert.equal(thrown.summary.rules.status, 'unapproved');
+  vscode.workspace.isTrusted = false;
+  const restricted = await collect(vscode, { maxBytes: 4096, allowRules: () => true });
+  assert.equal(restricted.summary.rules.status, 'unapproved');
+  vscode.workspace.isTrusted = undefined;
+  const missingTrust = await collect(vscode, { maxBytes: 4096, allowRules: () => true });
+  assert.equal(missingTrust.summary.rules.status, 'unapproved');
+});
+
+test('explicit listed folder wins over active folder and unlisted folder is refused', async () => {
+  const { vscode, document } = host();
+  const second = { uri: vscode.Uri.file('/second'), name: 'second' };
+  vscode.workspace.workspaceFolders.push(second);
+  const selected = await collect(vscode, { document, folder: second, maxBytes: 4096 });
+  assert.equal(selected.summary.root, 'second');
+  const unlisted = { uri: vscode.Uri.file('/outside'), name: 'outside' };
+  await assert.rejects(collect(vscode, { document, folder: unlisted, maxBytes: 4096 }), /no longer available/);
+});
+
+test('rules file opened as an active document never enters ordinary project context', async () => {
+  const { vscode, document } = host();
+  document.uri = vscode.Uri.file('/repo/.tvijo/rules.md');
+  document.getText = () => 'PRIVATE_PREVIEW_CANARY';
+  const value = await collect(vscode, { document, selectionText: 'PRIVATE_SELECTION_CANARY', maxBytes: 48000 });
+  assert.equal(value.summary.activePath, '.tvijo/rules.md');
+  assert.doesNotMatch(value.text, /PRIVATE_(?:PREVIEW|SELECTION)_CANARY/);
+});
+
+test('non-file roots and local URIs with an authority cannot send rules', async () => {
+  const { vscode } = host();
+  vscode.workspace.workspaceFolders[0].uri = { fsPath: '/repo', path: '/repo', scheme: 'vscode-remote', authority: 'ssh-host' };
+  const value = await collect(vscode, { maxBytes: 4096, allowRules: () => true });
+  assert.equal(value.summary.rules.status, 'unsupported');
+  vscode.workspace.workspaceFolders[0].uri = { fsPath: '/repo', path: '/repo', scheme: 'file', authority: 'server' };
+  const remoteAuthority = await collect(vscode, { maxBytes: 4096, allowRules: () => true });
+  assert.equal(remoteAuthority.summary.rules.status, 'unsupported');
 });

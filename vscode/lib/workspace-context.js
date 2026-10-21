@@ -43,11 +43,19 @@ function printable(text) {
   return bad <= Math.max(1, text.length * 0.01);
 }
 
-async function collect(vscode, { document = null, selectionText = '', maxBytes = DEFAULT_MAX_BYTES, knownPaths = [], knownSecrets = [], contextMode = 'on' } = {}) {
+function sameFolder(a, b) {
+  return !!a?.uri && !!b?.uri && a.uri.scheme === b.uri.scheme &&
+    (a.uri.authority || '') === (b.uri.authority || '') && a.uri.fsPath === b.uri.fsPath;
+}
+
+async function collect(vscode, { document = null, selectionText = '', maxBytes = DEFAULT_MAX_BYTES, knownPaths = [], knownSecrets = [], contextMode = 'on', folder: requestedFolder = null, allowRules } = {}) {
   const folders = vscode.workspace.workspaceFolders || [];
   if (!folders.length) return { text: '', summary: { root: '', files: 0, bytes: 0, truncated: false, activePath: '', rules: { status: 'unavailable' } } };
-  const activeFolder = document ? vscode.workspace.getWorkspaceFolder(document.uri) : null;
-  const folder = activeFolder || folders[0];
+  const requested = requestedFolder && folders.find(candidate => sameFolder(candidate, requestedFolder));
+  const activeCandidate = document ? vscode.workspace.getWorkspaceFolder(document.uri) : null;
+  const activeFolder = activeCandidate && folders.find(candidate => sameFolder(candidate, activeCandidate));
+  if (requestedFolder && !requested) throw new Error('The selected workspace folder is no longer available.');
+  const folder = requested || activeFolder || folders[0];
   const root = folder.uri;
   const rootName = path.basename(folder.uri.fsPath);
   const limit = Math.min(Math.max(Number(maxBytes) || DEFAULT_MAX_BYTES, 4096), 200000);
@@ -82,6 +90,7 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
   };
 
   const absoluteToRelative = (uri) => {
+    if (!uri || uri.scheme !== 'file' || (uri.authority || '') !== '' || root.scheme !== 'file' || (root.authority || '') !== '') return '';
     const rel = path.relative(folder.uri.fsPath, uri.fsPath);
     if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return '';
     return rel.split(path.sep).join('/');
@@ -107,7 +116,7 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
     } catch { /* A missing manifest is normal. */ }
   }
 
-  if (document && activePath && !seen.has(activePath) && !EXCLUDED_FILE.test(path.basename(activePath)) && !activePath.split('/').some((part) => EXCLUDED_DIRS.has(part))) {
+  if (document && activePath && activePath !== '.tvijo' && !activePath.startsWith('.tvijo/') && !seen.has(activePath) && !EXCLUDED_FILE.test(path.basename(activePath)) && !activePath.split('/').some((part) => EXCLUDED_DIRS.has(part) || part.startsWith('.'))) {
     seen.add(activePath);
     const body = selectionText && !document.isDirty ? selectionText : document.getText();
     const clipped = body.slice(0, MAX_FILE_BYTES);
@@ -116,12 +125,18 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
     push('\n--- ' + label + ': ' + activePath + (selectionText ? ' (lines ' + start + '-' + (document.selection.end.line + 1) + ')' : '') + ' ---\n' + clipped + '\n');
   }
 
-  const rules = projectRules.collect({
-    root: folder.uri.fsPath,
-    knownPaths: [...(Array.isArray(knownPaths) ? knownPaths : []), ...(activePath ? [activePath] : [])],
-    knownSecrets,
-    contextMode
-  });
+  const supportedRoot = root.scheme === 'file' && (root.authority || '') === '';
+  const rules = contextMode === 'off'
+    ? { text: '', status: 'disabled', paths: [] }
+    : !supportedRoot
+      ? { text: '', status: 'unsupported', paths: [] }
+      : projectRules.collect({
+        root: folder.uri.fsPath,
+        knownPaths: [...(Array.isArray(knownPaths) ? knownPaths : []), (activePath && activePath !== '.tvijo' && !activePath.startsWith('.tvijo/')) ? activePath : ''].filter(Boolean),
+        knownSecrets,
+        contextMode,
+        allowRules: (rulesRoot, hash) => vscode.workspace.isTrusted === true && typeof allowRules === 'function' && allowRules(rulesRoot, hash) === true
+      });
   let rulesStatus = { status: rules.status, paths: rules.paths || [] };
   if (rules.text) {
     const end = '[END WORKSPACE CONTEXT]\n';

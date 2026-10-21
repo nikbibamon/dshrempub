@@ -146,7 +146,7 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
   }
 
   // One paid turn = one task grant with a caller idempotency key, then one chat call. Never retried.
-  async function ask({ maxUsd = 1, token, messages, idempotencyKey, title = 'VS Code', maxTokens = 2048, model = 'coding', mode = 'single', method = 'evidence-first', signal, onGrant }) {
+  async function ask({ maxUsd = 1, token, messages, idempotencyKey, title = 'VS Code', maxTokens = 2048, model = 'coding', mode = 'single', method = 'evidence-first', signal, onGrant, beforeChat }) {
     validateMessages(messages);
     let grant;
     try { grant = await request('/tasks', { method: 'POST', token, signal, body: { title: title.slice(0, 120), max_usd: String(maxUsd), model, mode, method, idempotency_key: idempotencyKey } }); }
@@ -156,6 +156,7 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
     }
     if (!grant?.id) throw new ServiceError('incomplete', 'Service returned a task without an id');
     if (onGrant) await onGrant(grant);
+    if (beforeChat) { const result = beforeChat(); if (result && typeof result.then === 'function') throw new ServiceError('invalid_guard', 'The final dispatch guard must be synchronous.'); }
     const response = await request(`/tasks/${encodeURIComponent(grant.id)}/chat`, { method: 'POST', token, signal, timeoutMs: 210_000, body: { messages, max_tokens: maxTokens } });
     const content = response?.choices?.[0]?.message?.content;
     if (typeof content !== 'string') throw new ServiceError('no_output', 'Service returned no assistant text');

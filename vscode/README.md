@@ -496,3 +496,13 @@ can be proposed for a multiline block, with explicit diff confirmation in every 
 Indentation differences produce a reread hint; the extension does not normalize them.
 
 Edit proposals also bind the original disk identity and editor version. Binary, invalid UTF-8, oversized and hard-linked write targets are refused. A concurrent change invalidates the proposal. Explicit local commands appear in the same observed session and command map without creating a model task.
+
+
+### Review project rules before sharing
+
+Global context consent does not approve `.tvijo/rules.md`. Run **Tvijo: Review and trust folder
+rules** to review one local folder and confirm its exact rules snapshot in a native dialog.
+**Preview bounded project context** also offers review/trust and revoke actions. Changes to the
+file require new approval; Restricted Mode denies inclusion. Use **Tvijo: Revoke folder rules
+trust** to stop current use. Already sent conversation messages remain available. Rules are
+quoted project data and do not grant command, write or budget permissions.

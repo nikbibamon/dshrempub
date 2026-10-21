@@ -144,3 +144,21 @@ Real merchant payment and customer-provider activation remain unavailable until 
 ## Project rules (0.8.0)
 
 The optional root-local .tvijo/rules.md file is read only under project context consent or explicit local Preview. It is at most16KiB, scope-filtered against known workspace paths and refused for unsafe links, invalid encoding or detected credential content. Included project context is quoted user data; its snapshot is frozen for the run and cannot modify host permissions, model, endpoint, payer or budgets. Off excludes it. Rejected content is not echoed in the summary. Export uses visible conversation fields and excludes hidden project data. Credential detection is conservative, not a guarantee that arbitrary project text is secret-free.
+
+
+## Folder rules trust (0.8.1)
+
+Project context consent and rules approval are separate. Use **Preview project context**, then
+**Review and trust folder rules**, or the command palette. Approval covers a local canonical
+folder and the SHA-256 of the complete rules file, including glob metadata and line endings.
+The host stores the approval in local extension state, without Settings Sync. A changed file
+requires another native confirmation. Restricted Mode, unsupported URI authorities and unsafe
+paths deny rules inclusion. Previewing alone grants nothing; unapproved rules remain out of the
+ordinary preview payload. The approval flow shows the validated rules locally before asking.
+
+**Revoke folder rules trust** stops active requests and invalidates prepared rule context.
+Previously sent messages and model answers remain in the conversation. Future history uses
+visible user messages rather than hidden generated context. Explicit pasted text and separately
+approved local commands remain the user's responsibility; this is not a sandbox for arbitrary
+project commands. Rule text cannot authorize tools, change budgets or alter provider key custody.
+Private `.tvijo` files are not ordinary attachments or Agent file-tool targets.
