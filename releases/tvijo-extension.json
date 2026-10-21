@@ -1,0 +1,312 @@
+{
+  "schema": "tvijo.extension-release/v1",
+  "as_of": "2026-10-21",
+  "product": {
+    "id": "tvijo-dshrem-vscode",
+    "name": "Tvijo DSHREM for VS Code",
+    "summary": {
+      "en": "Coding assistance with selected context, reviewable edits and bounded tasks.",
+      "ru": "Помощь с кодом: выбранный контекст, проверяемые правки и задачи с лимитом."
+    }
+  },
+  "latest_version": "0.8.3",
+  "channel": "preview",
+  "publication": {
+    "status": "prepared",
+    "published_at": null,
+    "note": {
+      "en": "Validated preview. Website download publication is pending; check the version on the download page.",
+      "ru": "Проверенный preview. Публикация загрузки на сайте ожидается; сверяйте версию на странице скачивания."
+    }
+  },
+  "package": {
+    "filename": "tvijo-dshrem-0.8.3.vsix",
+    "sha256": "b5a03cf7e5033e2968ff2e5b64f8cf3cdbc3a43244b46e20d4fce9f88cdb0e86",
+    "bytes": 671425,
+    "editor_requirement": "^1.90.0",
+    "verified_environment": "VS Code 1.142.0 on Linux",
+    "syntax_check_platforms": [
+      "linux"
+    ],
+    "source_commit": "4a13d5380f2f6bff78d2ae2943fcf99116adfee4"
+  },
+  "links": {
+    "download": "https://dsh.tvijo.com/download#vscode",
+    "source": "https://github.com/nikbibamon/dshrempub/tree/4a13d5380f2f6bff78d2ae2943fcf99116adfee4",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/4a13d5380f2f6bff78d2ae2943fcf99116adfee4/vscode/CHANGELOG.md",
+    "issues": "https://github.com/nikbibamon/dshrempub/issues"
+  },
+  "features": [
+    {
+      "id": "rewind",
+      "since": "0.7.0",
+      "title": {
+        "en": "Review and rewind",
+        "ru": "Проверить и откатить"
+      },
+      "description": {
+        "en": "Local checkpoints support reviewed restore after an agent edit.",
+        "ru": "Локальные контрольные точки позволяют восстановить изменения агента после проверки."
+      }
+    },
+    {
+      "id": "context",
+      "since": "0.7.2",
+      "title": {
+        "en": "Context you choose",
+        "ru": "Контекст, который выбираете вы"
+      },
+      "description": {
+        "en": "Attach files, Problems or observed terminal output; preview before sending.",
+        "ru": "Добавить файлы, Problems или наблюдаемый вывод терминала; проверить до отправки."
+      }
+    },
+    {
+      "id": "rules",
+      "since": "0.8.1",
+      "title": {
+        "en": "Explicit project rules",
+        "ru": "Явные правила проекта"
+      },
+      "description": {
+        "en": "Approve the exact rules of one folder and revoke them when needed.",
+        "ru": "Одобрить точные правила одной папки и отозвать доверие при необходимости."
+      }
+    },
+    {
+      "id": "syntax",
+      "since": "0.8.2",
+      "title": {
+        "en": "Feedback before saving",
+        "ru": "Обратная связь до сохранения"
+      },
+      "description": {
+        "en": "Opt in to Linux-host Python/Node syntax checks for unsaved Tvijo edits.",
+        "ru": "Включить проверки синтаксиса Python/Node несохранённых правок Tvijo на Linux-хосте."
+      }
+    },
+    {
+      "id": "plan",
+      "since": "0.8.3",
+      "title": {
+        "en": "Plan with visibility",
+        "ru": "План с обзором изменений"
+      },
+      "description": {
+        "en": "Inspect dirty buffers and search disk literally, with writes and commands disabled.",
+        "ru": "Изучить изменённые буферы и искать буквальный текст на диске без записи и команд."
+      }
+    },
+    {
+      "id": "budget",
+      "since": "0.7.4",
+      "title": {
+        "en": "Visible work and limits",
+        "ru": "Видимая работа и лимиты"
+      },
+      "description": {
+        "en": "See observed run state while service task reservations retain their limits.",
+        "ru": "Видеть наблюдаемое состояние работы при сохранении лимитов резервирования задач сервиса."
+      }
+    }
+  ],
+  "releases": [
+    {
+      "version": "0.8.3",
+      "date": "2026-10-21",
+      "title": {
+        "en": "Inspect before you act",
+        "ru": "Изучить перед действием"
+      },
+      "changes": [
+        {
+          "en": "Plan shows safe open dirty-buffer paths and approximate changed-line spans.",
+          "ru": "Plan показывает безопасные открытые изменённые буферы и примерную сводку строк."
+        },
+        {
+          "en": "Plan uses bounded literal search without a search process. Disk search can differ from unsaved buffers.",
+          "ru": "В Plan ограниченный буквальный поиск без запуска процесса. Диск может отличаться от несохранённого буфера."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Plan does not run shell or Git commands and cannot write files.",
+          "ru": "Plan не запускает shell или Git и не записывает файлы."
+        }
+      ]
+    },
+    {
+      "version": "0.8.2",
+      "date": "2026-10-21",
+      "title": {
+        "en": "Syntax feedback for unsaved edits",
+        "ru": "Проверки синтаксиса несохранённых правок"
+      },
+      "changes": [
+        {
+          "en": "Optional Python AST and Node syntax checks use a separately approved interpreter on a Linux extension host.",
+          "ru": "Необязательные проверки Python AST и Node syntax используют отдельно одобренный интерпретатор на Linux-хосте расширения."
+        },
+        {
+          "en": "Generic errors appear in Problems and the next ordinary Agent step, without saving or automatic fixes.",
+          "ru": "Обезличенные ошибки видны в Problems и следующем обычном ходе Agent, без сохранения и автоисправлений."
+        },
+        {
+          "en": "Host-local rule approvals need review again after the scope update.",
+          "ru": "После обновления привязки к хосту прежнее доверие правилам требует повторной проверки."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Off by default; Linux only; syntax checking does not load project linter plugins.",
+          "ru": "По умолчанию выключено; только Linux; проверки синтаксиса не загружают плагины линтера проекта."
+        }
+      ]
+    },
+    {
+      "version": "0.8.1",
+      "date": "2026-10-21",
+      "title": {
+        "en": "Your folder, your rules",
+        "ru": "Ваша папка — ваши правила"
+      },
+      "changes": [
+        {
+          "en": "Preview, explicitly trust and revoke the exact rules of one folder. Changed rules need new approval.",
+          "ru": "Предпросмотр, явное доверие и отзыв для точных правил одной папки. Изменённые правила требуют нового согласия."
+        },
+        {
+          "en": "Unapproved rules stay out of generated context and file attachments.",
+          "ru": "Неодобренные правила не попадают в автоматически собранный контекст и вложения."
+        }
+      ],
+      "limitations": []
+    },
+    {
+      "version": "0.8.0",
+      "date": "2026-10-21",
+      "title": {
+        "en": "More precise local edits",
+        "ru": "Более точные локальные правки"
+      },
+      "changes": [
+        {
+          "en": "Offer uniquely anchored LF/CRLF replacements with explicit confirmation.",
+          "ru": "Предлагать однозначно привязанные LF/CRLF-замены с явным подтверждением."
+        },
+        {
+          "en": "Parse command arguments without a shell; add scoped project rules with size limits.",
+          "ru": "Разбирать аргументы команд без shell; добавить правила проекта с областями действия и лимитом размера."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "This is a narrow line-ending fallback, not arbitrary whitespace-fuzzy matching.",
+          "ru": "Это узкий механизм для переводов строк, а не произвольный fuzzy-поиск по пробелам."
+        }
+      ]
+    },
+    {
+      "version": "0.7.4",
+      "date": "2026-10-21",
+      "title": {
+        "en": "See the active work",
+        "ru": "Видеть активную работу"
+      },
+      "changes": [
+        {
+          "en": "Elapsed time and observed agent counts open Agent Map; local command lifecycle is listed separately.",
+          "ru": "Таймер и наблюдаемые агенты открывают Agent Map; состояние локальных команд показано отдельно."
+        }
+      ],
+      "limitations": []
+    },
+    {
+      "version": "0.7.3",
+      "date": "2026-10-21",
+      "title": {
+        "en": "Diagnostics after an edit",
+        "ru": "Диагностики после правки"
+      },
+      "changes": [
+        {
+          "en": "The next Agent step receives bounded Error and Warning diagnostics for the edited file.",
+          "ru": "Следующий ход Agent получает ограниченный список Error и Warning изменённого файла."
+        }
+      ],
+      "limitations": []
+    },
+    {
+      "version": "0.7.2",
+      "date": "2026-10-21",
+      "title": {
+        "en": "Choose your context",
+        "ru": "Выбрать контекст"
+      },
+      "changes": [
+        {
+          "en": "One actions menu for files, Problems, terminal output, export and Rewind, with removable context previews.",
+          "ru": "Единое меню для файлов, Problems, вывода терминала, экспорта и Rewind с удаляемым предпросмотром контекста."
+        }
+      ],
+      "limitations": []
+    },
+    {
+      "version": "0.7.1",
+      "date": "2026-10-21",
+      "title": {
+        "en": "Choose a working mode",
+        "ru": "Выбрать режим работы"
+      },
+      "changes": [
+        {
+          "en": "Manual, Edit automatically, Plan and Auto expose the existing permission choices before starting work.",
+          "ru": "Manual, Edit automatically, Plan и Auto показывают разрешения до начала работы."
+        }
+      ],
+      "limitations": []
+    },
+    {
+      "version": "0.7.0",
+      "date": "2026-10-21",
+      "title": {
+        "en": "Rewind local changes",
+        "ru": "Откатить локальные изменения"
+      },
+      "changes": [
+        {
+          "en": "Inspect local checkpoints and restore a selected run step with conflict confirmation.",
+          "ru": "Просмотреть локальные контрольные точки и восстановить выбранный шаг с подтверждением конфликтов."
+        }
+      ],
+      "limitations": []
+    }
+  ],
+  "limits": [
+    {
+      "en": "Python/Node syntax checks need separate approval and a Linux extension host; they are off by default.",
+      "ru": "Проверки синтаксиса Python/Node требуют отдельного согласия и Linux-хоста расширения; по умолчанию выключены."
+    },
+    {
+      "en": "These checks do not load project linter configurations, run project code or save your buffer.",
+      "ru": "Эти проверки не загружают конфигурацию линтера проекта, не запускают код проекта и не сохраняют буфер."
+    },
+    {
+      "en": "Plan has fixed inspections, not a shell or Git interface. Its line spans are approximate.",
+      "ru": "Plan поддерживает фиксированные проверки, а не shell или Git. Сводка строк приблизительная."
+    },
+    {
+      "en": "Windows/macOS editor bundles 0.1.0 still contain extension 0.5.5. Updating the standalone VSIX does not rebuild those bundles.",
+      "ru": "Сборки редактора Windows/macOS 0.1.0 по-прежнему содержат расширение 0.5.5. Обновление отдельного VSIX не пересобирает эти редакторы."
+    }
+  ],
+  "verification": {
+    "date": "2026-10-21",
+    "cli_tests": 9,
+    "extension_tests": 483,
+    "native_gui": {
+      "en": "Actual VS Code UI with synthetic local authentication/model replies; live-provider inference was not tested.",
+      "ru": "Настоящий интерфейс VS Code с синтетическим локальным входом и ответами модели; запросы живому провайдеру не проверялись."
+    }
+  }
+}

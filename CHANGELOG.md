@@ -1,0 +1,91 @@
+# Changelog
+
+Extension release notes. The detailed history is in [vscode/CHANGELOG.md](vscode/CHANGELOG.md).
+
+## 0.8.3 — 2026-10-21
+
+- Add fixed Plan operations for the selected workspace and open dirty-buffer status or approximate changed-line spans.
+- Keep buffer status metadata-only; cap diff inspection and omit raw source from its results.
+- Use bounded built-in literal file search in Plan, with partial/truncation markers and no search subprocess.
+- Keep Plan writes and shell commands disabled. Buffer summaries describe unsaved editor state, not Git or staged changes; search reads disk.
+
+## 0.8.2 — 2026-10-21
+
+- Add separately approved fixed Python AST / Node syntax checks for unsaved Tvijo edits on Linux extension hosts.
+- Show bounded generic errors in Problems and in the next Agent tool result; clear stale owned markers on edits or disable.
+- Keep checks off by default, use one process at a time and four checks per run, without automatic saving or fixing.
+- Validate the selected native interpreter, probe valid/invalid input and execute its held file through a Linux FD.
+- Bind folder approvals to host-local storage identity. Earlier folder approvals need review again after this update.
+- Other extension features remain available on their supported platforms; these automatic checks currently require Linux.
+
+## 0.8.1 — 2026-10-21
+
+- Require separate native approval for the exact raw bytes of one local folder's rules.
+- Offer review/trust/revoke from project context preview and the command palette; no new setting.
+- Deny unapproved rules in automatic context, active selections, file attachments and agent file tools.
+- Recheck prepared rules before model dispatch; changed rules, revocation and Restricted Mode deny inclusion.
+- Preserve local history while excluding hidden project context from subsequent history requests.
+
+## 0.8.0 — 2026-10-21
+
+- Add uniquely anchored LF/CRLF replacement proposals with explicit confirmation.
+- Parse local commands as literal argv, apply token denials before approval and execute with shell:false.
+- Add bounded scoped .tvijo/rules.md project context, consent/preview status and untrusted user-data placement.
+- Preserve settings, budget reservations, provider credential custody, diagnostics, run chips and Rewind.
+
+
+## 0.7.4
+
+- Add run elapsed time anchored to host start and end timestamps, with an observed running agent count that opens Agent Map.
+- Show scoped local command lifecycle rows separately from agent execution records; command output and arguments are not shown in the map.
+- Pass cancellation to owned command processes and report timeout, errors, and observed exits.
+
+## 0.7.3 — 2026-10-21
+
+- SPEC-215 slice 4: after each successful Agent write or replacement, attach Error/Warning
+  diagnostics for that changed file to the next agent step. Feedback records the actual
+  document version, freshness and truncation, with a 20-diagnostic per-file cap and an
+  8 KiB serialized limit. Empty snapshots do not claim tests or compilation passed.
+- Diagnostics are untrusted tool data; no buffer is saved and no new setting is added.
+- Version 0.7.3. No provider or server route changes.
+
+## 0.7.2 — 2026-10-21
+
+- Add the shared `+` and slash action registry for workspace file attachment/mentions,
+  safe Problems and observed Terminal captures, conversation actions, Rewind, export
+  and model switching. The compact EN/RU action menu supports keyboard navigation.
+- Resolve inline workspace file mentions before sending, with a bounded ambiguity
+  picker and workspace, symlink and secret-path checks. Captures are labelled untrusted,
+  previewable and removable; explicit attachments are snapshotted into Agent/Plan runs.
+- Add optional VS Code shell-integration tail capture (4 terminals, 100 lines and 8 KiB),
+  resetting on account/workspace changes. Add bounded allowlisted Markdown export with
+  known-token and common-credential redaction.
+- Version 0.7.2. No service route or setting changes.
+
+## 0.7.1 — 2026-10-21
+
+- Add a compact English/Russian Chat and Agent preset picker: Manual, Edit automatically,
+  Plan and Auto. The host validates scope and idle state, updates both existing approval
+  settings, then verifies their effective values before reporting success.
+- Preserve ordinary-chat `agentMode` routing and Quick Edit `autoApply`. Show externally
+  configured false/true approval flags as Custom. Snapshot the selected approval flags at
+  each Agent run start.
+- Auto keeps the existing exact command vectors, clean command environment and blocklist.
+  It can apply new files and unique exact replacements; replacing an existing file wholesale
+  still asks. Plan rejects shell bang commands and write-capable slash actions in its composer.
+- Restore normal Shift+Tab focus navigation and add keyboard operation for the mode menu.
+
+## 0.7.0 — 2026-10-21
+
+- Acceptance correction: commit each new snapshot before pruning older recovery points;
+  failed storage writes preserve existing points. Restore validates opened file identity
+  and bytes before writing, and recreates a deleted original only after approval.
+- SPEC-215 slice 1: local Rewind checkpoints before Agent write/replace, Quick Edit,
+  and reviewed coding proposal Apply. Disk bytes and editor input are preserved under
+  global storage, with SHA256 verification, a seven-day TTL and a 50 MiB total cap.
+- Header **… → Rewind…**, **Tvijo: Rewind** and `/rewind`: recent runs → step time,
+  files and model → restore before that step and undo later steps in the same run.
+- Changed files/buffers require Overwrite or Skip; deleting newly created files always
+  requires confirmation. Recovery data never joins service requests, exports or logs.
+  A local chat note reports restored/skipped counts. No new settings or server endpoint.
+- Agent Map now shows both scrollbars, starts at the top, and keeps its details pane.

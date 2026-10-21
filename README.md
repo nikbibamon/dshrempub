@@ -89,3 +89,9 @@ TVIJO extension 0.8.3 adds bounded Plan inspection of open dirty buffers and
 approximate line spans. Plan search is literal and reads disk without starting a
 search process. Plan shell and writes stay disabled; buffer summaries are not Git
 status. Existing reservation, context consent and Rewind controls are preserved.
+
+
+Release data for the extension is maintained in [releases/tvijo-extension.json](releases/tvijo-extension.json).
+The current validated source preview is 0.8.3; website download publication is prepared separately.
+[Changelog](CHANGELOG.md) describes the accepted changes. Windows/macOS editor bundles have
+their own versions and do not update when the standalone extension changes.
