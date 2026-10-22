@@ -9,7 +9,7 @@
       "ru": "Помощь с кодом: выбранный контекст, проверяемые правки и задачи с лимитом."
     }
   },
-  "latest_version": "0.10.1",
+  "latest_version": "0.10.2",
   "channel": "preview",
   "publication": {
     "status": "prepared",
@@ -20,18 +20,18 @@
     }
   },
   "package": {
-    "filename": "tvijo-dshrem-0.10.1.vsix",
+    "filename": "tvijo-dshrem-0.10.2.vsix",
     "editor_requirement": "^1.90.0",
-    "sha256": "9c131734f83f2c69de7721830bb2aab48906ec20a096df8c5c1a9ce4062f6133",
-    "bytes": 741612,
-    "source_commit": "56ac7781c7d8b48bbe65a000d60e4bd279df2ff7",
-    "verified_environment": "Offline Node.js tests and reproducible Python packager on Linux; 0.10.1 native-host activation NOT_RUN"
+    "sha256": "f2dff762ba7abea9d7e6337809b0bbbb751812c1c7059c376bad721d0c810d36",
+    "bytes": 746528,
+    "source_commit": "0dc7d6c37678817b040aba2d5099cd0fdfc784a1",
+    "verified_environment": "596 extension checks; two synthetic-host Chromium viewport cases; 0.10.2 native VS Code dialog integration NOT_RUN"
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
     "issues": "https://github.com/nikbibamon/dshrempub/issues",
-    "source": "https://github.com/nikbibamon/dshrempub/tree/56ac7781c7d8b48bbe65a000d60e4bd279df2ff7",
-    "changelog": "https://github.com/nikbibamon/dshrempub/blob/56ac7781c7d8b48bbe65a000d60e4bd279df2ff7/vscode/CHANGELOG.md"
+    "source": "https://github.com/nikbibamon/dshrempub/tree/0dc7d6c37678817b040aba2d5099cd0fdfc784a1",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/0dc7d6c37678817b040aba2d5099cd0fdfc784a1/vscode/CHANGELOG.md"
   },
   "features": [
     {
@@ -108,6 +108,30 @@
     }
   ],
   "releases": [
+    {
+      "version": "0.10.2",
+      "date": "2026-10-22",
+      "title": {
+        "en": "Sign-in and preview context repair",
+        "ru": "Исправление входа и пробного контекста"
+      },
+      "changes": [
+        {
+          "en": "Keep browser approval available after copying the same sign-in code; separate authentication from account limits.",
+          "ru": "После копирования кода сохранять переход к подтверждению; отделять статус входа от лимитов аккаунта."
+        },
+        {
+          "en": "Bound automatic preview project context and show actionable context or reconciliation errors without paid retries.",
+          "ru": "Ограничивать автоматически собранный контекст и показывать понятные ошибки без повторов платных запросов."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Native VS Code dialog integration has unit coverage but no independent native GUI run; Marketplace publication is not performed.",
+          "ru": "Диалог VS Code покрыт юнит-проверками, но отдельный прогон в нативном редакторе не выполнен; публикации в Marketplace не было."
+        }
+      ]
+    },
     {
       "version": "0.10.1",
       "date": "2026-10-22",
@@ -348,13 +372,15 @@
   "verification": {
     "date": "2026-10-22",
     "cli_tests": 10,
-    "extension_tests": 588,
+    "extension_tests": 596,
     "launcher_tests": 7,
     "python_release_checks": 16,
     "reproducible_vsix": true,
     "native_gui": {
-      "en": "0.10.1 native-host activation NOT_RUN. Historical 0.10.0 synthetic-host evidence is not acceptance of this build.",
-      "ru": "Активация 0.10.1 в редакторе не проверялась. Историческая синтетическая проверка 0.10.0 не является приёмкой этой сборки."
-    }
+      "en": "0.10.2 native dialog integration NOT_RUN; synthetic host and rendered webview checked.",
+      "ru": "Нативный диалог 0.10.2 отдельно не проверялся; проверены синтетический хост и отрисованный webview."
+    },
+    "gateway_checks": 20,
+    "browser_viewport_cases": 2
   }
 }
