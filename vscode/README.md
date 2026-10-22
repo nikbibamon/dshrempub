@@ -1,6 +1,6 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.9.3. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.3. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
@@ -44,6 +44,17 @@ When only indentation differs in a unique block, the tool returns its exact curr
 text (up to 40 lines and 4 KiB) so the next step can retry without a separate read.
 This hint makes no edit. Combined trailing-whitespace and line-ending drift still
 requires the model to retry with exact text.
+
+## Preview context and activation
+
+After installing an update, run **Developer: Reload Window** to activate it. The
+installed package version and the currently running extension host can differ
+until reload. Version0.10.3 checks fresh account tokens and the complete escaped
+request before reservation, omitting optional automatic context when it cannot
+fit. Explicit selections and attachments are never silently shortened. If they
+exceed the allowance, the draft remains available for a new conversation or a
+smaller selected excerpt. Screenshots provide extracted text, not visual image
+understanding.
 
 ## Interrupted runs and drafts
 

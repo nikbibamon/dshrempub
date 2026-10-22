@@ -17,7 +17,7 @@ function chatHtml(webview) {
 ${THEME_CSS}
 ${CHAT_CSS}
 ${REWIND_CSS}
-#recovery{flex-shrink:0;max-height:260px;overflow:auto;padding:8px 12px;border-top:1px solid var(--border)}#recovery h2{font-size:13px;margin:0 0 6px}.recovery-card{padding:8px;margin:6px 0;border:1px solid var(--border);border-radius:6px}.recovery-card p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 6px}.recovery-actions{display:flex;flex-wrap:wrap;gap:6px}.recovery-actions button{font-size:11px}#recovery-notes{font-size:11px;overflow-wrap:anywhere}
+#recovery{flex-shrink:0;max-height:260px;overflow:auto;padding:8px 12px;border-top:1px solid var(--border)}#recovery summary{font-size:12px;cursor:pointer;padding:4px 0}.recovery-card{padding:8px;margin:6px 0;border:1px solid var(--border);border-radius:6px}.recovery-card p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 6px}.recovery-actions{display:flex;flex-wrap:wrap;gap:6px}.recovery-actions button{font-size:11px}#recovery-notes{font-size:11px;overflow-wrap:anywhere}
 #full-access-warning{flex-shrink:0;margin:6px 10px;padding:8px;border:1px solid #d99b32;border-radius:6px;background:rgba(217,155,50,.12);font-size:12px;overflow-wrap:anywhere;max-width:calc(100% - 36px);max-height:180px;overflow:auto}#full-access-warning[hidden]{display:none}.full-access-row{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;margin-top:5px}.full-access-folder{min-width:0;overflow-wrap:anywhere;flex:1 1 120px}.full-access-row button{max-width:100%;white-space:normal}
 header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(--vscode-contrastBorder,var(--border));border-radius:999px;background:var(--surface);color:var(--text)}#elapsed-chip{white-space:nowrap}#agent-map-button{white-space:nowrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
 </style></head><body>
@@ -26,7 +26,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
 <section id="rewind" aria-labelledby="rewind-title" hidden><div id="rewind-heading"><h2 id="rewind-title">Rewind</h2><button id="rewind-close" type="button">Back to chat</button></div><p id="rewind-hint"></p><p id="rewind-status" role="status"></p><div id="rewind-list"></div></section><main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
 <section id="full-access-warning" role="region" aria-label="Full access warning" hidden></section>
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
-<section id="recovery" aria-labelledby="recovery-title" hidden><h2 id="recovery-title">Interrupted run</h2><p id="recovery-notes" role="status"></p><div id="recovery-list"></div></section>
+<details id="recovery" hidden><summary id="recovery-title">Interrupted runs</summary><p id="recovery-notes" role="status"></p><div id="recovery-list"></div></details>
 <div id="agent-log" role="log" aria-live="polite"></div>
 <div class="product-links"><button id="product-guide" type="button">Tvijo AI guide</button><button id="connections" type="button">Connections</button><button id="tasks" type="button">Server task history</button><button id="context-preview" type="button">Preview context</button><button id="quick-edit" type="button">Quick edit</button></div>
 <p id="shared-thread-note" hidden><a id="shared-thread-link" href="#"></a></p>
@@ -150,7 +150,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   function drawRecovery() {
     const panel = document.getElementById('recovery'), list = document.getElementById('recovery-list');
     panel.hidden = !interruptedRuns.length && !recoveryNotes.length;
-    document.getElementById('recovery-title').textContent = locale === 'ru' ? 'Прерванный запуск' : 'Interrupted run';
+    document.getElementById('recovery-title').textContent = (locale === 'ru' ? 'Прерванные запуски: ' : 'Interrupted runs: ') + interruptedRuns.length;
     document.getElementById('recovery-notes').textContent = recoveryNotes.join(' ');
     list.replaceChildren();
     for (const run of interruptedRuns) {

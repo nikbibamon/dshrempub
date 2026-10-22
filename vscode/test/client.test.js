@@ -120,3 +120,15 @@ test('final synchronous dispatch guard catches changes during asynchronous grant
   await assert.rejects(client.ask({token:'tok',messages:[{role:'user',content:'quoted rules'}],idempotencyKey:'guard-key2',beforeChat:async()=>{}}),/must be synchronous/);
   assert.equal(calls.length,2);
 });
+
+
+test('preview preflight accounts for Cyrillic wire escaping, preserves explicit messages and bypasses only operator admission', () => {
+  const messages=[{role:'user',content:'что дальше '.repeat(3000)}],before=JSON.stringify(messages);
+  assert.equal(core.previewFits(messages,{preview:{tokens_remaining:49739}}),false);
+  assert.equal(core.previewFits([{role:'user',content:'что дальше'}],{preview:{tokens_remaining:49739}}),true);
+  assert.equal(core.previewFits(messages,{preview:{source:'operator_test_allowance',tokens_remaining:1}}),true);
+  assert.equal(core.previewFits(messages,{preview:{tokens_remaining:'unknown'}}),false);
+  assert.equal(core.previewContextBytes(48000,null),0);
+  assert.equal(core.previewContextBytes(48000,{preview:{}}),0);
+  assert.equal(JSON.stringify(messages),before);
+});

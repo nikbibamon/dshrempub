@@ -1,3 +1,11 @@
+## 0.10.3 — 2026-10-22
+
+- Check fresh preview tokens and the complete escaped request before creating a task. Omit optional automatic context when necessary; preserve explicit questions, selections, history and attachments.
+- Keep local validation failures out of interrupted-run recovery. Retain unresolved dispatch journals until canonical task settlement is known.
+- Collapse preserved interrupted runs by default so the current chat remains usable.
+- New conversation clears the composer and its buffered draft while preserving archived history and recovery evidence.
+- Reload the VS Code window after installation to activate the updated extension host.
+
 ## 0.10.2 — 2026-10-22
 
 - Keep the same device sign-in code and browser action available after Copy code; cancellation does not continue authorization.

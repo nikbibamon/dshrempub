@@ -2358,3 +2358,44 @@ test('Full access revert terminates an owned direct command instead of waiting f
     assert.equal(app.posts.filter(p=>p.type==='state').at(-1).fullAccess.enabled,false);
   }finally{app.close();}
 });
+
+
+test('local preview rejection keeps the draft but leaves no interrupted run or pending grant', async()=>{
+  const app=host({account:{preview:{tokens_remaining:9000}}});
+  try {
+    app.settings.set('workspaceContext','off');
+    await app.receive({type:'ask',question:'что дальше '.repeat(500)});
+    assert.equal(app.requests.filter(r=>r.method==='POST'&&r.url.endsWith('/tasks')).length,0);
+    assert.equal(journalFor(app).list(recoveryKeyFor(app)).runs.length,0);
+    assert.equal(app.local.pending(app.scope('tenant-a')),undefined);
+    assert.ok(app.errors.some(e=>/allowance|квот/.test(e)));
+  } finally {app.close();}
+});
+
+test('new conversation clears the composer and cancels an older draft timer without deleting recovery evidence',async()=>{
+ const app=host();try{
+  await app.receive({type:'ready'});const scope=app.scope('tenant-a'),key=recoveryKeyFor(app),j=journalFor(app);
+  j.begin(key,{id:'preserved-old-run',kind:'chat',prompt:'do not delete',historyScope:scope});
+  await app.receive({type:'composerDraft',scopeKey:scope,composerScope:key,text:'old draft',mode:'chat'});
+  await app.commands.get('tvijo.newConversation')();
+  assert.equal(j.draft(key).text,'');assert.equal(j.get(key,'preserved-old-run').prompt,'do not delete');
+  assert.ok(app.posts.some(p=>p.type==='draft'&&p.text===''));
+  await new Promise(resolve=>setTimeout(resolve,1100));assert.equal(j.draft(key).text,'');
+ }finally{app.close();}
+});
+
+test('preview omits only automatic context when retained conversation consumes the allowance',async()=>{
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'preview-context-'));
+ await fs.writeFile(path.join(root,'README.md'),'Automatic project context. '.repeat(110));
+ const app=host({root,account:{preview:{tokens_remaining:49739}}});
+ try{
+  app.settings.set('workspaceContext','on');
+  app.vscode.workspace.fs.readFile=async uri=>{if(path.basename(uri.fsPath)==='README.md')return fs.readFile(path.join(root,'README.md'));throw Error('No fixture file');};
+  const prior='п'.repeat(3000);await app.local.saveHistory(app.scope('tenant-a'),[{role:'user',content:prior},{role:'assistant',content:'earlier answer'}]);
+  await app.receive({type:'ask',question:'what next'});
+  assert.deepEqual(app.errors,[]);
+  const sent=app.requests.find(r=>r.method==='POST'&&r.url.endsWith('/chat')).body.messages;
+  assert.ok(sent.some(m=>m.content===prior));assert.equal(sent.at(-1).content,'what next');
+  assert.ok(app.posts.some(p=>p.type==='activity'&&/context omitted/.test(p.detail)));
+ }finally{app.close();}
+});
