@@ -23,6 +23,23 @@ test('apiBase requires https except localhost', () => {
   assert.throws(() => core.apiBase('https://user:pw@example.com/api'), /credentials/);
 });
 
+test('known gateway context and uncertainty codes are actionable without exposing raw details', async () => {
+  for (const [code, status] of [['preview_context_limit',413], ['charge_pending',502], ['model_request_failed',502], ['usage_recovery_unavailable',502]]) {
+    const { impl, calls } = fakeFetch({ 'POST /tasks': [200, {id:'one'}], 'POST /tasks/one/chat': [status, {error:{code,detail:'secret prompt'}}] });
+    const api = core.createClient({fetchImpl:impl});
+    await assert.rejects(api.ask({token:'synthetic',messages:[{role:'user',content:'Q'}],idempotencyKey:'once'}), e => e.code === code && !e.message.includes('secret') && !e.message.includes('HTTP 502'));
+    assert.equal(calls.length,2);
+  }
+});
+
+test('preview bounds only automatic context and cannot override paid or unknown account metadata', () => {
+  assert.equal(core.previewContextBytes(48000,{preview:{tokens_remaining:49739}}),4096);
+  assert.equal(core.previewContextBytes(48000,{preview:{tokens_remaining:10000}}),0);
+  assert.equal(core.previewContextBytes(48000,{preview:{tokens_remaining:0}}),0);
+  assert.equal(core.previewContextBytes(48000,{}),48000);
+  assert.equal(core.previewContextBytes(48000,{preview:{tokens_remaining:null}}),48000);
+});
+
 test('device login keeps polling through 428 and returns a bound token', async () => {
   let polls = 0;
   const { impl } = fakeFetch({

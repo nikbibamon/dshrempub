@@ -55,6 +55,16 @@ test('sidebar keeps a rejected question and prevents a duplicate submit', () => 
   assert.equal(view.element('send').disabled, false);
 });
 
+test('authentication state does not invent a free plan before account verification', () => {
+  const view = sidebar({}, { signedIn: false });
+  assert.equal(view.element('connection-label').textContent, 'Sign in');
+  view.emit('window:message', { data: { type: 'state', signedIn: true, account: { preview: { tokens_remaining: 49739, tasks_remaining: 49 } }, messages: [] } });
+  assert.equal(view.element('connection-label').textContent, 'Ready');
+  assert.match(view.element('budget').textContent, /49.*tasks/);
+  view.emit('lang:click', {});
+  assert.equal(view.element('connection-label').textContent, 'Готово');
+});
+
 test('assistant Markdown renders while user text and receipt footer stay plain', () => {
   const view = sidebar();
   view.emit('window:message',{data:{type:'state',signedIn:true,messages:[{role:'user',content:'**plain user**'},{role:'assistant',content:'# Title\n**bold**\n```js\nlet x = 1;\n```',footer:'Task test · spent — · held —'}]}});
@@ -183,7 +193,7 @@ test('locale and theme preferences persist and live preview values render from s
   assert.equal(view.state().theme, 'light');
   view.emit('window:message', { data: { type: 'state', messages: [], signedIn: false, account: { preview: { tasks_remaining: 3, tokens_remaining: 25000, remaining_usd: 0.02 } } } });
   assert.equal(view.element('budget').textContent, '3 задач · 25,000 токенов · $0.020');
-  assert.equal(view.element('connection-label').textContent, 'Ограниченный бесплатный доступ');
+  assert.equal(view.element('connection-label').textContent, 'Войти');
 });
 
 test('theme uses cool blue palettes and embeds both interface languages', () => {

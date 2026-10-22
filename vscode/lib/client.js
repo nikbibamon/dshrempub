@@ -30,6 +30,11 @@ class ServiceError extends Error {
 // An HTTP status alone, a proxy response, or an idempotency conflict proves nothing.
 const GRANT_REFUSALS = new Set(['project_key_task_cap_exceeded', 'project_key_daily_cap_exceeded', 'project_key_scope_refused', 'project_key_route_refused', 'unsupported_task_request', 'unsupported_workflow', 'model_unavailable', 'council_route_unavailable', 'invalid_amount', 'task_cap_must_be_at_most_1', 'invalid_title', 'idempotency_key_required', 'operator_allowance_exhausted', 'insufficient_credit', 'credits_or_daily_cap_exhausted', 'previous_task_not_settled', 'free_preview_exhausted', 'preview_choose_flash_or_devstral', 'preview_daily_pool_exhausted', 'authentication_required', 'origin_refused', 'account_changed', 'invalid_json', 'object_required', 'request_too_large']);
 const REFUSAL_MESSAGES = {
+  preview_context_limit: 'The project context exceeds your remaining preview token allowance. Reduce project context or attachments and send again.',
+  charge_pending: 'The task has an unresolved provider charge. Check this task before sending another request; no automatic retry was made.',
+  model_request_failed: 'The model request failed. Check the task result and spending before sending again.',
+  usage_recovery_unavailable: 'Usage could not be verified. The task remains held for reconciliation; no automatic retry was made.',
+  usage_reconciliation_required: 'Task usage needs reconciliation. Check the task before sending another request.',
   previous_task_not_settled: 'Another task on this account is unresolved. Open Recent tasks and spending to inspect it.',
   preview_choose_flash_or_devstral: 'Preview supports DeepSeek Flash, GLM Flash and Devstral. Choose an available preview model.',
   free_preview_exhausted: 'The free preview has ended. Open credit terms.',
@@ -102,9 +107,9 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
         let serverCode;
         try {
           const value = await readBounded(response);
-          if (typeof value?.error?.code === 'string' && GRANT_REFUSALS.has(value.error.code)) serverCode = value.error.code;
+          if (typeof value?.error?.code === 'string' && (GRANT_REFUSALS.has(value.error.code) || Object.hasOwn(REFUSAL_MESSAGES, value.error.code))) serverCode = value.error.code;
         } catch { /* Unreadable errors remain ambiguous; never expose the raw body. */ }
-        const error = new ServiceError(['free_preview_exhausted', 'operator_allowance_exhausted', 'credits_or_daily_cap_exhausted', 'insufficient_credit'].includes(serverCode) ? serverCode : code, REFUSAL_MESSAGES[serverCode] || message, response.status);
+        const error = new ServiceError(Object.hasOwn(REFUSAL_MESSAGES, serverCode) ? serverCode : code, REFUSAL_MESSAGES[serverCode] || message, response.status);
         if (serverCode) error.serverCode = serverCode;
         throw error;
       }
@@ -244,4 +249,16 @@ function formatTvijo(value) {
   return String(whole) + (fraction ? '.' + fraction : '');
 }
 
-module.exports = { formatTvijo, DEFAULT_API_BASE, ServiceError, apiBase, createClient, taskStateOf, pendingBlocks, validateMessages, checkKnowledgeFile, questionWithSelection, formatAnswer };
+// Bound automatically collected project context for sponsored previews. This
+// is a local collection cap, not a server quote; explicit user text stays intact.
+function previewContextBytes(configured, account) {
+  const limit = Number.isFinite(configured) && configured >= 0 ? configured : 48000;
+  const remaining = account?.preview?.tokens_remaining;
+  if (!Number.isSafeInteger(remaining) || remaining < 0) return limit;
+  const bounded = Math.min(limit, 4096, Math.max(0, Math.floor((remaining - 8192) / 8)));
+  // The collector's minimum block is 4096 bytes: skip automatic collection
+  // when it cannot fit, instead of passing a smaller value that it would raise.
+  return bounded >= 4096 ? bounded : 0;
+}
+
+module.exports = { previewContextBytes, formatTvijo, DEFAULT_API_BASE, ServiceError, apiBase, createClient, taskStateOf, pendingBlocks, validateMessages, checkKnowledgeFile, questionWithSelection, formatAnswer };
