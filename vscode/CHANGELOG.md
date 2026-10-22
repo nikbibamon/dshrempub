@@ -1,3 +1,11 @@
+## 0.10.2 — 2026-10-22
+
+- Keep the same device sign-in code and browser action available after Copy code; cancellation does not continue authorization.
+- Show Sign in before account verification and Ready after login, with account limits separate from authentication.
+- Bound automatically collected preview project context to 4 KiB or omit it when the collector minimum cannot fit. Explicit questions, selections and attachments remain intact.
+- Explain recognized context and unresolved-charge errors without exposing raw service responses or retrying requests.
+- Companion gateway fix returns a terminal context refusal only when its in-process dispatch marker proves no native call started.
+
 ## 0.10.1 — 2026-10-22
 
 - Bind release verification to the Tvijo extension identity, matching manifest and package versions and VS Code engine requirements.

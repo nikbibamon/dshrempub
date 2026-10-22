@@ -5,6 +5,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const { constants } = require('node:fs');
 const core = require('./lib/client');
+const { approveDevice } = require('./lib/device-login');
 const packs = require('./lib/packs');
 const { chatHtml } = require('./lib/chat-view');
 const { buildAgentMap } = require('./lib/agent-map');
@@ -40,6 +41,7 @@ const AUTH_KEY = 'tvijo.auth';
 const CONTEXT_CONSENT = 'tvijo.contextConsent';
 
 function activate(context) {
+  let deviceLoginActive = false;
   let chatView = null;
   const runJournals = createRunJournal(context.globalStorageUri?.fsPath);
   const activeJournals = new Set();
@@ -929,6 +931,11 @@ function activate(context) {
     }
     if (uiLocale() === 'ru') {
       const map = {
+        preview_context_limit: 'Контекст проекта превышает остаток пробной квоты. Уменьшите контекст или вложения и отправьте вопрос снова.',
+        charge_pending: 'Расход этой задачи ещё не подтверждён. Проверьте её состояние перед новым запросом; автоматического повтора не было.',
+        model_request_failed: 'Запрос к модели завершился ошибкой. Проверьте результат и расходы задачи перед повторной отправкой.',
+        usage_recovery_unavailable: 'Не удалось подтвердить расход. Резерв задачи сохранён до сверки; автоматического повтора не было.',
+        usage_reconciliation_required: 'Требуется сверка расхода задачи. Проверьте её состояние перед новым запросом.',
         unauthorized: 'Сеанс входа недействителен. Выполните «Tvijo: Войти» и повторите.',
         free_preview_exhausted: 'Бесплатная проба завершена. Откройте условия кредита.',
         operator_allowance_exhausted: 'Дневной тестовый allowance оператора исчерпан. Лимит обновится в 00:00 UTC.',
@@ -951,8 +958,9 @@ function activate(context) {
     const credit = L('Credit', 'Кредит');
     const resolve = L('Resolve task', 'Проверить задачу');
     const preview = L('Preview context', 'Просмотреть контекст');
-    const overflow = typeof error?.code === 'string' && error.code.startsWith('context_budget');
-    const actions = (error?.serverCode || error?.code) === 'free_preview_exhausted' ? [credit] : error?.code === 'unauthorized' ? [signIn] : error?.code === 'insufficient_credit' ? [usage] : error?.code === 'pending_task' ? [resolve] : overflow ? [preview] : [];
+    const overflow = error?.code === 'preview_context_limit' || (typeof error?.code === 'string' && error.code.startsWith('context_budget'));
+    const unresolved = ['pending_task','charge_pending','usage_recovery_unavailable','usage_reconciliation_required','model_request_failed'].includes(error?.code);
+    const actions = (error?.serverCode || error?.code) === 'free_preview_exhausted' ? [credit] : error?.code === 'unauthorized' ? [signIn] : error?.code === 'insufficient_credit' ? [usage] : unresolved ? [resolve] : overflow ? [preview] : [];
     vscode.window.showErrorMessage(`Tvijo: ${message}`, ...actions).then((pick) => { if (pick === credit) vscode.env.openExternal(vscode.Uri.parse('https://dsh.tvijo.com/billing')); if (pick === signIn) vscode.commands.executeCommand('tvijo.signIn'); if (pick === usage) vscode.commands.executeCommand('tvijo.account'); if (pick === resolve) vscode.commands.executeCommand('tvijo.cancelPending'); if (pick === preview) vscode.commands.executeCommand('tvijo.contextPreview'); });
   }
 
@@ -1703,21 +1711,14 @@ function activate(context) {
 
   command('tvijo.signIn', async () => {
     ensureIdle();
+    if (deviceLoginActive) return;
+    deviceLoginActive = true;
+    try {
     const attempt = ++authAttempt;
     const api = client();
     const device = await api.startDeviceLogin();
     assertAuthAttempt(attempt, api.base);
-    const approval = new URL(device.verification_uri);
-    approval.searchParams.set('code', device.user_code);
-    const target = vscode.Uri.parse(approval.toString());
-    await vscode.env.clipboard.writeText(device.user_code);
-    const pick = await vscode.window.showInformationMessage(
-      `Tvijo: ${device.user_code}`,
-      { detail: 'Only the eight-character code was copied. Open the approval link; the code is already filled in.' },
-      'Open browser', 'Copy code');
-    assertAuthAttempt(attempt, api.base);
-    if (pick === 'Copy code') await vscode.env.clipboard.writeText(device.user_code);
-    if (pick === 'Open browser') await vscode.env.openExternal(target);
+    await approveDevice(vscode, device, { check: () => assertAuthAttempt(attempt, api.base), L });
     const auth = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: 'Tvijo: approve sign-in in your browser', cancellable: true },
       (_progress, token) => {
@@ -1732,6 +1733,7 @@ function activate(context) {
       switchIdentity(null);
     });
     vscode.window.showInformationMessage('Tvijo: signed in. The token is kept in VS Code secret storage.');
+    } finally { deviceLoginActive = false; }
   });
 
   command('tvijo.signOut', async () => {
@@ -1912,10 +1914,11 @@ function activate(context) {
         await context.globalState.update(CONTEXT_CONSENT, contextEnabled ? 'on' : 'off');
       } else contextEnabled = false;
     }
-    if (contextEnabled) {
+    const contextBytes = core.previewContextBytes(config.get('workspaceContextMaxBytes', 48000), accountSnapshot);
+    if (contextEnabled && contextBytes > 0) {
       await postActivity('scan', L('Reading the project tree and manifests…', 'Смотрю проект: дерево и манифесты…'));
       try {
-        const collected = await projectRulesHost.collect({ knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: config.get('workspaceContextMaxBytes', 48000) });
+        const collected = await projectRulesHost.collect({ knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: contextBytes });
         contextSummary = collected.summary;
         chatRuleGrants = collected.ruleGrants;
         if (collected.text) contextBlock = collected.text + '\n\n';

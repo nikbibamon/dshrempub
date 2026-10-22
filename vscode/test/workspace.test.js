@@ -85,7 +85,7 @@ function extensionHost() {
     window: {
       createStatusBarItem: () => ({ show() {} }), registerWebviewViewProvider: (_id, value) => { provider = value; return disposable; },
       showInputBox: async () => input, showQuickPick: async items => pick(items),
-      showErrorMessage: async message => { errors.push(message); }, showInformationMessage: async () => {},
+      showErrorMessage: async message => { errors.push(message); }, showInformationMessage: async (...args) => args.includes('Open browser') ? 'Open browser' : undefined,
       withProgress: async (_options, fn) => fn({}, { onCancellationRequested() {} })
     }
   };
