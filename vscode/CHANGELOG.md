@@ -1,3 +1,15 @@
+## 0.10.1 — 2026-10-22
+
+- Bind release verification to the Tvijo extension identity, matching manifest and package versions and VS Code engine requirements.
+- Reject ambiguous or unsafe archive entries and require the expected runtime entrypoint.
+- Add adversarial release-checker tests to CI. User-facing behavior from the 0.10.0 candidate is retained.
+- Preview candidate; new native-host and production verification remain separate.
+
+Русский:
+- Проверка релиза сверяет имя и издателя Tvijo, версии манифеста и пакета, требования к VS Code и наличие точки входа.
+- Неоднозначные и небезопасные пути архива отклоняются; проверки включены в CI.
+- Подготовленный preview; новая проверка в редакторе и публикация в прод остаются отдельными шагами.
+
 ## 0.10.0 — 2026-10-21
 
 - Add read-only Data & privacy view using authenticated server preferences; unavailable, malformed and changed-account responses stay unknown.

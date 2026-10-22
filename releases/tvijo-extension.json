@@ -1,6 +1,6 @@
 {
   "schema": "tvijo.extension-release/v1",
-  "as_of": "2026-10-21",
+  "as_of": "2026-10-22",
   "product": {
     "id": "tvijo-dshrem-vscode",
     "name": "Tvijo DSHREM for VS Code",
@@ -9,29 +9,29 @@
       "ru": "Помощь с кодом: выбранный контекст, проверяемые правки и задачи с лимитом."
     }
   },
-  "latest_version": "0.10.0",
+  "latest_version": "0.10.1",
   "channel": "preview",
   "publication": {
     "status": "prepared",
     "published_at": null,
     "note": {
-      "en": "Prepared preview. Local tests and native-host checks are recorded; publication and live service integration are not yet verified.",
-      "ru": "Подготовленный preview. Локальные тесты и проверки в редакторе зафиксированы; публикация и работа с живым сервисом ещё не подтверждены."
+      "en": "Prepared preview. Offline checks and reproducible package verification are recorded separately. New native-host activation and production publication are not verified.",
+      "ru": "Подготовленный preview. Офлайн-проверки и воспроизводимая сборка фиксируются отдельно. Новая проверка в редакторе и публикация в прод не подтверждены."
     }
   },
   "package": {
-    "filename": "tvijo-dshrem-0.10.0.vsix",
+    "filename": "tvijo-dshrem-0.10.1.vsix",
     "editor_requirement": "^1.90.0",
-    "sha256": "caca1e52be6202f82fdffda6052f2a2e034cf498fb275f77e0dd17c1af3d2814",
-    "bytes": 740631,
-    "source_commit": "1ef3704",
-    "verified_environment": "VS Code 1.142.0 on Linux (isolated profile; synthetic local service)"
+    "sha256": "9c131734f83f2c69de7721830bb2aab48906ec20a096df8c5c1a9ce4062f6133",
+    "bytes": 741612,
+    "source_commit": "56ac7781c7d8b48bbe65a000d60e4bd279df2ff7",
+    "verified_environment": "Offline Node.js tests and reproducible Python packager on Linux; 0.10.1 native-host activation NOT_RUN"
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
     "issues": "https://github.com/nikbibamon/dshrempub/issues",
-    "source": "https://github.com/nikbibamon/dshrempub/tree/1ef3704",
-    "changelog": "https://github.com/nikbibamon/dshrempub/blob/1ef3704/vscode/CHANGELOG.md"
+    "source": "https://github.com/nikbibamon/dshrempub/tree/56ac7781c7d8b48bbe65a000d60e4bd279df2ff7",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/56ac7781c7d8b48bbe65a000d60e4bd279df2ff7/vscode/CHANGELOG.md"
   },
   "features": [
     {
@@ -108,6 +108,30 @@
     }
   ],
   "releases": [
+    {
+      "version": "0.10.1",
+      "date": "2026-10-22",
+      "title": {
+        "en": "Verified release identity",
+        "ru": "Проверка идентичности релиза"
+      },
+      "changes": [
+        {
+          "en": "Verify Tvijo package and manifest identity, version, editor engine and runtime entrypoint; reject unsafe or ambiguous archive paths.",
+          "ru": "Проверять имя, издателя, версию, требования редактора и точку входа; отклонять небезопасные и неоднозначные пути архива."
+        },
+        {
+          "en": "Run adversarial Python release-checker tests in CI.",
+          "ru": "Запускать негативные Python-проверки релиза в CI."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Prepared preview; new native-host activation and production publication are unverified. Prior 0.10.0 native evidence remains historical.",
+          "ru": "Подготовленный preview; новая проверка в редакторе и публикация в прод не подтверждены. Доказательства 0.10.0 остаются историческими."
+        }
+      ]
+    },
     {
       "version": "0.10.0",
       "date": "2026-10-21",
@@ -322,13 +346,15 @@
     }
   ],
   "verification": {
-    "date": "2026-10-21",
+    "date": "2026-10-22",
     "cli_tests": 10,
     "extension_tests": 588,
+    "launcher_tests": 7,
+    "python_release_checks": 16,
+    "reproducible_vsix": true,
     "native_gui": {
-      "en": "Installed candidate in actual VS Code1.142.0 with synthetic local authentication and preferences: known states, seven Unknown states on failure, resources and telemetry disabled. No provider inference or production rollout was tested.",
-      "ru": "Установленный кандидат в настоящем VS Code1.142.0 с локальным синтетическим входом и настройками: серверные состояния, семь неизвестных состояний при ошибке, материалы и выключенная телеметрия. Запросы провайдерам и выкатка в прод не проверялись."
-    },
-    "launcher_tests": 7
+      "en": "0.10.1 native-host activation NOT_RUN. Historical 0.10.0 synthetic-host evidence is not acceptance of this build.",
+      "ru": "Активация 0.10.1 в редакторе не проверялась. Историческая синтетическая проверка 0.10.0 не является приёмкой этой сборки."
+    }
   }
 }
