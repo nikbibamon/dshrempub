@@ -9,29 +9,29 @@
       "ru": "Помощь с кодом: выбранный контекст, проверяемые правки и задачи с лимитом."
     }
   },
-  "latest_version": "0.10.2",
+  "latest_version": "0.10.3",
   "channel": "preview",
   "publication": {
     "status": "prepared",
     "published_at": null,
     "note": {
-      "en": "Prepared preview. Offline checks and reproducible package verification are recorded separately. New native-host activation and production publication are not verified.",
-      "ru": "Подготовленный preview. Офлайн-проверки и воспроизводимая сборка фиксируются отдельно. Новая проверка в редакторе и публикация в прод не подтверждены."
+      "en": "Prepared and installed locally. Reload Window is required to activate the new host. Marketplace publication is not performed.",
+      "ru": "Подготовлено и установлено локально. Для активации нужен Reload Window. Публикации в Marketplace не было."
     }
   },
   "package": {
-    "filename": "tvijo-dshrem-0.10.2.vsix",
+    "filename": "tvijo-dshrem-0.10.3.vsix",
     "editor_requirement": "^1.90.0",
-    "sha256": "f2dff762ba7abea9d7e6337809b0bbbb751812c1c7059c376bad721d0c810d36",
-    "bytes": 746528,
-    "source_commit": "0dc7d6c37678817b040aba2d5099cd0fdfc784a1",
-    "verified_environment": "596 extension checks; two synthetic-host Chromium viewport cases; 0.10.2 native VS Code dialog integration NOT_RUN"
+    "sha256": "c2bbbb6d06eee077ea940f1cdf3a504adc60f574fd70565f81706a0db3d15c8e",
+    "bytes": 239087,
+    "source_commit": "f65491cf840e8fcf649540a37c2e279fb9a1aa3d",
+    "verified_environment": "600 extension checks; two synthetic-host Chromium viewports; installed JavaScript payload verified; active VS Code host requires Reload Window"
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
     "issues": "https://github.com/nikbibamon/dshrempub/issues",
-    "source": "https://github.com/nikbibamon/dshrempub/tree/0dc7d6c37678817b040aba2d5099cd0fdfc784a1",
-    "changelog": "https://github.com/nikbibamon/dshrempub/blob/0dc7d6c37678817b040aba2d5099cd0fdfc784a1/vscode/CHANGELOG.md"
+    "source": "https://github.com/nikbibamon/dshrempub/tree/f65491cf840e8fcf649540a37c2e279fb9a1aa3d",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/f65491cf840e8fcf649540a37c2e279fb9a1aa3d/vscode/CHANGELOG.md"
   },
   "features": [
     {
@@ -108,6 +108,30 @@
     }
   ],
   "releases": [
+    {
+      "version": "0.10.3",
+      "date": "2026-10-22",
+      "title": {
+        "en": "Usable chat and preview request preflight",
+        "ru": "Восстановление рабочего чата и проверка контекста"
+      },
+      "changes": [
+        {
+          "en": "Check fresh token allowance against the complete request, omitting only optional automatic context.",
+          "ru": "Сверять полный запрос со свежим остатком квоты, убирая только необязательный автоконтекст."
+        },
+        {
+          "en": "Close locally rejected run journals, collapse preserved recovery cards and clear the new-conversation draft.",
+          "ru": "Закрывать журналы локально отклонённых запросов, сворачивать сохранённые карточки восстановления и очищать новый черновик."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Screenshots provide extracted text, not visual understanding. Reload Window required; native GUI activation and Marketplace publication are not verified.",
+          "ru": "Скриншоты передают распознанный текст, а не визуальное понимание. Нужен Reload Window; активация нативного интерфейса и Marketplace не проверены."
+        }
+      ]
+    },
     {
       "version": "0.10.2",
       "date": "2026-10-22",
