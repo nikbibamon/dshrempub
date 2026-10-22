@@ -253,12 +253,24 @@ function formatTvijo(value) {
 // is a local collection cap, not a server quote; explicit user text stays intact.
 function previewContextBytes(configured, account) {
   const limit = Number.isFinite(configured) && configured >= 0 ? configured : 48000;
+  if (!account) return 0;
   const remaining = account?.preview?.tokens_remaining;
-  if (!Number.isSafeInteger(remaining) || remaining < 0) return limit;
+  if (account.preview?.source === 'operator_test_allowance' || remaining === null || !account.preview) return limit;
+  if (!Number.isSafeInteger(remaining) || remaining < 0) return 0;
   const bounded = Math.min(limit, 4096, Math.max(0, Math.floor((remaining - 8192) / 8)));
   // The collector's minimum block is 4096 bytes: skip automatic collection
   // when it cannot fit, instead of passing a smaller value that it would raise.
   return bounded >= 4096 ? bounded : 0;
 }
 
-module.exports = { previewContextBytes, formatTvijo, DEFAULT_API_BASE, ServiceError, apiBase, createClient, taskStateOf, pendingBlocks, validateMessages, checkKnowledgeFile, questionWithSelection, formatAnswer };
+// Conservative local preflight for the gateway's ASCII JSON token reservation.
+// Explicit user text/history is never truncated; only automatic context may be omitted.
+function previewFits(messages, account, maxTokens = 2048) {
+  const preview = account?.preview;
+  if (!preview || preview.source === 'operator_test_allowance' || preview.tokens_remaining === null) return true;
+  if (!Number.isSafeInteger(preview.tokens_remaining) || preview.tokens_remaining < 0) return false;
+  const ascii = JSON.stringify(messages).replace(/[\u007f-\uffff]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4,'0'));
+  return Buffer.byteLength(ascii,'utf8') * 2 + maxTokens + 6144 <= preview.tokens_remaining;
+}
+
+module.exports = { previewFits, previewContextBytes, formatTvijo, DEFAULT_API_BASE, ServiceError, apiBase, createClient, taskStateOf, pendingBlocks, validateMessages, checkKnowledgeFile, questionWithSelection, formatAnswer };

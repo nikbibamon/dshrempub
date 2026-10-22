@@ -1772,7 +1772,12 @@ function activate(context) {
     await local.saveHistory(auth.scope, []);
     agentMaps.delete(currentViewScope(auth.scope));
     attachments = [];
+    draftSequence++;
+    const draftKey = recoveryScope(auth);
+    clearTimeout(draftTimers.get(draftKey)?.timer); draftTimers.delete(draftKey);
+    runJournals.saveDraft(draftKey,'','chat');
     await postChatState();
+    if (chatView && await isCurrentAuth(auth)) await chatView.webview.postMessage({type:'draft',scopeKey:auth.viewScope,text:'',mode:'chat'});
     vscode.window.showInformationMessage('Tvijo: new conversation started.');
   });
 
@@ -1866,12 +1871,16 @@ function activate(context) {
     busy = true;
     let mapAuth = null;
     let chatJournal = null;
+    let grantStarted = false;
     try {
     lastError = null; lastAgentOutcome = null;
     await postChatState();
     const auth = await requireAuth();
     await postActivity('prepare', L('Preparing the request…', 'Готовлю запрос…'));
     const api = core.createClient({ base: auth.api_base });
+    const freshAccount = auth.kind === 'project' ? accountSnapshot : await api.account(auth.access_token);
+    if (!await isCurrentAuth(auth) || (auth.kind !== 'project' && freshAccount.tenant_id !== auth.tenant_id)) throw new core.ServiceError('account_changed', 'The account changed. Submit again from the intended account.');
+    accountSnapshot = freshAccount;
     let selectionState = shared.selection(auth.scope);
     if (selectionState && !selectionState.threadId) { await createSharedThread(auth); selectionState = shared.selection(auth.scope); }
     auth.viewScope = currentViewScope(auth.scope);
@@ -1931,11 +1940,19 @@ function activate(context) {
     if (!await isCurrentAuth(auth)) throw new core.ServiceError('account_changed', 'The account changed. Submit again from the intended account.');
     const history = historyFor(auth.scope);
     const sentAttachments = attachments.slice();
-    const content = contextBlock + files.questionWithAttachments(core.questionWithSelection(question.trim(), selection), sentAttachments);
+    const explicitContent = files.questionWithAttachments(core.questionWithSelection(question.trim(), selection), sentAttachments);
+    let content = contextBlock + explicitContent;
     const { pack } = await currentPack(auth);
     if (!await isCurrentAuth(auth)) throw new core.ServiceError('account_changed', 'The account changed. Submit again from the intended account.');
-    const messages = packs.packMessages([...(selectionState ? [] : history.filter(item => !item.localRecovery).map((item) => ({ role: item.role, content:item.role === 'user' ? (item.display || item.content) : item.content }))), { role: 'user', content }], pack);
+    let messages = packs.packMessages([...(selectionState ? [] : history.filter(item => !item.localRecovery).map((item) => ({ role: item.role, content:item.role === 'user' ? (item.display || item.content) : item.content }))), { role: 'user', content }], pack);
+    if (!selectionState && !core.previewFits(messages, freshAccount) && contextBlock) {
+      content = explicitContent;
+      messages = packs.packMessages([...history.filter(item => !item.localRecovery).map(item => ({role:item.role,content:item.role === 'user' ? (item.display || item.content) : item.content})),{role:'user',content}],pack);
+      lastContextSummary = null; chatRuleGrants = [];
+      await postActivity('context', L('Automatic context omitted to fit your token allowance.', 'Автоконтекст пропущен, чтобы уложиться в квоту токенов.'));
+    }
     core.validateMessages(messages);
+    if (!selectionState && !core.previewFits(messages, freshAccount)) throw new core.ServiceError('preview_context_limit', L('This conversation or selected attachment exceeds your remaining token allowance. Start a new conversation or select a smaller excerpt. Your draft is preserved.', 'Разговор или выбранный файл превышает остаток квоты. Начните новый разговор или выберите меньший фрагмент. Черновик сохранён.'));
     const payer = selectionState ? byokSelection.get(auth,selectionState.projectId) : null;
     const idempotencyKey = chatJournal.id;
     const grantRequest = { title: `VS Code: ${question.trim().slice(0, 80)}`, max_usd: selectionState ? sharedTaskCap(auth) : '1', model: packs.packModel(config, 'model', 'coding', pack), mode: config.get('agentMode', 'single'), method: config.get('reasoningMethod', 'evidence-first'), idempotency_key: idempotencyKey, ...(selectionState ? { project_id: selectionState.projectId, thread_id: selectionState.threadId } : {}) };
@@ -1954,6 +1971,7 @@ function activate(context) {
         });
         const runner = selectionState ? workspaceClient(api, auth.access_token).askService : api.ask;
         projectRulesHost.assertCurrent(chatRuleGrants);
+        grantStarted = true;
         return runner({
           beforeChat:() => projectRulesHost.assertCurrent(chatRuleGrants),
           serviceId: grantRequest.service_id, maxMicroTvijo: grantRequest.max_micro_tvijo, payer,
@@ -1993,6 +2011,17 @@ function activate(context) {
         await showPrivateDocument('markdown', formatted, auth, { viewColumn: vscode.ViewColumn.Beside });
       }
     } catch (error) {
+      if (chatJournal) {
+        let settled = !grantStarted || error.definitiveGrantRefusal;
+        const saved = mapAuth && local.pending(mapAuth.scope, chatJournal.id);
+        if (!settled && saved?.taskId && await isCurrentAuth(mapAuth)) {
+          try { settled = !core.pendingBlocks(await core.createClient({base:mapAuth.api_base}).taskState(mapAuth.access_token,saved.taskId)); } catch { /* Preserve uncertain dispatched work. */ }
+        }
+        if (settled) {
+          if (saved) await local.savePending(mapAuth.scope,undefined,chatJournal.id);
+          runJournals.finish(chatJournal.scope,chatJournal.id);
+        }
+      }
       if (mapAuth) await finishMap(mapAuth, activeAbort?.signal.aborted ? 'cancelled' : 'failed');
       await metrics.record({ event: 'ask', outcome: 'error', mode: 'chat', model: vscode.workspace.getConfiguration('tvijo').get('model', 'coding'), error_code: error?.code || 'unknown', duration_ms: Date.now() - startedAt });
       throw error;
