@@ -230,15 +230,15 @@ function activate(context) {
   const contextSelection = createContextSelection({vscode,state:context.globalState,L});
   const projectRulesHost = createRulesHost({vscode, state:context.globalState, storageRoot:context.globalStorageUri?.fsPath, L,
     showPreview:async content => { const doc = await vscode.workspace.openTextDocument({language:'plaintext', content}); localPreviewDocuments.add(doc); await vscode.window.showTextDocument(doc, {preview:false}); },
-    knownSecrets:() => [identity?.token, ...rulesPreviewSecrets].filter(Boolean),
+    knownSecrets:() => [identity?.token, ...rulesPreviewSecrets].filter(Boolean), selectedFolder:()=>permissionFolder(),
     onRevoke:() => { rulesRevocationEpoch++; agentAbort?.abort(); activeAbort?.abort(); lastContextSummary = null; }
   });
   const syntaxChecks = createSyntaxHost({vscode,state:context.globalState,storageRoot:context.globalStorageUri?.fsPath,chooseFolder:()=>projectRulesHost.chooseFolder(),scope:folder=>projectRulesHost.scope(folder),L});
-  const fullAccess = createFullAccess({vscode,state:context.globalState,scope:folder=>projectRulesHost.scope(folder),L,
+  const fullAccess = createFullAccess({vscode,state:context.globalState,scope:folder=>{ const key=projectRulesHost.scope(folder); return key && identity?.scope ? createHash('sha256').update(JSON.stringify([identity.scope,key])).digest('hex') : null; },L,
     onRevoke:() => { agentAbort?.abort(); activeAbort?.abort(); }});
   const activeWorkspace = createActiveWorkspace({vscode,state:context.workspaceState || context.globalState,L,onChange:() => {
     flushDrafts(); workspaceEpoch++; fullAccess.invalidate(); syntaxChecks.invalidate(); terminalCaptures.invalidate();
-    lastContextSummary = null; codingReview = null;
+    lastContextSummary = null; codingReview = null; attachments = [];
   }});
   function permissionFolder() { return activeWorkspace.current(); }
   async function requireWorkspace() {
@@ -248,7 +248,8 @@ function activate(context) {
   }
   command('tvijo.chooseWorkspace', async () => { ensureIdle(); await activeWorkspace.choose(); await postChatState(); });
   function fullAccessState() {
-    return {...fullAccess.status(permissionFolder()),active:(vscode.workspace.workspaceFolders || []).map(folder=>fullAccess.status(folder)).filter(item=>item.enabled).map(({folder,scopeKey})=>({folder,scopeKey}))};
+    const status = fullAccess.status(permissionFolder());
+    return {...status,active:status.enabled ? [{folder:permissionFolder().uri.fsPath,scopeKey:status.scopeKey}] : []};
   }
   if (vscode.window.onDidChangeActiveTextEditor) context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(() => { void postChatState(); }));
   if (vscode.workspace.onDidGrantWorkspaceTrust) context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(() => { fullAccess.invalidate(); void postChatState(); }));
@@ -263,10 +264,22 @@ function activate(context) {
   }
 
   const selectShared = async (...args) => { attachments = []; return shared.select(...args); };
-  const historyFor = scope => shared.selection(scope) ? [...shared.history(scope), ...local.history(shared.scope(scope)).filter(item => item.localRecovery)] : local.history(scope);
-  const currentViewScope = scope => shared.guard(scope);
+  const historyFor = scope => shared.selection(scope) ? [...shared.history(scope), ...local.history(shared.scope(scope)).filter(item => item.localRecovery)] : local.history(localScope(scope));
+  const localScope = scope => createHash('sha256').update(JSON.stringify([scope,activeWorkspace.identity(permissionFolder())])).digest('hex');
+  const currentViewScope = scope => shared.selection(scope) ? shared.guard(scope) : localScope(scope);
+  function localHistoryDocument(auth) {
+    const current=conversationExport.exportConversation(historyFor(auth.scope),{knownSecrets:[auth.access_token]});
+    const previous=local.history(auth.scope);
+    const folders=(vscode.workspace.workspaceFolders || []).map(f=>[f.uri.scheme,f.uri.authority || '',path.resolve(f.uri.fsPath)]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    const legacyKey=createHash('sha256').update(JSON.stringify([shared.scope(auth.scope),folders])).digest('hex');
+    let draft=null,runs=[];
+    try {draft=runJournals.draft(legacyKey);runs=runJournals.list(legacyKey).runs;} catch {}
+    const heading=L('Earlier workspace history (folder unassigned; never sent automatically)','История прежней рабочей области (папка не назначена; автоматически не отправляется)');
+    return current + (previous.length || draft || runs.length ? '\n\n# '+heading+'\n\n'+conversationExport.exportConversation(previous.map(item=>({...item,display:item.display ?? item.content})),{knownSecrets:[auth.access_token]})+(draft ? '\n\n## '+L('Earlier draft','Прежний черновик')+'\n\n'+draft.text : '')+runs.map(run=>'\n\n## '+L('Interrupted earlier run','Прежний прерванный запуск')+'\n\n'+run.prompt).join('') : '');
+  }
+
   function recoveryScope(auth) {
-    const folders = (vscode.workspace.workspaceFolders || []).map(folder => [folder.uri.scheme, folder.uri.authority || '', path.resolve(folder.uri.fsPath)]).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    const folders = activeWorkspace.identity(permissionFolder());
     return createHash('sha256').update(JSON.stringify([shared.scope(auth.scope), folders])).digest('hex');
   }
   function recoveryState(scope) {
@@ -284,7 +297,7 @@ function activate(context) {
     const auth = await requireAuth();
     if (message.scopeKey !== currentViewScope(auth.scope) || epoch !== workspaceEpoch) throw new core.ServiceError('account_changed', 'The account or workspace changed.');
     const run = runJournals.get(recoveryScope(auth), message.id);
-    if (!run || run.status !== 'running' || run.historyScope !== shared.scope(auth.scope)) throw new core.ServiceError('recovery_missing', L('This recovery record has expired or is unavailable.', 'Запись восстановления устарела или недоступна.'));
+    if (!run || run.status !== 'running' || run.historyScope !== (shared.selection(auth.scope) ? shared.scope(auth.scope) : localScope(auth.scope))) throw new core.ServiceError('recovery_missing', L('This recovery record has expired or is unavailable.', 'Запись восстановления устарела или недоступна.'));
     if (runJournals.liveElsewhere(run)) throw new core.ServiceError('busy','This run is active in another extension host.');
     ensureIdle();
     busy = true;
@@ -330,7 +343,7 @@ function activate(context) {
     };
     await assertScope();
     const run = runJournals.get(recoveryScope(auth),message.id);
-    if (!run?.taskId || run.historyScope !== shared.scope(auth.scope)) throw new core.ServiceError('recovery_missing','This run has no recoverable task identifier.');
+    if (!run?.taskId || run.historyScope !== (shared.selection(auth.scope) ? shared.scope(auth.scope) : localScope(auth.scope))) throw new core.ServiceError('recovery_missing','This run has no recoverable task identifier.');
     if (runJournals.liveElsewhere(run)) throw new core.ServiceError('busy','This run is active in another extension host.');
     ensureIdle(); busy = true;
     try {
@@ -354,7 +367,7 @@ function activate(context) {
 
   async function currentPack(auth) {
     const catalogue = await packCache.get(auth, core.createClient({ base: auth.api_base }));
-    const selection = await packs.selectPack(catalogue, vscode.workspace.getConfiguration('tvijo').get('pack', ''), vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
+    const selection = await packs.selectPack(catalogue, vscode.workspace.getConfiguration('tvijo').get('pack', ''), permissionFolder()?.uri.fsPath);
     return { catalogue, ...selection };
   }
   function updatePackStatus(selection, auth) {
@@ -578,7 +591,7 @@ function activate(context) {
       const boundary = item.role === 'assistant' && typeof content === 'string' ? content.lastIndexOf('\n---\nTask ') : -1;
       return boundary < 0 ? {role:item.role, content} : {role:item.role, content:content.slice(0,boundary), footer:content.slice(boundary + 5)};
     });
-    messages.push(...rewindNotes.filter(note => note.root === vscode.workspace.workspaceFolders?.[0]?.uri.fsPath).map(note => ({role:'assistant', content:note.text})));
+    messages.push(...rewindNotes.filter(note => note.root === permissionFolder()?.uri.fsPath).map(note => ({role:'assistant', content:note.text})));
     let options = null;
     let pack = null;
     if (signedIn) {
@@ -590,7 +603,7 @@ function activate(context) {
       try { options = chatOptions(auth, selection.pack); } catch { options = null; }
     } else updatePackStatus(null, null);
     if(view!==chatView || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
-    await view.webview.postMessage({ type: 'state', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length, account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : L('Choose local workspace','Выберите локальную папку'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
+    await view.webview.postMessage({ type: 'state', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length || !!(scope && local.history(scope).length), account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : L('Choose local workspace','Выберите локальную папку'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'coding') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
       status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
@@ -665,11 +678,10 @@ function activate(context) {
     // Authentication yields: a permission update can acquire the idle lock
     // while it is pending. Snapshot settings only after checking again.
     ensureIdle();
-    const agentScope = shared.selection(auth.scope) ? shared.scope(auth.scope) : auth.scope;
+    const agentScope = shared.selection(auth.scope) ? shared.scope(auth.scope) : localScope(auth.scope);
     const agentHistory = (shared.selection(auth.scope) ? [...historyFor(auth.scope), ...local.history(agentScope)] : historyFor(auth.scope)).filter(item => !item.localRecovery).slice(-40).map(item => ({...item, content:item.role === 'user' ? (item.display || item.content) : item.content}));
     const editor = vscode.window.activeTextEditor;
     const folder = await requireWorkspace();
-    if (activeWorkspace.hasNested(folder)) throw new core.ServiceError('nested_workspace', L('Choose a project folder, rather than its containing workspace, to run tools.','Для работы инструментов выберите папку проекта, а не содержащую её рабочую область.'));
     if (!folder) throw new core.ServiceError('no_workspace', L('Open a project folder before starting the agent.', 'Откройте папку проекта, прежде чем запускать агента.'));
     const baseGuard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
     const fullGrant = planMode ? null : fullAccess.capture(folder);
@@ -727,7 +739,7 @@ function activate(context) {
           lastContextSummary = collected.summary;
         } else if (enabled) {
           lastContextSummary = null;
-          await postActivity('context', L('Automatic context omitted to fit your token allowance.','Автоконтекст пропущен, чтобы уложиться в квоту токенов.'));
+          await postActivity('context', L('Automatic context omitted to fit the service request limits.','Автоконтекст пропущен, чтобы уложиться в ограничения запроса сервиса.'));
         }
       } else lastContextSummary = null;
       await postAgentEvent(auth, { type: 'start', goal: goal.trim(), planMode, maxSteps, budgetUsd });
@@ -865,7 +877,7 @@ function activate(context) {
             omitAgentContext(bounded); automaticContextOmitted = true;
             tree = ''; agentRuleGrants = []; lastContextSummary = null;
             stepMessages = packs.packMessages(bounded,pack);
-            await postActivity('context',L('Automatic project context omitted to fit your token allowance.','Автоконтекст проекта пропущен, чтобы уложиться в квоту токенов.'));
+            await postActivity('context',L('Automatic project context omitted to fit the service request limits.','Автоконтекст проекта пропущен, чтобы уложиться в ограничения запроса сервиса.'));
           }
           if (!shared.selection(auth.scope)) stepMessages = fitContext(stepMessages,stepAccount,{preserveFirstUser:true}).messages;
           core.validateMessages(stepMessages);
@@ -941,7 +953,6 @@ function activate(context) {
   async function runUserShell(command) {
     ensureIdle();
     const folder = await requireWorkspace();
-    if (activeWorkspace.hasNested(folder)) throw new core.ServiceError('nested_workspace','Choose a child project to run commands.');
     if (!folder) throw new core.ServiceError('no_workspace', L('Open a project folder first.', 'Сначала откройте папку проекта.'));
     const commandDecision = analyzeCommand(command);
     if (!commandDecision.ok) throw new core.ServiceError('command_policy', commandDecision.reason);
@@ -970,7 +981,7 @@ function activate(context) {
       await postChatState();
       await postActivity('model', L('Running your command…', 'Выполняю вашу команду…'));
       const result = await tools.execute({ tool: 'run_command', command, commandDecision });
-      if (terminalCaptureEpoch === terminalCaptures.epoch && (vscode.workspace.workspaceFolders || []).some(item => path.resolve(item.uri.fsPath) === path.resolve(folder.uri.fsPath))) {
+      if (terminalCaptureEpoch === terminalCaptures.epoch && permissionFolder()?.uri.fsPath === folder.uri.fsPath) {
         terminalCaptures.recordDirect({ root: folder.uri.fsPath, cwd: folder.uri.fsPath, output: [result.stdout, result.stderr].filter(Boolean).join('\n[stderr]\n'), source: 'Extension shell output' });
       }
       await finishMap(auth,result.ok?'completed':result.cancelled?'cancelled':'failed');
@@ -1004,7 +1015,8 @@ function activate(context) {
     }
     if (uiLocale() === 'ru') {
       const map = {
-        preview_context_limit: 'Текущий запрос или вложения превышают доступную квоту после сокращения старого контекста. Уменьшите вложения. Черновик и полная история сохранены.',
+        preview_context_limit: 'Оставшейся квоты токенов аккаунта недостаточно для запроса и ответа после удаления автоконтекста. Проверьте расходы. Черновик и полная история сохранены.',
+        context_limit: 'Задание и обязательные результаты инструментов превышают предел размера запроса сервиса. Автоконтекст и старые сообщения уже сокращены. Разделите задание или терминальный лог; черновик и полная история сохранены.',
         charge_pending: 'Расход этой задачи ещё не подтверждён. Проверьте её состояние перед новым запросом; автоматического повтора не было.',
         model_request_failed: 'Запрос к модели завершился ошибкой. Проверьте результат и расходы задачи перед повторной отправкой.',
         usage_recovery_unavailable: 'Не удалось подтвердить расход. Резерв задачи сохранён до сверки; автоматического повтора не было.',
@@ -1138,7 +1150,7 @@ function activate(context) {
     const auth = await requireAuth();
     auth.viewScope = currentViewScope(auth.scope);
     const selected = shared.selection(auth.scope);
-    if (!selected) { await showPrivateDocument('markdown',conversationExport.exportConversation(historyFor(auth.scope),{knownSecrets:[auth.access_token]}),auth); return; }
+    if (!selected) { await showPrivateDocument('markdown',localHistoryDocument(auth),auth); return; }
     const data = await workspaceClient(client(), auth.access_token).threads(selected.projectId);
     if (!await isCurrentAuth(auth)) return;
     const pick = await vscode.window.showQuickPick([{ label: 'Create new shared thread', create: true }, ...(data.threads || []).map(thread => ({ label: thread.title, description: thread.id, thread }))], { title: selected.projectName + ' · server threads' });
@@ -1413,7 +1425,7 @@ function activate(context) {
     ensureIdle();
     busy = true;
     try {
-      runJournals.begin(recoveryKey,{id:idempotencyKey,kind:'edit',prompt:instruction.trim(),historyScope:shared.scope(auth.scope)});
+      runJournals.begin(recoveryKey,{id:idempotencyKey,kind:'edit',prompt:instruction.trim(),historyScope:shared.selection(auth.scope) ? shared.scope(auth.scope) : localScope(auth.scope)});
       activeJournals.add(idempotencyKey);
       await postActivity('model', L('Model is editing ' + relative + '…', 'Модель правит ' + relative + '…'));
       let projectBlock = '';
@@ -1864,7 +1876,7 @@ function activate(context) {
     if (shared.selection(auth.scope)) return createSharedThread(auth);
     const previous = historyFor(auth.scope);
     if (previous.length) await local.archiveHistory(auth.scope, randomUUID(), previous);
-    await local.saveHistory(auth.scope, []);
+    await local.saveHistory(localScope(auth.scope), []);
     agentMaps.delete(currentViewScope(auth.scope));
     attachments = [];
     draftSequence++;
@@ -1984,7 +1996,7 @@ function activate(context) {
     if (selectionState && !selectionState.threadId) { await createSharedThread(auth); selectionState = shared.selection(auth.scope); }
     auth.viewScope = currentViewScope(auth.scope);
     chatJournal = {scope:recoveryScope(auth),id:randomUUID()};
-    runJournals.begin(chatJournal.scope,{id:chatJournal.id,kind:'chat',prompt:question.trim(),historyScope:shared.scope(auth.scope)});
+    runJournals.begin(chatJournal.scope,{id:chatJournal.id,kind:'chat',prompt:question.trim(),historyScope:shared.selection(auth.scope) ? shared.scope(auth.scope) : localScope(auth.scope)});
     activeJournals.add(chatJournal.id);
     mapAuth = auth; beginMap(auth, question.trim()); await postRunSession(auth);
     const editor = vscode.window.activeTextEditor;
@@ -2036,7 +2048,7 @@ function activate(context) {
       } catch { contextSummary = null; lastContextSummary = null; }
     } else {
       lastContextSummary = null;
-      if (contextEnabled) await postActivity('context', L('Automatic context omitted to fit your token allowance.','Автоконтекст пропущен, чтобы уложиться в квоту токенов.'));
+      if (contextEnabled) await postActivity('context', L('Automatic context omitted to fit the service request limits.','Автоконтекст пропущен, чтобы уложиться в ограничения запроса сервиса.'));
     }
     await postActivity('grant', L('Checking the task limit…', 'Проверяю лимит задачи…'));
     await clearPending(auth);
@@ -2052,7 +2064,7 @@ function activate(context) {
       content = explicitContent;
       messages = packs.packMessages([...history.filter(item => !item.localRecovery).map(item => ({role:item.role,content:item.role === 'user' ? (item.display || item.content) : item.content})),{role:'user',content}],pack);
       lastContextSummary = null; chatRuleGrants = [];
-      await postActivity('context', L('Automatic context omitted to fit your token allowance.', 'Автоконтекст пропущен, чтобы уложиться в квоту токенов.'));
+      await postActivity('context', L('Automatic context omitted to fit the service request limits.', 'Автоконтекст пропущен, чтобы уложиться в ограничения запроса сервиса.'));
     }
     if (!selectionState) messages = fitContext(messages,freshAccount).messages;
     core.validateMessages(messages);
@@ -2104,7 +2116,7 @@ function activate(context) {
       if (selectionState) {
         const thread = await workspaceClient(api, auth.access_token).thread(selectionState.projectId, selectionState.threadId);
         shared.remember(auth.scope, selectionState, thread.messages || []);
-      } else await local.saveHistory(auth.scope, stored);
+      } else await local.saveHistory(localScope(auth.scope), stored);
       runJournals.finish(chatJournal.scope,chatJournal.id);
       const sentIds = new Set(sentAttachments.map((item) => item.id));
       if (await isCurrentAuth(auth)) attachments = attachments.filter((item) => !sentIds.has(item.id));
@@ -2141,7 +2153,7 @@ function activate(context) {
     const rulesEpoch = rulesRevocationEpoch;
     return async () => {
       if (rulesEpoch !== rulesRevocationEpoch) throw new core.ServiceError('rules_changed', 'Project rules approval was revoked. Start a new task.');
-      if (!await isCurrentAuth(auth) || epoch !== workspaceEpoch || !(vscode.workspace.workspaceFolders || []).some(folder => path.resolve(folder.uri.fsPath) === root)) throw new core.ServiceError('account_changed', 'The account, service, project, thread or workspace changed. Reopen the coding task before proceeding.');
+      if (!await isCurrentAuth(auth) || epoch !== workspaceEpoch || !permissionFolder() || path.resolve(permissionFolder().uri.fsPath) !== root) throw new core.ServiceError('account_changed', 'The account, service, project, thread or workspace changed. Reopen the coding task before proceeding.');
     };
   }
   async function previewCoding(review) {
@@ -2400,10 +2412,11 @@ function activate(context) {
             if (!allowed[message.key] || !allowed[message.key].includes(message.value)) throw new core.ServiceError('invalid_option', 'Unknown model, workflow or reasoning method.');
             if (message.key === 'workspaceContext' && message.value === 'ask') await context.globalState.update(CONTEXT_CONSENT, undefined);
             await vscode.workspace.getConfiguration('tvijo').update(message.key, message.value, vscode.ConfigurationTarget.Global);
+            if (message.key === 'model' || message.key === 'agentModel') await vscode.workspace.getConfiguration('tvijo').update(message.key === 'model' ? 'agentModel' : 'model',message.value,vscode.ConfigurationTarget.Global);
             await postChatState();
           } else if (message?.type === 'fullAccessRevert') {
-            const folder = (vscode.workspace.workspaceFolders || []).find(folder=>fullAccess.status(folder).scopeKey === message.fullAccessScope);
-            if (!folder || typeof message.fullAccessScope !== 'string') throw new core.ServiceError('invalid_option','This Full access folder is no longer available.');
+            const folder = permissionFolder();
+            if (!folder || fullAccess.status(folder).scopeKey !== message.fullAccessScope || typeof message.fullAccessScope !== 'string') throw new core.ServiceError('invalid_option','This Full access folder is no longer available.');
             const persisted = await fullAccess.disable(folder);
             await postChatState();
             if (!persisted) throw new core.ServiceError('permission_storage','Full access stopped for this session, but its saved permission could not be removed.');
@@ -2433,7 +2446,6 @@ function activate(context) {
               ownsModeLock = true;
               const folder = await requireWorkspace();
               if (message.preset === 'full') {
-                if (activeWorkspace.hasNested(folder)) throw new core.ServiceError('nested_workspace',L('Choose a child project for Full access. Other open projects keep their own permissions.','Для полного доступа выберите дочерний проект. Разрешения других проектов остаются отдельными.'));
                 const enabled = folder && await fullAccess.enable(folder,{guard:() => assertCurrent(auth)});
                 await postChatState();
                 await assertCurrent(auth);

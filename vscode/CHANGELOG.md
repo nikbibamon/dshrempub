@@ -1,3 +1,11 @@
+## 0.10.6 — 2026-10-23
+
+- Browse a project subfolder in the current local/SSH workspace, including canonical paths through an open symlink root. Reject child symlink escapes and owner changes.
+- Bind Full access, context, tool cwd, local history and drafts to the selected canonical folder and verified account. An explicit enclosing-folder grant covers its descendants; inactive grants no longer appear in the active banner.
+- Keep selected model consistent between Chat and Agent, and restore each folder's mode. Preserve earlier unassigned history in the local history viewer.
+- Remove optional automatic context before request compaction for every account. Align client and gateway UTF-8 serialization bounds, retain the task and latest tool action/result, and distinguish account quota from request body limits.
+- Direct VSIX release. Native Windows desktop interaction is not verified; see release evidence for synthetic UI, real service routes and SSH installation checks.
+
 ## 0.10.5 — 2026-10-23
 
 - Keep a verified account identity and sign-in/loading/error state visible in simple chat.

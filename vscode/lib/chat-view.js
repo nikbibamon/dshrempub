@@ -138,6 +138,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   }
   const queue = [];
   const saved = vscode.getState?.();
+  const draftModes = saved?.draftModes && typeof saved.draftModes === 'object' ? {...saved.draftModes} : {};
   const drafts = saved?.drafts && typeof saved.drafts === 'object' ? { ...saved.drafts } : {};
   const draftTimes = saved?.draftTimes && typeof saved.draftTimes === 'object' ? { ...saved.draftTimes } : {};
   const draftTtl = 7 * 24 * 60 * 60 * 1000;
@@ -150,7 +151,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   let theme = ['dark','light','system'].includes(saved?.theme) ? saved.theme : 'system';
   document.body.setAttribute('data-theme', theme);
   const t = key => COPY[locale][key] || COPY.en[key] || key;
-  const saveState = () => { if (scopeKey) drafts[composerScope || scopeKey] = question.value; vscode.setState?.({drafts,draftTimes,legacyDraft,locale,theme,engineering,mode:uiMode,composerScope}); };
+  const saveState = () => { if (scopeKey) { drafts[composerScope || scopeKey] = question.value; draftModes[composerScope || scopeKey] = uiMode; } vscode.setState?.({drafts,draftModes,draftTimes,legacyDraft,locale,theme,engineering,mode:uiMode,composerScope}); };
   const post = message => vscode.postMessage({ ...message, scopeKey });
   const saveDraft = () => { if (scopeKey) draftTimes[composerScope || scopeKey] = Date.now(); saveState(); if (scopeKey) post({type:'composerDraft',composerScope,text:question.value,mode:uiMode}); };
   const setTimer = typeof setInterval === 'function' ? setInterval : () => null;
@@ -324,7 +325,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   function renderFullAccessWarning() {
     const panel = document.getElementById('full-access-warning');
     panel.setAttribute('aria-label',t('modeFull'));
-    const active = Array.isArray(fullAccess?.active) ? fullAccess.active : [];
+    const active = fullAccess?.enabled === true && Array.isArray(fullAccess.active) ? fullAccess.active.filter(row=>row.scopeKey === fullAccess.scopeKey) : [];
     panel.replaceChildren(); panel.hidden = !active.length;
     if (!active.length) return;
     const message = document.createElement('div'); message.textContent = t('fullAccessWarning'); panel.append(message);
@@ -704,7 +705,8 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
         const cachedTime = draftTimes[draftKey];
         const cachedDraft = scopeKey && Object.prototype.hasOwnProperty.call(drafts,draftKey) && (!Number.isFinite(cachedTime) ? saved?.draftTimes === undefined : Date.now() - cachedTime < draftTtl);
         question.value = scopeKey ? (cachedDraft ? drafts[composerScope || scopeKey] : data.composerDraft?.text ?? legacyScopedDraft ?? '') : '';
-        if (!cachedDraft && ['chat','agent','plan'].includes(data.composerDraft?.mode)) uiMode = data.composerDraft.mode;
+        const restoredMode = cachedDraft ? draftModes[draftKey] || data.composerDraft?.mode : data.composerDraft?.mode;
+        uiMode = ['chat','agent','plan'].includes(restoredMode) ? restoredMode : data.fullAccess?.enabled ? 'agent' : 'chat';
         if (scopeKey) draftTimes[draftKey] = cachedDraft && Number.isFinite(cachedTime) ? cachedTime : data.composerDraft?.updatedAt || Date.now();
         submitting = false; uploading = false; queue.length = 0;
         saveState();

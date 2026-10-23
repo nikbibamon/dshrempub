@@ -75,7 +75,7 @@ function sameFolder(a, b) {
 async function collect(vscode, { document = null, selectionText = '', maxBytes = DEFAULT_MAX_BYTES, knownPaths = [], knownSecrets = [], contextMode = 'on', folder: requestedFolder = null, selectedPaths = null, selectionForFolder, allowRules } = {}) {
   const folders = vscode.workspace.workspaceFolders || [];
   if (!folders.length) return { text: '', summary: { root: '', files: 0, bytes: 0, truncated: false, activePath: '', rules: { status: 'unavailable' } } };
-  const requested = requestedFolder && folders.find(candidate => sameFolder(candidate, requestedFolder));
+  const requested = requestedFolder && require('./active-workspace').validFolder(vscode,requestedFolder) ? requestedFolder : null;
   const activeCandidate = document ? vscode.workspace.getWorkspaceFolder(document.uri) : null;
   const activeFolder = activeCandidate && folders.find(candidate => sameFolder(candidate, activeCandidate));
   if (requestedFolder && !requested) throw new Error('The selected workspace folder is no longer available.');
@@ -106,7 +106,6 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
       if (!current.prefix && !included(name)) continue;
       entries += 1;
       const relative = current.prefix ? current.prefix + '/' + name : name;
-      if (folders.some(other => !sameFolder(other,folder) && sameFolder(other,{uri:vscode.Uri.joinPath(root,relative)}))) continue;
       tree.push(relative + (isDir ? '/' : ''));
       if (isDir && current.depth + 1 < MAX_DEPTH) queue.push({ uri: vscode.Uri.joinPath(current.uri, name), depth: current.depth + 1, prefix: relative });
     }

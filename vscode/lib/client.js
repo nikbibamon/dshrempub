@@ -267,14 +267,24 @@ function previewContextBytes(configured, account) {
   return bounded >= 4096 ? bounded : 0;
 }
 
-// Conservative local preflight for the gateway's ASCII JSON token reservation.
+// Python JSON uses spaces after separators. The gateway sends UTF-8 explicitly.
+function gatewayMessageBytes(messages) {
+  return Buffer.byteLength(JSON.stringify(messages),'utf8') + Math.max(0,messages.length-1) + messages.reduce((sum,m)=>sum+Math.max(0,Object.keys(m).length-1)+Object.keys(m).length,0);
+}
+
+// Conservative local preflight for the gateway's UTF-8 JSON token reservation.
 // Explicit user text/history is never truncated; only automatic context may be omitted.
 function previewFits(messages, account, maxTokens = 2048) {
+  // Gateway uses Python ensure_ascii=False and spaces after separators. Keep a
+  // 90KB client allowance below its 110KiB messages+system / 128KiB wire caps.
+  // This also bounds native UTF-8 prompt tokens (<100K including framing),
+  // even for admin accounts without a trial token quota.
+  const bytes = gatewayMessageBytes(messages);
+  if (messages.length > 80 || bytes > 90000 || bytes + 8192 > 100000) return false;
   const preview = account?.preview;
   if (!preview || preview.source === 'operator_test_allowance' || preview.tokens_remaining === null) return true;
   if (!Number.isSafeInteger(preview.tokens_remaining) || preview.tokens_remaining < 0) return false;
-  const ascii = JSON.stringify(messages).replace(/[\u007f-\uffff]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4,'0'));
-  return Buffer.byteLength(ascii,'utf8') * 2 + maxTokens + 6144 <= preview.tokens_remaining;
+  return bytes * 2 + maxTokens + 6144 <= preview.tokens_remaining;
 }
 
-module.exports = { previewFits, previewContextBytes, formatTvijo, DEFAULT_API_BASE, ServiceError, apiBase, createClient, taskStateOf, pendingBlocks, validateMessages, checkKnowledgeFile, questionWithSelection, formatAnswer };
+module.exports = { gatewayMessageBytes, previewFits, previewContextBytes, formatTvijo, DEFAULT_API_BASE, ServiceError, apiBase, createClient, taskStateOf, pendingBlocks, validateMessages, checkKnowledgeFile, questionWithSelection, formatAnswer };

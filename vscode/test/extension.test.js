@@ -164,7 +164,10 @@ function host(options = {}) {
     onDidDispose: (fn) => { disposal = fn; }
   });
   const { tenantState, scopeKey } = require('../lib/tenant-state');
-  return { vscode, context, posts, docs, shown, warnings, requests, commands, executed, errors, feedback, panels, external, copied, base, local: tenantState(context), scope: tenant => scopeKey(base, tenant), receive: (message) => receive(message), workspaceChanged: () => { if (!workspaceChangeListener) return false; workspaceChangeListener({}); return true; }, configurationChanged: () => { for (const listener of configurationChangeListeners) listener({ affectsConfiguration: key => key === 'tvijo.apiBase' }); return configurationChangeListeners.length; },
+  const accountLocal=tenantState(context);
+  const folderScope=scope=>require('node:crypto').createHash('sha256').update(JSON.stringify([scope,require('../lib/active-workspace').identity(require('../lib/active-workspace').createActiveWorkspace({vscode,state:context.workspaceState}).current())])).digest('hex');
+  const scopedLocal={...accountLocal,history:scope=>accountLocal.history(folderScope(scope)),saveHistory:(scope,value)=>accountLocal.saveHistory(folderScope(scope),value)};
+  return { vscode, context, posts, docs, shown, warnings, requests, commands, executed, errors, feedback, panels, external, copied, base, local: scopedLocal, rawLocal:accountLocal, folderScope, scope: tenant => scopeKey(base, tenant), receive: (message) => receive({...message,...(message.scopeKey === scopeKey(base,'tenant-a') || message.scopeKey === scopeKey(base,'tenant-b') ? {scopeKey:folderScope(message.scopeKey)} : {})}), workspaceChanged: () => { if (!workspaceChangeListener) return false; workspaceChangeListener({}); return true; }, configurationChanged: () => { for (const listener of configurationChangeListeners) listener({ affectsConfiguration: key => key === 'tvijo.apiBase' }); return configurationChangeListeners.length; },
     root, storage, botAdapter: () => botAdapter, settings, status, Uri, Position, Range,
     grantError: value => { grantError = value; }, lookup: value => { lookup = value; }, warning: value => { warningAnswer = value; }, chat: value => { chatContent = value; }, editor: value => { activeEditor = value; }, applied: () => appliedEdit, taskSnapshot: value => { taskSnapshot = value; },
     fireDiagnostics,
@@ -1010,7 +1013,7 @@ test('a busy Agent cannot be escalated to another preset', async () => {
     assert.equal(app.responseWaiting(),true);
     await app.receive({type:'agentPreset',preset:'auto',scopeKey,requestId:'busy'});
     const result=app.posts.filter(item=>item.type==='presetResult').at(-1);
-    assert.deepEqual({scopeKey:result.scopeKey,requestId:result.requestId,ok:result.ok},{scopeKey,requestId:'busy',ok:false});
+    assert.deepEqual({scopeKey:result.scopeKey,requestId:result.requestId,ok:result.ok},{scopeKey:app.folderScope(scopeKey),requestId:'busy',ok:false});
     assert.equal(app.settings.get('agentAutoApply'),undefined);
     assert.equal(app.settings.get('agentAutoRun'),undefined);
     app.releaseResponse(); await running;
@@ -1958,7 +1961,7 @@ test('Plan sends scoped dirty-buffer summaries and literal disk search while ref
 
 
 function recoveryKeyFor(app, scope = app.scope('tenant-a')) {
-  return require('node:crypto').createHash('sha256').update(JSON.stringify([scope,[['file','',path.resolve(app.root)]]])).digest('hex');
+  return require('node:crypto').createHash('sha256').update(JSON.stringify([scope,JSON.stringify(['file','',path.resolve(app.root)])])).digest('hex');
 }
 function journalFor(app) { return require('../lib/run-journal').createRunJournal(app.storage); }
 
@@ -2012,7 +2015,7 @@ test('restart restores an unfinished prompt and N step events once, locally, wit
   const app = host();
   await app.receive({type:'ready'});
   const key=recoveryKeyFor(app), j=journalFor(app), historyScope=app.scope('tenant-a');
-  j.begin(key,{id:'killed-run',kind:'agent',prompt:'RECOVERED_GOAL_SENTINEL',historyScope});
+  j.begin(key,{id:'killed-run',kind:'agent',prompt:'RECOVERED_GOAL_SENTINEL',historyScope:app.folderScope(historyScope)});
   for(let step=1;step<=3;step++) j.append(key,'killed-run',{type:'result',step,result:{text:'LOCAL_STEP_'+step}});
   const restartOptions={root:app.root,storage:app.storage,globalState:app.context.globalState,workspaceState:app.context.workspaceState,secrets:app.context.secrets};
   app.close();
@@ -2113,7 +2116,7 @@ test('Fetch result reuses the Resolve task read/reconciliation path with no repl
   try{
     await app.receive({type:'ready'});
     const scope=app.scope('tenant-a'),key=recoveryKeyFor(app),j=journalFor(app);
-    j.begin(key,{id:'fetch-saved',kind:'chat',prompt:'saved prompt',historyScope:scope});j.task(key,'fetch-saved','task-test');
+    j.begin(key,{id:'fetch-saved',kind:'chat',prompt:'saved prompt',historyScope:app.folderScope(scope)});j.task(key,'fetch-saved','task-test');
     await app.local.savePending(scope,{idempotencyKey:'fetch-money',taskId:'task-test',apiBase:app.base});
     const before=app.requests.length;
     await app.receive({type:'fetchRun',scopeKey:scope,id:'fetch-saved'});
@@ -2132,7 +2135,7 @@ test('delayed task fetch cannot show a result after the workspace changes',async
   try{
     await app.receive({type:'ready'});
     const scope=app.scope('tenant-a'),j=journalFor(app),key=recoveryKeyFor(app);
-    j.begin(key,{id:'stale-fetch',kind:'chat',prompt:'saved',historyScope:scope});j.task(key,'stale-fetch','task-test');
+    j.begin(key,{id:'stale-fetch',kind:'chat',prompt:'saved',historyScope:app.folderScope(scope)});j.task(key,'stale-fetch','task-test');
     app.blockResponse('/tasks/task-test');
     const fetching=app.receive({type:'fetchRun',scopeKey:scope,id:'stale-fetch'});
     for(let n=0;n<100&&!app.responseWaiting();n++)await new Promise(resolve=>setTimeout(resolve,5));
@@ -2381,7 +2384,7 @@ test('local preview rejection keeps the draft but leaves no interrupted run or p
     assert.equal(app.requests.filter(r=>r.method==='POST'&&r.url.endsWith('/tasks')).length,0);
     assert.equal(journalFor(app).list(recoveryKeyFor(app)).runs.length,0);
     assert.equal(app.local.pending(app.scope('tenant-a')),undefined);
-    assert.ok(app.feedback.some(e=>/allowance|квот/.test(e)));
+    assert.ok(app.feedback.some(e=>/allowance|quota|квот/.test(e)));
   } finally {app.close();}
 });
 
@@ -2397,7 +2400,7 @@ test('agent preview preflight preserves the draft and rejects before a task with
   assert.deepEqual(app.errors,[],'visible chat owns the error, so no native popup');
   const state=app.posts.filter(p=>p.type==='state').at(-1);
   assert.equal(state.error.action,'context');
-  assert.match(state.error.text,/conversation|allowance/i);
+  assert.match(state.error.text,/conversation|allowance|quota/i);
   assert.deepEqual(app.posts.filter(p=>p.type==='submission').at(-1),{type:'submission',scopeKey:undefined,ok:false,question});
  }finally{app.close();}
 });
@@ -2419,7 +2422,7 @@ test('failed recovered task closes its run only with confirmed zero held cost',a
   try{
    await app.receive({type:'ready'});
    const scope=app.scope('tenant-a'),key=recoveryKeyFor(app),j=journalFor(app);
-   j.begin(key,{id:'failed-preview',kind:'agent',prompt:'keep evidence',historyScope:scope});j.task(key,'failed-preview','task-test');
+   j.begin(key,{id:'failed-preview',kind:'agent',prompt:'keep evidence',historyScope:app.folderScope(scope)});j.task(key,'failed-preview','task-test');
    await app.local.savePending(scope,{idempotencyKey:'failed-preview',taskId:'task-test',apiBase:app.base});
    await app.receive({type:'fetchRun',scopeKey:scope,id:'failed-preview'});
    assert.equal(j.get(key,'failed-preview').status,held==='0'?'completed':'running');
@@ -2506,7 +2509,7 @@ test('preview omits only automatic context when retained conversation consumes t
  try{
   app.settings.set('workspaceContext','on');
   app.vscode.workspace.fs.readFile=async uri=>{if(path.basename(uri.fsPath)==='README.md')return fs.readFile(path.join(root,'README.md'));throw Error('No fixture file');};
-  const prior='п'.repeat(3000);await app.local.saveHistory(app.scope('tenant-a'),[{role:'user',content:prior},{role:'assistant',content:'earlier answer'}]);
+  const prior='п'.repeat(9000);await app.local.saveHistory(app.scope('tenant-a'),[{role:'user',content:prior},{role:'assistant',content:'earlier answer'}]);
   await app.receive({type:'ask',question:'what next'});
   assert.deepEqual(app.feedback,[]);
   const sent=app.requests.find(r=>r.method==='POST'&&r.url.endsWith('/chat')).body.messages;
@@ -2553,8 +2556,9 @@ test('simple multi-root Full access uses only selected ai-os folder, never edito
   assert.equal(app.posts.filter(p=>p.type==='state').at(-1).fullAccess.enabled,false);
   chosen='parent';await app.receive({type:'chooseWorkspace'});
   await app.receive({type:'agentPreset',scopeKey:app.scope('tenant-a'),preset:'full',requestId:'parent'});
-  assert.equal(app.posts.filter(p=>p.type==='state').at(-1).fullAccess.enabled,false);
-  assert.equal(app.warnings.length,1);
+  assert.equal(app.posts.filter(p=>p.type==='state').at(-1).fullAccess.enabled,true);
+  assert.equal(app.warnings.length,2);
+  assert.match(app.warnings.at(-1)[1].detail,/descendants/);
  } finally {app.close();}
 });
 
@@ -2586,4 +2590,52 @@ test('delayed account A unauthorized response cannot clear newly verified accoun
   const state=app.posts.filter(p=>p.type==='state').at(-1);
   assert.equal(state.signedIn,true);assert.equal(state.account.tenant_id,'tenant-b');assert.equal(state.authState,'signed_in');assert.equal(state.authError,'');
  }finally{release?.();app.close();}
+});
+
+test('folder-model integration: docs grant -> symlink parser -> browse child -> actual host tools; selected model and account scope',async()=>{
+ const base=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'folder-model-host-'));
+ const parent=path.join(base,'parent'),parser=path.join(base,'volume','parser'),docs=path.join(parent,'docs');
+ await fs.mkdir(path.join(parser,'project'),{recursive:true});await fs.mkdir(path.join(docs,'subproject'),{recursive:true});await fs.symlink(parser,path.join(parent,'parser'));
+ await fs.writeFile(path.join(parser,'project','recent.txt'),'RECENT_PARSER_SENTINEL');await fs.writeFile(path.join(docs,'docs.txt'),'DOCS_PRIVATE_SENTINEL');
+ let pick='docs';const app=host({root:parent,pick:rows=>rows.find(r=>pick==='browse'?r.browse:r.folder?.name===pick),chatSequence:['{"tool":"read_file","path":"recent.txt"}','{"tool":"finish","answer":"Read recent parser file"}']});
+ try {
+  app.vscode.workspace.workspaceFolders=[{name:'parent',uri:app.Uri.file(parent)},{name:'docs',uri:app.Uri.file(docs)},{name:'subproject',uri:app.Uri.file(path.join(docs,'subproject'))},{name:'parser',uri:app.Uri.file(path.join(parent,'parser'))}];
+  app.vscode.window.showOpenDialog=async()=>[app.Uri.file(path.join(parent,'parser','project'))];
+  app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',3);
+  await app.receive({type:'ready'});await app.receive({type:'chooseWorkspace'});await enableFullAccess(app);
+  pick='parser';await app.receive({type:'chooseWorkspace'});let state=app.posts.filter(p=>p.type==='state').at(-1);
+  assert.equal(state.fullAccess.enabled,false);assert.deepEqual(state.fullAccess.active,[]);assert.equal(state.projectLabel,'parser');
+  pick='browse';await app.receive({type:'chooseWorkspace'});state=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.projectLabel,'project');
+  await app.receive({type:'setOption',scopeKey:state.scopeKey,key:'model',value:'devstral'});
+  await enableFullAccess(app);await app.receive({type:'ask',agent:true,question:'последние файлы какие правили? Прочитай recent.txt'});
+  const calls=app.requests.filter(r=>r.url.endsWith('/chat'));assert.equal(calls.length,2);assert.match(JSON.stringify(calls[1].body),/RECENT_PARSER_SENTINEL/);assert.doesNotMatch(JSON.stringify(calls),/DOCS_PRIVATE_SENTINEL/);
+  assert.equal(app.requests.find(r=>r.url.endsWith('/tasks')&&r.method==='POST').body.model,'devstral');
+  assert.equal(app.warnings.length,2);
+  const allowed=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(allowed.fullAccess.active.length,1);assert.equal(allowed.fullAccess.active[0].folder,path.join(parser,'project'));
+  await app.context.secrets.store('tvijo.auth',JSON.stringify({access_token:'account-b',api_base:app.base}));await app.receive({type:'ready'});assert.equal(app.posts.filter(p=>p.type==='state').at(-1).fullAccess.enabled,false);
+ } finally {app.close();}
+});
+
+test('folder-model integration: Cyrillic terminal task drops large automatic context for admin before any grant',async()=>{
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'folder-model-context-'));
+ for (const file of ['README.md','README_RU.md','readme.md','package.json']) await fs.writeFile(path.join(root,file),'AUTO_CONTEXT_SENTINEL\n'+'информация '.repeat(500));
+ const explicit='Разбери этот терминальный лог, ничего не выполняй:\n'+'строка журнала '.repeat(2000);
+ const app=host({root,account:{preview:{source:'operator_test_allowance',tokens_remaining:null,remaining_usd:'20',total_usd:'20'}}});
+ try {
+  app.settings.set('workspaceContext','on');app.settings.set('workspaceContextMaxBytes',48000);
+  app.vscode.workspace.fs.readDirectory=async()=>['README.md','README_RU.md','readme.md','package.json'].map(n=>[n,1]);app.vscode.workspace.fs.readFile=async uri=>fs.readFile(uri.fsPath);app.vscode.workspace.fs.stat=async uri=>({type:1,size:(await fs.stat(uri.fsPath)).size});
+  await app.receive({type:'ready'});await app.receive({type:'ask',question:explicit});
+  const calls=app.requests.filter(r=>r.url.endsWith('/chat'));assert.equal(calls.length,1,JSON.stringify(app.feedback));assert.equal(calls[0].body.messages.at(-1).content,explicit.trim());assert.doesNotMatch(JSON.stringify(calls),/AUTO_CONTEXT_SENTINEL/);
+  assert.equal(app.local.history(app.scope('tenant-a'))[0].display,explicit.trim());
+ }finally{app.close();}
+});
+test('folder-model integration: 0.10.5 account history stays visible on demand and never enters new-folder requests',async()=>{
+ const app=host();
+ try{
+  await app.rawLocal.saveHistory(app.scope('tenant-a'),[{role:'user',content:'LEGACY_UNASSIGNED_DOCS_TASK'},{role:'assistant',content:'LEGACY_RESULT'}]);
+  app.settings.set('workspaceContext','off');await app.receive({type:'ready'});
+  await app.commands.get('tvijo.chooseThread')();assert.match(app.shown.at(-1).content,/LEGACY_UNASSIGNED_DOCS_TASK/);assert.match(app.shown.at(-1).content,/folder unassigned/);
+  await app.receive({type:'ask',question:'New selected folder task'});assert.doesNotMatch(JSON.stringify(app.requests.filter(r=>r.url.endsWith('/chat'))),/LEGACY_UNASSIGNED_DOCS_TASK/);
+  assert.equal(app.rawLocal.history(app.scope('tenant-a')).length,2);
+ }finally{app.close();}
 });

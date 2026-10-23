@@ -45,11 +45,11 @@ function extensionHost() {
   let input = 'tvijo-project-test-key';
   let pick = items => items.find(item => item.thread) || items[0];
   const vscode = {
-    Uri: { parse: value => ({ toString: () => value }) },
+    Uri: { parse: value => ({ toString: () => value }), file: fsPath=>({scheme:'file',authority:'',fsPath}) },
     env: { clipboard: { writeText: async () => {} }, openExternal: async () => {} },
     StatusBarAlignment: { Right: 1 }, ProgressLocation: { Notification: 1 }, ViewColumn: { Beside: 2 },
     commands: { registerCommand: (id, fn) => { commands.set(id, fn); return disposable; }, executeCommand: async id => commands.get(id)?.() },
-    workspace: { workspaceFolders: [{uri:{fsPath:process.cwd()}}], getConfiguration: () => ({ get: (key, fallback) => key === 'apiBase' ? configuredBase : fallback }), onDidChangeConfiguration: fn => { configurationChanged = fn; return disposable; } },
+    workspace: { workspaceFolders: [{uri:{scheme:'file',authority:'',fsPath:process.cwd()}}], getConfiguration: () => ({ get: (key, fallback) => key === 'apiBase' ? configuredBase : fallback }), onDidChangeConfiguration: fn => { configurationChanged = fn; return disposable; } },
     window: {
       createStatusBarItem: () => ({ show() {} }), registerWebviewViewProvider: (_id, value) => { provider = value; return disposable; },
       showInputBox: async () => input, showQuickPick: async items => pick(items),

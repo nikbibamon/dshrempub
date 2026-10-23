@@ -12,8 +12,8 @@ function createFullAccess({ vscode, state, scope, L = en => en, onRevoke = () =>
 
   function identity(folder) {
     if (!folder || folder.uri?.scheme !== 'file' || folder.uri?.authority) return null;
-    const folders = vscode.workspace.workspaceFolders || [];
-    const current = folders.find(f => f.uri?.scheme === 'file' && !f.uri.authority && path.resolve(f.uri.fsPath) === path.resolve(folder.uri.fsPath));
+    if (!require('./active-workspace').validFolder(vscode,folder)) return null;
+    const current = folder.canonicalRoot ? folder : (vscode.workspace.workspaceFolders || []).find(f=>path.resolve(f.uri.fsPath)===path.resolve(folder.uri.fsPath));
     if (!current) return null;
     const key = scope(current);
     return typeof key === 'string' && VALID_SCOPE.test(key) ? key : null;
@@ -48,7 +48,7 @@ function createFullAccess({ vscode, state, scope, L = en => en, onRevoke = () =>
     try {
       await guard(); check(folder, key, capturedEpoch);
       const label = L('Enable Full access', 'Включить полный доступ');
-      const detail = folder.uri.fsPath + '\n' + L('Automatically approve edits and commands using local host permissions. Hard command, path, secret, and budget limits and Rewind remain in effect. Commands are not an operating-system sandbox.', 'Автоматически одобрять правки и команды с правами хоста. Ограничения команд, путей, секретов и бюджета, а также Rewind сохраняются. Команды не изолированы песочницей ОС.');
+      const detail = folder.uri.fsPath + '\n' + L('Scope: this exact directory and all its descendants, including open child projects. Other siblings and ancestors are excluded. Automatically approve edits and commands using local host permissions. Hard command, path, secret, and budget limits and Rewind remain in effect. Commands are not an operating-system sandbox.', 'Область: именно эта папка и всё её содержимое, включая открытые дочерние проекты. Соседние и родительские папки исключены. Автоматически одобрять правки и команды с правами хоста. Ограничения команд, путей, секретов и бюджета, а также Rewind сохраняются. Команды не изолированы песочницей ОС.');
       const answer = await vscode.window.showWarningMessage(L('Enable Full access for this folder?', 'Включить полный доступ для этой папки?'), { modal: true, detail }, label);
       check(folder, key, capturedEpoch);
       await guard(); check(folder, key, capturedEpoch);

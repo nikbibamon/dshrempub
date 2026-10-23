@@ -2,20 +2,23 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {createActiveWorkspace,KEY}=require('../lib/active-workspace');
 const {fitContext,wireBytes}=require('../lib/context-budget');
-const folder=p=>({name:p.split('/').pop(),uri:{scheme:'file',fsPath:p}});
+const fs=require('node:fs'),path=require('node:path');
+const fixture=fs.mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'scope-test-'));
+const folder=p=>{p=path.join(fixture,p);fs.mkdirSync(p,{recursive:true});return {name:path.basename(p),uri:{scheme:'file',fsPath:p}};};
+const Uri={file:fsPath=>({scheme:'file',fsPath})};
 test('multi-root selection is explicit, persistent and unaffected by editor focus or root order',async()=>{
  const parent=folder('/projects'),a=folder('/projects/ai-os'),b=folder('/projects/centabot');
  const data=new Map(),state={get:k=>data.get(k),update:async(k,v)=>data.set(k,v)};
- const vscode={workspace:{workspaceFolders:[parent,a,b]},window:{showQuickPick:async rows=>rows.find(r=>r.folder===a)}};
+ const vscode={Uri,workspace:{workspaceFolders:[parent,a,b]},window:{showQuickPick:async rows=>rows.find(r=>r.folder===a)}};
  let changed=0;const active=createActiveWorkspace({vscode,state,onChange:()=>changed++});
- assert.equal(active.current(),null);assert.equal(await active.ensure(),a);assert.equal(changed,1);
- vscode.workspace.workspaceFolders=[b,parent,a];assert.equal(createActiveWorkspace({vscode,state}).current(),a);
+ assert.equal(active.current(),null);assert.equal((await active.ensure()).uri.fsPath,a.uri.fsPath);assert.equal(changed,1);
+ vscode.workspace.workspaceFolders=[b,parent,a];assert.equal(createActiveWorkspace({vscode,state}).current().uri.fsPath,a.uri.fsPath);
  assert.equal(active.hasNested(a),false);assert.equal(active.hasNested(parent),true);
  vscode.workspace.workspaceFolders=[parent,b];assert.equal(active.current(),null);assert.ok(data.get(KEY));
 });
 test('cancelled workspace choice does not infer parent or silently change consent',async()=>{
  const data=new Map(),state={get:k=>data.get(k),update:async(k,v)=>data.set(k,v)};
- const vscode={workspace:{workspaceFolders:[folder('/projects'),folder('/projects/a')]},window:{showQuickPick:async()=>undefined}};
+ const vscode={Uri,workspace:{workspaceFolders:[folder('/projects'),folder('/projects/a')]},window:{showQuickPick:async()=>undefined}};
  const active=createActiveWorkspace({vscode,state});assert.equal(await active.ensure(),null);assert.equal(data.size,0);
 });
 test('short prompt survives huge historical multilingual context without mutating history',()=>{

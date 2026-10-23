@@ -11,7 +11,7 @@ const trust = require('./rules-trust');
 const {safePath} = require('./local-tools');
 const PREFIX = 'tvijo.rulesTrust.v1.';
 
-function createRulesHost({vscode, state, storageRoot, L = en => en, showPreview, knownSecrets = () => [], onRevoke = () => {}}) {
+function createRulesHost({vscode, state, storageRoot, L = en => en, showPreview, knownSecrets = () => [], selectedFolder = () => null, onRevoke = () => {}}) {
   let epoch = 0;
   function hostIdentity() {
     if (typeof storageRoot !== 'string' || !path.isAbsolute(storageRoot)) throw Error('Host storage is unavailable.');
@@ -48,6 +48,8 @@ function createRulesHost({vscode, state, storageRoot, L = en => en, showPreview,
     } catch { return null; }
   }
   function folderFor(root) {
+    const selected = selectedFolder();
+    if (selected && require('./active-workspace').validFolder(vscode,selected) && path.resolve(selected.uri.fsPath) === path.resolve(root)) return selected;
     return (vscode.workspace.workspaceFolders || []).find(folder => path.resolve(folder.uri.fsPath) === path.resolve(root));
   }
   function decision(folder, hash) {
@@ -56,6 +58,7 @@ function createRulesHost({vscode, state, storageRoot, L = en => en, showPreview,
       record:key ? state.get(PREFIX + key) : null});
   }
   async function chooseFolder() {
+    if (selectedFolder()) return selectedFolder();
     const folders = vscode.workspace.workspaceFolders || [];
     if (!folders.length) return null;
     if (folders.length === 1) return folders[0];
