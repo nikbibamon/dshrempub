@@ -1,6 +1,6 @@
 {
   "schema": "tvijo.extension-release/v1",
-  "as_of": "2026-10-22",
+  "as_of": "2026-10-23",
   "product": {
     "id": "tvijo-dshrem-vscode",
     "name": "Tvijo DSHREM for VS Code",
@@ -9,29 +9,29 @@
       "ru": "Помощь с кодом: выбранный контекст, проверяемые правки и задачи с лимитом."
     }
   },
-  "latest_version": "0.10.3",
+  "latest_version": "0.10.4",
   "channel": "preview",
   "publication": {
-    "status": "prepared",
-    "published_at": null,
+    "status": "published",
+    "published_at": "2026-10-23",
     "note": {
-      "en": "Prepared and installed locally. Reload Window is required to activate the new host. Marketplace publication is not performed.",
-      "ru": "Подготовлено и установлено локально. Для активации нужен Reload Window. Публикации в Marketplace не было."
+      "en": "VSIX available directly from this site. Install from VSIX, then Reload Window. Marketplace publication was not performed.",
+      "ru": "VSIX доступен прямо на этом сайте. Установите из VSIX, затем выполните Reload Window. Публикации в Marketplace не было."
     }
   },
   "package": {
-    "filename": "tvijo-dshrem-0.10.3.vsix",
+    "filename": "tvijo-dshrem-0.10.4.vsix",
+    "sha256": "1a2ffd8f6f94906b4965a0ade6ccd47ee5c2d92cf1b61d643b7077711905b977",
+    "bytes": 776431,
     "editor_requirement": "^1.90.0",
-    "sha256": "c2bbbb6d06eee077ea940f1cdf3a504adc60f574fd70565f81706a0db3d15c8e",
-    "bytes": 239087,
-    "source_commit": "f65491cf840e8fcf649540a37c2e279fb9a1aa3d",
-    "verified_environment": "600 extension checks; two synthetic-host Chromium viewports; installed JavaScript payload verified; active VS Code host requires Reload Window"
+    "source_commit": "6a7891e2332464e34a02cff82689c16f7e0d80be",
+    "verified_environment": "619 Node extension tests; synthetic VS Code webview in Chromium at 280/390/768 px, English/Russian"
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
-    "issues": "https://github.com/nikbibamon/dshrempub/issues",
-    "source": "https://github.com/nikbibamon/dshrempub/tree/f65491cf840e8fcf649540a37c2e279fb9a1aa3d",
-    "changelog": "https://github.com/nikbibamon/dshrempub/blob/f65491cf840e8fcf649540a37c2e279fb9a1aa3d/vscode/CHANGELOG.md"
+    "source": "https://github.com/nikbibamon/dshrempub/tree/6a7891e2332464e34a02cff82689c16f7e0d80be",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/6a7891e2332464e34a02cff82689c16f7e0d80be/vscode/CHANGELOG.md",
+    "issues": "https://github.com/nikbibamon/dshrempub/issues"
   },
   "features": [
     {
@@ -108,6 +108,42 @@
     }
   ],
   "releases": [
+    {
+      "version": "0.10.4",
+      "date": "2026-10-23",
+      "title": {
+        "en": "More room for your conversation",
+        "ru": "Больше места для разговора"
+      },
+      "changes": [
+        {
+          "en": "Compact chat by default: history and new chat above; attachments, mode, model, settings and stop below.",
+          "ru": "Компактный чат по умолчанию: история и новый чат сверху; вложения, режим, модель, настройки и остановка снизу."
+        },
+        {
+          "en": "Usage, recovery and advanced controls move into Settings; Engineering view remains available.",
+          "ru": "Расходы, восстановление и дополнительные инструменты перенесены в настройки; инженерный вид доступен."
+        },
+        {
+          "en": "Choose local folders and files for context; preview size without a model call. Fresh quota checks preserve the draft when a request cannot fit.",
+          "ru": "Выбор локальных папок и файлов для контекста; оценка размера без вызова модели. Проверка актуальной квоты сохраняет черновик, если запрос не помещается."
+        },
+        {
+          "en": "Readable inline errors replace duplicate native popups; TT estimates and held balances use the correct units.",
+          "ru": "Читаемые сообщения внутри чата заменяют повторные всплывающие ошибки; оценки и резерв TT показывают правильные единицы."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Browser tests use a synthetic VS Code host. Native Windows/macOS and paid provider inference were not tested for this release.",
+          "ru": "Браузерные тесты используют имитацию хоста VS Code. Нативные Windows/macOS и платные запросы провайдеру в этом выпуске не проверены."
+        },
+        {
+          "en": "Folder selection filters a bounded project snapshot; it is not full recursive RAG indexing. Arbitrary selected contents require a local file provider.",
+          "ru": "Выбор папок фильтрует ограниченный снимок проекта; это не полная рекурсивная RAG-индексация. Чтение произвольных выбранных файлов требует локального файлового провайдера."
+        }
+      ]
+    },
     {
       "version": "0.10.3",
       "date": "2026-10-22",
@@ -394,17 +430,11 @@
     }
   ],
   "verification": {
-    "date": "2026-10-22",
-    "cli_tests": 10,
-    "extension_tests": 596,
-    "launcher_tests": 7,
-    "python_release_checks": 16,
-    "reproducible_vsix": true,
+    "date": "2026-10-23",
+    "extension_tests": 619,
     "native_gui": {
-      "en": "0.10.2 native dialog integration NOT_RUN; synthetic host and rendered webview checked.",
-      "ru": "Нативный диалог 0.10.2 отдельно не проверялся; проверены синтетический хост и отрисованный webview."
-    },
-    "gateway_checks": 20,
-    "browser_viewport_cases": 2
+      "en": "Not tested for 0.10.4; webview runs on a synthetic host.",
+      "ru": "Для 0.10.4 не проверен; webview работает на имитации хоста."
+    }
   }
 }
