@@ -38,6 +38,8 @@ const resourceHub = require('./lib/resource-hub');
 const { createCheckpoints } = require('./lib/checkpoints');
 const { createRunJournal } = require('./lib/run-journal');
 const { createFullAccess } = require('./lib/full-access');
+const {createActiveWorkspace} = require('./lib/active-workspace');
+const {fitContext} = require('./lib/context-budget');
 const AUTH_KEY = 'tvijo.auth';
 const CONTEXT_CONSENT = 'tvijo.contextConsent';
 
@@ -208,6 +210,9 @@ function activate(context) {
   const handlers = new Map();
   let customerBot = null;
   let accountSnapshot = null;
+  let authState = 'loading';
+  let authError = '';
+  let reconnecting = false;
   let identity = null;
   let authAttempt = 0;
   let authCommits = Promise.resolve();
@@ -231,9 +236,17 @@ function activate(context) {
   const syntaxChecks = createSyntaxHost({vscode,state:context.globalState,storageRoot:context.globalStorageUri?.fsPath,chooseFolder:()=>projectRulesHost.chooseFolder(),scope:folder=>projectRulesHost.scope(folder),L});
   const fullAccess = createFullAccess({vscode,state:context.globalState,scope:folder=>projectRulesHost.scope(folder),L,
     onRevoke:() => { agentAbort?.abort(); activeAbort?.abort(); }});
-  function permissionFolder() {
-    return (vscode.window.activeTextEditor && vscode.workspace.getWorkspaceFolder(vscode.window.activeTextEditor.document.uri)) || vscode.workspace.workspaceFolders?.[0];
+  const activeWorkspace = createActiveWorkspace({vscode,state:context.workspaceState || context.globalState,L,onChange:() => {
+    flushDrafts(); workspaceEpoch++; fullAccess.invalidate(); syntaxChecks.invalidate(); terminalCaptures.invalidate();
+    lastContextSummary = null; codingReview = null;
+  }});
+  function permissionFolder() { return activeWorkspace.current(); }
+  async function requireWorkspace() {
+    const folder = await activeWorkspace.ensure();
+    if (!folder) throw new core.ServiceError('no_workspace',L('Choose a local workspace folder to continue.','Выберите локальную папку проекта.'));
+    return folder;
   }
+  command('tvijo.chooseWorkspace', async () => { ensureIdle(); await activeWorkspace.choose(); await postChatState(); });
   function fullAccessState() {
     return {...fullAccess.status(permissionFolder()),active:(vscode.workspace.workspaceFolders || []).map(folder=>fullAccess.status(folder)).filter(item=>item.enabled).map(({folder,scopeKey})=>({folder,scopeKey}))};
   }
@@ -499,27 +512,46 @@ function activate(context) {
     return current?.access_token === auth.access_token && current.api_base === auth.api_base && client().base === auth.api_base && identity?.scope === auth.scope && identity.token === auth.access_token && (auth.authEpoch === undefined || auth.authEpoch === authAttempt) && (!auth.viewScope || currentViewScope(auth.scope) === auth.viewScope);
   }
 
-  async function refreshStatus() {
+  async function refreshStatus({reconcile = false} = {}) {
     const attempt = authAttempt;
+    const expected = await readAuth();
+    if (attempt !== authAttempt) return;
     let auth;
-    try { auth = await requireAuth(); } catch { if (attempt !== authAttempt) return; switchIdentity(null); }
+    try { auth = await requireAuth(); authError = ''; }
+    catch (error) {
+      const current = await readAuth();
+      if (attempt !== authAttempt || current?.access_token !== expected?.access_token || current?.api_base !== expected?.api_base) return;
+      switchIdentity(null); authError = current?.access_token ? localizedMessage(error) : authError;
+    }
     if (attempt !== authAttempt) return;
     const live = !!auth;
+    authState = deviceLoginActive ? 'connecting' : live ? 'signed_in' : authError ? 'error' : 'signed_out';
     if (!live || !packAvailable) updatePackStatus(null, auth);
     if (live && auth.kind !== 'project') {
       try {
         const account = await client().account(auth.access_token);
-        const current = await readAuth();
-        if (current?.access_token === auth.access_token && current.api_base === client().base && account.tenant_id === auth.tenant_id) accountSnapshot = account;
-      } catch { /* Verified identity remains bound to this token; retain the last known snapshot. */ }
+        if (attempt !== authAttempt || !await isCurrentAuth(auth)) return;
+        if (account.tenant_id !== auth.tenant_id) throw new core.ServiceError('account_unknown','The server account identity changed. Sign in again.');
+        accountSnapshot = account;
+      } catch (error) {
+        if (attempt !== authAttempt || !await isCurrentAuth(auth)) return;
+        authState = 'error'; authError = localizedMessage(error);
+        if (error.code === 'unauthorized' || error.code === 'account_unknown' || error.status === 401) { switchIdentity(null); auth = null; }
+      }
     }
-    if (live && !busy && !attaching && shared.selection(auth.scope)?.threadId) {
+    if (auth && !busy && !attaching && shared.selection(auth.scope)?.threadId) {
       try { await loadSharedThread(auth, shared.selection(auth.scope)); }
       catch { /* Keep the last verified thread snapshot; Refresh shared server thread exposes errors. */ }
     }
-    if (live && await isCurrentAuth(auth)) {
+    if (auth && await isCurrentAuth(auth)) {
       const selection = await currentPack(auth);
       if (await isCurrentAuth(auth)) updatePackStatus(selection, auth);
+    }
+    if (reconcile && auth && !busy && !attaching && !reconnecting && await isCurrentAuth(auth)) {
+      reconnecting = true;
+      try { await clearPending(auth); if (lastError?.action === 'cancel') lastError = null; }
+      catch (error) { lastError = {text:localizedMessage(error),action:errorAction(error)}; }
+      finally { reconnecting = false; }
     }
     if (chatView) await postChatState();
   }
@@ -558,7 +590,7 @@ function activate(context) {
       try { options = chatOptions(auth, selection.pack); } catch { options = null; }
     } else updatePackStatus(null, null);
     if(view!==chatView || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
-    await view.webview.postMessage({ type: 'state', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length, account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, projectLabel:(vscode.workspace.workspaceFolders || []).map(folder => folder.name || path.basename(folder.uri.fsPath)).join(', '), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
+    await view.webview.postMessage({ type: 'state', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length, account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : L('Choose local workspace','Выберите локальную папку'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'coding') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
       status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
@@ -636,7 +668,8 @@ function activate(context) {
     const agentScope = shared.selection(auth.scope) ? shared.scope(auth.scope) : auth.scope;
     const agentHistory = (shared.selection(auth.scope) ? [...historyFor(auth.scope), ...local.history(agentScope)] : historyFor(auth.scope)).filter(item => !item.localRecovery).slice(-40).map(item => ({...item, content:item.role === 'user' ? (item.display || item.content) : item.content}));
     const editor = vscode.window.activeTextEditor;
-    const folder = (editor && vscode.workspace.getWorkspaceFolder(editor.document.uri)) || (vscode.workspace.workspaceFolders || [])[0];
+    const folder = await requireWorkspace();
+    if (activeWorkspace.hasNested(folder)) throw new core.ServiceError('nested_workspace', L('Choose a project folder, rather than its containing workspace, to run tools.','Для работы инструментов выберите папку проекта, а не содержащую её рабочую область.'));
     if (!folder) throw new core.ServiceError('no_workspace', L('Open a project folder before starting the agent.', 'Откройте папку проекта, прежде чем запускать агента.'));
     const baseGuard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
     const fullGrant = planMode ? null : fullAccess.capture(folder);
@@ -672,8 +705,8 @@ function activate(context) {
       let tree = '';
       let agentRuleGrants = [];
       if (contextMode !== 'off') {
-        let enabled = contextMode === 'on';
-        if (contextMode === 'ask') {
+        let enabled = contextMode === 'on' || !!fullGrant;
+        if (contextMode === 'ask' && !fullGrant) {
           const saved = context.globalState.get(CONTEXT_CONSENT);
           if (saved === 'on' || saved === 'off') enabled = saved === 'on';
           else if (typeof vscode.window.showWarningMessage === 'function') {
@@ -688,7 +721,7 @@ function activate(context) {
         }
         const contextBytes = core.previewContextBytes(Math.min(16000, config.get('workspaceContextMaxBytes',48000)),freshAccount);
         if (enabled && contextBytes > 0) {
-          const collected = await projectRulesHost.collect({ selectionForFolder:contextSelection.selected, knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: contextBytes });
+          const collected = await projectRulesHost.collect({ folder:permissionFolder(), selectionForFolder:contextSelection.selected, knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: contextBytes });
           tree = collected.text;
           agentRuleGrants = collected.ruleGrants;
           lastContextSummary = collected.summary;
@@ -834,8 +867,8 @@ function activate(context) {
             stepMessages = packs.packMessages(bounded,pack);
             await postActivity('context',L('Automatic project context omitted to fit your token allowance.','Автоконтекст проекта пропущен, чтобы уложиться в квоту токенов.'));
           }
+          if (!shared.selection(auth.scope)) stepMessages = fitContext(stepMessages,stepAccount,{preserveFirstUser:true}).messages;
           core.validateMessages(stepMessages);
-          if (!shared.selection(auth.scope) && !core.previewFits(stepMessages,stepAccount)) throw new core.ServiceError('preview_context_limit',L('The conversation or attachments exceed your remaining token allowance. Start a new conversation or reduce attachments. Your draft is preserved.','Разговор или вложения превышают остаток квоты токенов. Начните новый разговор или уменьшите вложения. Черновик сохранён.'));
           const idempotencyKey = randomUUID();
           await local.savePending(auth.scope, { idempotencyKey, apiBase: auth.api_base, tenantId: auth.tenant_id, createdAt: new Date().toISOString() });
           projectRulesHost.assertCurrent(agentRuleGrants);
@@ -857,7 +890,11 @@ function activate(context) {
           await guard();
           const rawCost = answer?.cost?.spent_usd ?? answer?.cost?.budget?.spent_usd ?? answer?.cost?.spent;
           const cost = typeof rawCost === 'number' || (typeof rawCost === 'string' && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(rawCost)) ? Number(rawCost) : NaN;
-          if (!Number.isFinite(cost) || cost < 0) throw Object.assign(new Error('Unknown agent cost'), { code: 'usage_unknown' });
+          if (!Number.isFinite(cost) || cost < 0) {
+            const pending = local.pending(auth.scope,idempotencyKey);
+            if (pending) await local.savePending(auth.scope,{...pending,requiresCostReceipt:true});
+            throw Object.assign(new Error('Unknown agent cost'), { code: 'usage_unknown' });
+          }
           try { if (!core.pendingBlocks(await api.taskState(auth.access_token, answer.taskId))) await local.savePending(auth.scope, undefined, idempotencyKey); } catch { /* Keep the journal until settlement is known. */ }
           agentSpent += cost;
           if (agentSpent >= Number(budgetUsd)) throw Object.assign(new Error('Agent budget exhausted'), { code: 'agent_budget', spent: agentSpent, budget: budgetUsd });
@@ -903,7 +940,8 @@ function activate(context) {
 
   async function runUserShell(command) {
     ensureIdle();
-    const folder = (vscode.window.activeTextEditor && vscode.workspace.getWorkspaceFolder(vscode.window.activeTextEditor.document.uri)) || (vscode.workspace.workspaceFolders || [])[0];
+    const folder = await requireWorkspace();
+    if (activeWorkspace.hasNested(folder)) throw new core.ServiceError('nested_workspace','Choose a child project to run commands.');
     if (!folder) throw new core.ServiceError('no_workspace', L('Open a project folder first.', 'Сначала откройте папку проекта.'));
     const commandDecision = analyzeCommand(command);
     if (!commandDecision.ok) throw new core.ServiceError('command_policy', commandDecision.reason);
@@ -966,14 +1004,14 @@ function activate(context) {
     }
     if (uiLocale() === 'ru') {
       const map = {
-        preview_context_limit: 'Разговор или вложения превышают остаток квоты токенов. Начните новый разговор или уменьшите вложения. Автоконтекст уже ограничен; черновик сохранён.',
+        preview_context_limit: 'Текущий запрос или вложения превышают доступную квоту после сокращения старого контекста. Уменьшите вложения. Черновик и полная история сохранены.',
         charge_pending: 'Расход этой задачи ещё не подтверждён. Проверьте её состояние перед новым запросом; автоматического повтора не было.',
         model_request_failed: 'Запрос к модели завершился ошибкой. Проверьте результат и расходы задачи перед повторной отправкой.',
         usage_recovery_unavailable: 'Не удалось подтвердить расход. Резерв задачи сохранён до сверки; автоматического повтора не было.',
         usage_reconciliation_required: 'Требуется сверка расхода задачи. Проверьте её состояние перед новым запросом.',
         unauthorized: 'Сеанс входа недействителен. Выполните «Tvijo: Войти» и повторите.',
         free_preview_exhausted: 'Бесплатная проба завершена. Откройте условия кредита.',
-        operator_allowance_exhausted: 'Дневной тестовый allowance оператора исчерпан. Лимит обновится в 00:00 UTC.',
+        operator_allowance_exhausted: 'Общий лимит аккаунта или дневной лимит исчерпан. Проверьте расходы: общий allowance автоматически не возобновляется.',
         credits_or_daily_cap_exhausted: 'Исчерпан кредит или дневной лимит аккаунта. Проверьте расходы и лимиты.',
         insufficient_credit: 'Доступный кредит не покрывает резерв этой задачи.',
         project_required: 'Сначала выберите общий проект: Команды → Choose shared project. Затем откройте подключения.',
@@ -1100,7 +1138,7 @@ function activate(context) {
     const auth = await requireAuth();
     auth.viewScope = currentViewScope(auth.scope);
     const selected = shared.selection(auth.scope);
-    if (!selected) throw new core.ServiceError('conversation_project_required', L('Server conversation history requires a shared project. Run Tvijo: Choose shared project, then open conversation history again. Your local conversation remains in this chat.','Для истории серверных разговоров нужен общий проект. Выполните Tvijo: Choose shared project и снова откройте историю. Локальный разговор остаётся в этом чате.'));
+    if (!selected) { await showPrivateDocument('markdown',conversationExport.exportConversation(historyFor(auth.scope),{knownSecrets:[auth.access_token]}),auth); return; }
     const data = await workspaceClient(client(), auth.access_token).threads(selected.projectId);
     if (!await isCurrentAuth(auth)) return;
     const pick = await vscode.window.showQuickPick([{ label: 'Create new shared thread', create: true }, ...(data.threads || []).map(thread => ({ label: thread.title, description: thread.id, thread }))], { title: selected.projectName + ' · server threads' });
@@ -1233,7 +1271,7 @@ function activate(context) {
   async function attachPath(input) {
     const value = input.trim().replace(/^(["'])(.*)\1$/, '$2');
     const activeUri = vscode.window.activeTextEditor?.document.uri;
-    const root = (activeUri && vscode.workspace.getWorkspaceFolder(activeUri) || vscode.workspace.workspaceFolders?.[0])?.uri.fsPath;
+    const root = (await requireWorkspace()).uri.fsPath;
     if (!path.isAbsolute(value) && !root) throw new core.ServiceError('no_workspace', 'Open a workspace before attaching a relative path.');
     await attachUri(vscode.Uri.file(path.isAbsolute(value) ? value : path.resolve(root, value)));
   }
@@ -1262,10 +1300,10 @@ function activate(context) {
   });
   command('tvijo.contextSelect', async () => {
     ensureIdle();
+    const folder = await requireWorkspace();
     const epoch = workspaceEpoch, identityEpoch = authAttempt;
     const selectionScope = identity?.scope ? currentViewScope(identity.scope) : null;
     const guard = async () => { ensureIdle(); if (epoch !== workspaceEpoch || identityEpoch !== authAttempt || selectionScope !== (identity?.scope ? currentViewScope(identity.scope) : null)) throw new core.ServiceError('account_changed','The account or workspace changed. Choose context again.'); };
-    const folder = await projectRulesHost.chooseFolder();
     await guard();
     if (!folder) return;
     await contextSelection.choose(folder,guard);
@@ -1275,7 +1313,7 @@ function activate(context) {
 
   command('tvijo.contextPreview', async () => {
     ensureIdle();
-    const folder = await projectRulesHost.chooseFolder();
+    const folder = await requireWorkspace();
     if (!folder) return;
     const editor = vscode.window.activeTextEditor, auth = await readAuth();
     rulesPreviewSecrets = [auth?.access_token, auth?.refresh_token].filter(Boolean);
@@ -1285,16 +1323,9 @@ function activate(context) {
     const content = '# ' + L('Project context preview','Предпросмотр контекста проекта') + '\n\n' + L('Project: ','Проект: ') + summary.root + '\n' + summary.files + L(' tree entries',' элементов дерева') + ' · ' + summary.bytes + L(' bytes',' байт') + ' · ~' + Math.ceil(summary.bytes / 4) + L(' tokens (local estimate, not a quota quote)',' токенов (локальная оценка, не расчёт квоты)') + '\n' + L('Rules: ','Правила: ') + (summary.rules?.status || 'unknown') + (contextSelection.selected(folder) !== null ? '\n' + L('Folder rules are omitted when a custom file selection is active. Selection does not grant tool permissions.','При выборочном контексте правила папки не включаются. Выбор контекста не даёт прав инструментам.') : '') + '\n' + (summary.skippedLarge || 0) + L(' files omitted for size or unknown size; ',' файлов пропущено из-за размера или неизвестного размера; ') + (summary.skippedSensitive || 0) + L(' files omitted for sensitive content.',' файлов пропущено из-за конфиденциального содержимого.') + '\n' + (summary.skippedUnsupported || 0) + L(' selected files omitted: this provider has no bounded local file read.',' выбранных файлов пропущено: провайдер не поддерживает ограниченное локальное чтение.') + '\n\n' + collected.text;
     const doc = await vscode.workspace.openTextDocument({language:'plaintext', content}); localPreviewDocuments.add(doc); await vscode.window.showTextDocument(doc,{preview:false});
     await postChatState();
-    const action = await vscode.window.showQuickPick([
-      {label:L('Review and trust folder rules…','Просмотреть и одобрить правила папки…'),id:'trust'},
-      {label:L('Revoke folder rules trust','Отозвать доверие правилам папки'),id:'revoke'}
-    ],{title:L('Project rules — separate from context consent','Правила проекта — отдельное согласие')});
-    if (action?.id === 'trust') await projectRulesHost.approve(folder);
-    else if (action?.id === 'revoke') await projectRulesHost.revoke(folder);
-    await postChatState();
   });
   function rewindWorkspace() {
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const root = permissionFolder()?.uri.fsPath;
     if (!root) throw new Error(L('Open a workspace folder to Rewind.', 'Откройте папку проекта для восстановления.'));
     return {root, key:root + ':' + workspaceEpoch};
   }
@@ -1311,7 +1342,7 @@ function activate(context) {
     ensureIdle();
     const {root,key} = rewindWorkspace(), epoch = workspaceEpoch;
     if (message.workspaceKey !== key || typeof message.runId !== 'string' || !Number.isInteger(message.step)) throw new Error('The Rewind workspace changed. Open Rewind again.');
-    const guard = async () => { if (workspaceEpoch !== epoch || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath !== root) throw new Error('The Rewind workspace changed.'); };
+    const guard = async () => { if (workspaceEpoch !== epoch || permissionFolder()?.uri.fsPath !== root) throw new Error('The Rewind workspace changed.'); };
     rewindBusy = true;
     try {
       const result = await checkpoints.restore({root,runId:message.runId,step:message.step,guard,
@@ -1394,7 +1425,7 @@ function activate(context) {
         else { const send = L('Send context', 'Отправить контекст'); contextEnabled = await vscode.window.showWarningMessage(L('Send project context with this edit?', 'Отправить контекст проекта с правкой?'), { modal: true }, send, L('No context', 'Без контекста')) === send; }
       }
       await editGuard();
-      if (contextEnabled) { const collected = await projectRulesHost.collect({ selectionForFolder:contextSelection.selected, knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), document: null, folder, knownPaths: [...knownAttachmentPaths(document), relative], maxBytes: 16000 }); editRuleGrants = collected.ruleGrants; if (collected.text) projectBlock = collected.text + '\n\n'; }
+      if (contextEnabled) { const collected = await projectRulesHost.collect({ folder:permissionFolder(), selectionForFolder:contextSelection.selected, knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), document: null, folder, knownPaths: [...knownAttachmentPaths(document), relative], maxBytes: 16000 }); editRuleGrants = collected.ruleGrants; if (collected.text) projectBlock = collected.text + '\n\n'; }
       const messages = [{ role: 'user', content: projectBlock + quickEdit.instruction(relative, document.languageId) + '\n\n--- FILE ---\n' + original + '\n--- END FILE ---\n\nInstruction: ' + instruction.trim() }];
       await local.savePending(auth.scope, { idempotencyKey, apiBase: auth.api_base, tenantId: auth.tenant_id, createdAt: new Date().toISOString() });
       const answer = await vscode.window.withProgress(
@@ -1513,7 +1544,7 @@ function activate(context) {
     if (picked) await handlers.get(picked.id)();
   });
   command('tvijo.terminal', async () => {
-    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri;
+    const cwd = (await requireWorkspace()).uri;
     if (!cwd) throw new core.ServiceError('workspace_required', 'Open a project folder first.');
     const terminal = vscode.window.createTerminal({ name: 'DSHREM · project', cwd, env: { OPENAI_API_KEY: null, ANTHROPIC_API_KEY: null } });
     terminal.show();
@@ -1773,7 +1804,8 @@ function activate(context) {
   command('tvijo.signIn', async () => {
     ensureIdle();
     if (deviceLoginActive) return;
-    deviceLoginActive = true;
+    deviceLoginActive = true; authState = 'connecting'; authError = '';
+    await postChatState();
     try {
     const attempt = ++authAttempt;
     const api = client();
@@ -1794,7 +1826,8 @@ function activate(context) {
       switchIdentity(null);
     });
     vscode.window.showInformationMessage('Tvijo: signed in. The token is kept in VS Code secret storage.');
-    } finally { deviceLoginActive = false; }
+    } catch (error) { authState = 'error'; authError = localizedMessage(error); throw error; }
+    finally { deviceLoginActive = false; await postChatState(); }
   });
 
   command('tvijo.signOut', async () => {
@@ -1814,6 +1847,7 @@ function activate(context) {
       try { await api.logout(auth.access_token); } catch { /* Local sign-out already completed. */ }
     }
     assertAuthAttempt(attempt, api.base);
+    authState = 'signed_out'; authError = '';
     vscode.window.showInformationMessage('Tvijo: signed out on this machine.');
   });
 
@@ -1906,18 +1940,21 @@ function activate(context) {
     for (let checked = 0; checked < 100; checked++) {
       let pending = local.pending(auth.scope);
       if (!pending) return;
+      if (pending.tenantId && pending.tenantId !== auth.tenant_id) throw new core.ServiceError('pending_task','Saved task identity does not match this account.');
       if (auth.kind === 'project' && pending.projectId !== shared.selection(auth.scope)?.projectId) throw new core.ServiceError('pending_task', L('An unresolved task belongs to another project. Use its original account or key to reconcile it before another question.', 'Незавершённая задача относится к другому проекту. Закройте её под исходным аккаунтом или ключом, прежде чем задавать новый вопрос.'));
       if (pending.apiBase && pending.apiBase !== auth.api_base) throw new core.ServiceError('pending_task', L('An earlier task belongs to another service URL. Reconcile it there first.', 'Более ранняя задача относится к другому адресу сервиса. Сначала закройте её там.'));
       if (!pending.taskId) {
         if (!pending.idempotencyKey) throw new core.ServiceError('pending_task', L('This older request has no recoverable identifier. It is preserved locally; inspect Recent tasks and spending.', 'У этой старой заявки нет идентификатора для сверки. Она сохранена локально; смотрите «История задач» и расходы.'));
         const found = await findPendingGrant(api, auth, pending.idempotencyKey);
+        if (!await isCurrentAuth(auth)) throw new core.ServiceError('account_changed','The account changed during task lookup.');
         if (pending.phase === 'pregrant' && found?.found === false && found.task === null) { await local.savePending(auth.scope, undefined, pending.idempotencyKey); continue; }
         if (!found?.found || !found.task?.id) throw new core.ServiceError('pending_task', L('The service has no task for the saved request. Open “Model & method” → “Resolve task” and choose “Forget request”, then ask again.', 'Сервис не видит задачу для сохранённой заявки. Откройте «Модель и метод» → «Проверить задачу» и выберите «Забыть заявку», затем задайте вопрос снова.'));
         pending = { ...pending, taskId: found.task.id };
         await local.savePending(auth.scope, pending);
       }
       const state = await api.taskState(auth.access_token, pending.taskId);
-      if (core.pendingBlocks(state)) {
+      if (!await isCurrentAuth(auth)) throw new core.ServiceError('account_changed','The account changed during task reconciliation.');
+      if (core.pendingBlocks(state) || (pending.requiresCostReceipt && !state.costKnown)) {
         throw new core.ServiceError('pending_task', L(`Task ${pending.taskId} is ${state.status || 'unresolved'} with held ${state.held ?? 'unknown'} ${state.heldUnit || 'USD'}. Choose “Resolve task” or wait; no new paid task was created.`, `Задача ${pending.taskId} — ${state.status || 'не закрыта'}, удержано ${state.held ?? 'неизвестно'} ${state.heldUnit || 'USD'}. Нажмите «Проверить задачу» или подождите; новая платная задача не создана.`));
       }
       await local.savePending(auth.scope, undefined, pending.idempotencyKey || pending.taskId);
@@ -1928,6 +1965,7 @@ function activate(context) {
   async function askQuestion(question, { showEditor = false, includeSelection = false } = {}) {
     ensureIdle();
     if (!question?.trim()) return;
+    if (vscode.workspace.workspaceFolders?.length) await requireWorkspace();
     const startedAt = Date.now();
     busy = true;
     let mapAuth = null;
@@ -1970,8 +2008,9 @@ function activate(context) {
     let chatRuleGrants = [];
     let contextSummary = null;
     const contextMode = config.get('workspaceContext', 'ask');
-    let contextEnabled = contextMode === 'on';
-    if (contextMode === 'ask') {
+    const contextGrant = fullAccess.capture(permissionFolder());
+    let contextEnabled = contextMode === 'on' || !!contextGrant;
+    if (contextMode === 'ask' && !contextGrant) {
       const saved = context.globalState.get(CONTEXT_CONSENT);
       if (saved === 'on' || saved === 'off') contextEnabled = saved === 'on';
       else if (typeof vscode.window.showWarningMessage === 'function') {
@@ -1988,7 +2027,7 @@ function activate(context) {
     if (contextEnabled && contextBytes > 0) {
       await postActivity('scan', L('Reading the project tree and manifests…', 'Смотрю проект: дерево и манифесты…'));
       try {
-        const collected = await projectRulesHost.collect({ selectionForFolder:contextSelection.selected, knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: contextBytes });
+        const collected = await projectRulesHost.collect({ folder:permissionFolder(), selectionForFolder:contextSelection.selected, knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: contextBytes });
         contextSummary = collected.summary;
         chatRuleGrants = collected.ruleGrants;
         if (collected.text) contextBlock = collected.text + '\n\n';
@@ -2015,8 +2054,8 @@ function activate(context) {
       lastContextSummary = null; chatRuleGrants = [];
       await postActivity('context', L('Automatic context omitted to fit your token allowance.', 'Автоконтекст пропущен, чтобы уложиться в квоту токенов.'));
     }
+    if (!selectionState) messages = fitContext(messages,freshAccount).messages;
     core.validateMessages(messages);
-    if (!selectionState && !core.previewFits(messages, freshAccount)) throw new core.ServiceError('preview_context_limit', L('This conversation or selected attachment exceeds your remaining token allowance. Start a new conversation or select a smaller excerpt. Your draft is preserved.', 'Разговор или выбранный файл превышает остаток квоты. Начните новый разговор или выберите меньший фрагмент. Черновик сохранён.'));
     const payer = selectionState ? byokSelection.get(auth,selectionState.projectId) : null;
     const idempotencyKey = chatJournal.id;
     const grantRequest = { title: `VS Code: ${question.trim().slice(0, 80)}`, max_usd: selectionState ? sharedTaskCap(auth) : '1', model: packs.packModel(config, 'model', 'coding', pack), mode: config.get('agentMode', 'single'), method: config.get('reasoningMethod', 'evidence-first'), idempotency_key: idempotencyKey, ...(selectionState ? { project_id: selectionState.projectId, thread_id: selectionState.threadId } : {}) };
@@ -2292,7 +2331,7 @@ function activate(context) {
     resolveWebviewView(view) {
       chatView = view;
       view.webview.options = { enableScripts: true };
-      view.webview.html = chatHtml(view.webview).replaceAll('Chat stays in this workspace and is separate from Copilot. Submitted tasks also appear in server history.', 'Use Commands to choose a shared project and server thread. Shared messages are available in your browser.');
+      view.webview.html = chatHtml(view.webview);
       const listener = view.webview.onDidReceiveMessage(async (message) => {
         try {
           if (['ask', 'attach', 'removeAttachment', 'previewAttachment', 'copy', 'openAnswer', 'new', 'cancel', 'workspace', 'selection', 'path', 'clearAttachments', 'tasks', 'history', 'contextSelect', 'usage', 'workflow', 'setOption', 'agentPreset', 'quickEdit', 'choosePack', 'copyCode', 'openExternal', 'agentMap'].includes(message?.type) && message.scopeKey !== undefined) {
@@ -2392,8 +2431,9 @@ function activate(context) {
               if (modeUpdatePending || rewindBusy || busy || attaching) throw new core.ServiceError('busy', 'Wait for the current question, attachment or mode update to finish.');
               modeUpdatePending = true;
               ownsModeLock = true;
-              const folder = permissionFolder();
+              const folder = await requireWorkspace();
               if (message.preset === 'full') {
+                if (activeWorkspace.hasNested(folder)) throw new core.ServiceError('nested_workspace',L('Choose a child project for Full access. Other open projects keep their own permissions.','Для полного доступа выберите дочерний проект. Разрешения других проектов остаются отдельными.'));
                 const enabled = folder && await fullAccess.enable(folder,{guard:() => assertCurrent(auth)});
                 await postChatState();
                 await assertCurrent(auth);
@@ -2452,7 +2492,7 @@ function activate(context) {
               throw error;
             } finally { if (ownsModeLock) modeUpdatePending = false; }
           } else if (message?.type === 'ready') {
-            await refreshStatus();
+            await refreshStatus({reconcile:true});
             if (pendingRewind && pendingRewind.workspaceKey === rewindWorkspace().key) await view.webview.postMessage(pendingRewind);
             if (pendingDraft) {
               const draft = pendingDraft; pendingDraft = null;
@@ -2477,10 +2517,12 @@ function activate(context) {
             if (!item || item.role !== 'assistant') return;
             if (message.type === 'copy') await vscode.env.clipboard.writeText(item.content);
             else await showPrivateDocument('markdown', item.display || item.content, auth);
+          } else if (message?.type === 'chooseWorkspace') {
+            await handlers.get('tvijo.chooseWorkspace')();
           } else if (message?.type === 'account') {
             const auth = await readAuth();
             const live = auth?.access_token && auth.api_base === client().base && !(auth.expires_at && Date.now() >= Date.parse(auth.expires_at));
-            await vscode.commands.executeCommand(live ? 'tvijo.account' : 'tvijo.signIn');
+            await vscode.commands.executeCommand(live && authState !== 'error' ? 'tvijo.account' : 'tvijo.signIn');
           } else if (['new', 'cancel', 'commands', 'workspace', 'selection', 'path', 'help', 'bot', 'workflow', 'credit', 'terminal', 'settings', 'clearAttachments', 'usage', 'connections', 'productGuide', 'tasks', 'history', 'contextSelect', 'contextPreview', 'quickEdit'].includes(message?.type)) {
             if (message.type === 'cancel' && agentRunning) { agentAbort?.abort(); return; }
             const id = { new: 'tvijo.newConversation', cancel: 'tvijo.cancelPending', commands: 'tvijo.commands', workspace: 'tvijo.attachFile', selection: 'tvijo.attachSelection', path: 'tvijo.attachPath', help: 'tvijo.help', bot: 'tvijo.botGuide', workflow: 'tvijo.chooseWorkflow', credit: 'tvijo.buyCredit', terminal: 'tvijo.terminal', learn: 'tvijo.learn', feedback: 'tvijo.feedback', settings: 'tvijo.settings', clearAttachments: 'tvijo.clearAttachments', usage: 'tvijo.usage', connections: 'tvijo.connections', productGuide: 'tvijo.productGuide', tasks: 'tvijo.tasks', history: 'tvijo.chooseThread', contextSelect: 'tvijo.contextSelect', contextPreview: 'tvijo.contextPreview', quickEdit: 'tvijo.quickEdit' }[message.type];
@@ -2498,7 +2540,7 @@ function activate(context) {
                 const workspaceEpochBeforeCaptures = workspaceEpoch;
                 const auth = await requireAuth();
                 const scope = currentViewScope(auth.scope);
-                const roots = (vscode.workspace.workspaceFolders || []).map(item => item.uri.fsPath);
+                const roots = permissionFolder() ? [permissionFolder().uri.fsPath] : [];
                 const mentions = captures.parseMentions(question);
                 const replacements = [];
                 for (const mention of mentions.slice(0, 4)) {
@@ -2578,6 +2620,9 @@ function activate(context) {
   });
 
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration('tvijo.pack')) refreshStatus(); if (e.affectsConfiguration('tvijo.model') || e.affectsConfiguration('tvijo.agentModel') || e.affectsConfiguration('tvijo.agentAutoApply') || e.affectsConfiguration('tvijo.agentAutoRun')) postChatState(); if (e.affectsConfiguration('tvijo.apiBase')) { authAttempt++; switchIdentity(null); } if (e.affectsConfiguration('tvijo.apiBase') || e.affectsConfiguration('tvijo.telegram.ownerId') || e.affectsConfiguration('tvijo.telegram.allowedServices') || (e.affectsConfiguration('tvijo.telegram.enabled') && !vscode.workspace.getConfiguration('tvijo').get('telegram.enabled', false))) { customerBot?.stop(); customerBot = null; refreshStatus(); } }));
+  if (vscode.window.onDidChangeWindowState) context.subscriptions.push(vscode.window.onDidChangeWindowState(event => { if (event.focused && !busy) void refreshStatus({reconcile:true}); }));
+  const reconnectTimer = setInterval(() => { if (chatView?.visible !== false && !busy && !deviceLoginActive) void refreshStatus({reconcile:true}); },30000);
+  reconnectTimer.unref?.(); context.subscriptions.push({dispose:() => clearInterval(reconnectTimer)});
   refreshStatus();
   if (vscode.workspace.getConfiguration('tvijo').get('telegram.enabled', false)) handlers.get('tvijo.startBot')().then(refreshStatus).catch(report);
 }

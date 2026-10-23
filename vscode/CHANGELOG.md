@@ -1,3 +1,14 @@
+## 0.10.5 — 2026-10-23
+
+- Keep a verified account identity and sign-in/loading/error state visible in simple chat.
+- Persist an explicit active local/SSH host folder. Editor focus no longer changes tool or automatic-context scope. Containing multi-project roots require choosing a child project for tools and Full access.
+- Open local history without a shared-project prerequisite. Project rules remain optional and separately trusted.
+- Compact request-only older history while preserving drafts and full local history; distinguish trial quota from context limits.
+- Reconcile terminal pending tasks on reconnect without replaying paid dispatch. Unknown costs require an explicit settlement receipt; stale authentication responses cannot replace another account.
+- Compatible gateway enforces an explicitly granted USD20 total nonrenewing allowance for the verified existing operator, with the existing daily USD5 guard.
+
+Validation: deterministic extension-host regressions and synthetic Chromium webview checks. User Windows desktop and a real paid model execution were not tested. Install from VSIX and Reload Window; no Marketplace publication claim.
+
 ## 0.10.4 — 2026-10-23
 
 - Compact chat by default: project/history/new at the top, controls beside the composer.

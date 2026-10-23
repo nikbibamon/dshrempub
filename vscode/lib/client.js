@@ -38,7 +38,7 @@ const REFUSAL_MESSAGES = {
   previous_task_not_settled: 'Another task on this account is unresolved. Open Recent tasks and spending to inspect it.',
   preview_choose_flash_or_devstral: 'Preview supports DeepSeek Flash, GLM Flash and Devstral. Choose an available preview model.',
   free_preview_exhausted: 'The free preview has ended. Open credit terms.',
-  operator_allowance_exhausted: 'The daily operator test allowance is exhausted. Wait until the next UTC day.',
+  operator_allowance_exhausted: 'The account total allowance or daily limit is exhausted. Check account usage. A total allowance does not renew automatically.',
   credits_or_daily_cap_exhausted: 'The credit or daily account limit is exhausted. Review usage and limits.',
   insufficient_credit: 'Available credit cannot cover this task reservation.',
   preview_daily_pool_exhausted: 'The shared daily preview allowance is exhausted. No task was created.',
@@ -168,7 +168,7 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
     return { taskId: grant.id, content, execution: { model:response.model_alias ?? response.model ?? response.task?.model_alias ?? response.task?.model, route:response.route ?? response.task?.route, calls:response.calls ?? response.task?.calls, agent_tree:response.agent_tree ?? response.task?.agent_tree }, usage: response.usage ?? null, cost: response.task ?? null, evidence: Array.isArray(response.evidence) ? response.evidence : [] };
   }
 
-  async function taskState(token, taskId) { return taskStateOf(await request(`/tasks/${encodeURIComponent(taskId)}`, { token })); }
+  async function taskState(token, taskId) { const snapshot = await request(`/tasks/${encodeURIComponent(taskId)}`, { token }); if (snapshot?.id && snapshot.id !== taskId) throw new ServiceError('incomplete','Task response identity mismatch.'); return taskStateOf(snapshot); }
 
   return {
     base: root,
@@ -186,14 +186,18 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
 }
 
 function taskStateOf(snapshot) {
+  const rawCost = snapshot?.budget?.spent_usd ?? snapshot?.task?.budget?.spent_usd ?? snapshot?.spent_usd ?? snapshot?.task?.spent_usd;
+  const debited = snapshot?.receipt?.debited_micro_tvijo ?? snapshot?.task?.receipt?.debited_micro_tvijo;
+  const costKnown = (typeof rawCost === 'number' || (typeof rawCost === 'string' && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(rawCost))) && Number.isFinite(Number(rawCost)) && Number(rawCost)>=0 || Number.isSafeInteger(debited) && debited>=0;
   const status = String(snapshot?.status ?? snapshot?.task?.status ?? '').toLowerCase();
+  if (['usage_unknown','charge_pending','usage_reconciliation_required','usage_recovery_unavailable'].includes(snapshot?.reason ?? snapshot?.task?.reason)) return {status,terminal:false,held:null,costKnown:false};
   if ((snapshot?.byok || snapshot?.task?.byok)?.provider_cost_status === 'unknown') return { status, terminal:false, held:null };
   const serviceHeld = snapshot?.receipt?.held_micro_tvijo ?? snapshot?.task?.receipt?.held_micro_tvijo;
-  if (serviceHeld !== undefined) return { status, terminal: TERMINAL.has(status), held: Number.isSafeInteger(serviceHeld) && serviceHeld >= 0 ? serviceHeld / 1000000 : null, heldUnit:'TT' };
+  if (serviceHeld !== undefined) return { status, costKnown, terminal: TERMINAL.has(status), held: Number.isSafeInteger(serviceHeld) && serviceHeld >= 0 ? serviceHeld / 1000000 : null, heldUnit:'TT' };
   const heldValue = snapshot?.held_usd ?? snapshot?.task?.held_usd ?? snapshot?.budget?.held_usd ?? snapshot?.task?.budget?.held_usd;
   const validHeld = typeof heldValue === 'number' || (typeof heldValue === 'string' && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(heldValue));
   const held = validHeld ? Number(heldValue) : null;
-  return { status, terminal: TERMINAL.has(status), held: Number.isFinite(held) ? held : null };
+  return { status, costKnown, terminal: TERMINAL.has(status), held: Number.isFinite(held) ? held : null };
 }
 
 // A previous task that may still hold money blocks the next paid task (same rule as the terminal client).

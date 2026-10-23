@@ -2,7 +2,7 @@
   "name": "tvijo-dshrem",
   "displayName": "Tvijo DSHREM",
   "description": "Managed coding and bounded reviews for shared projects with a per-task spending cap. Provider API credentials remain on the service.",
-  "version": "0.10.4",
+  "version": "0.10.5",
   "repository": {
     "type": "git",
     "url": "https://github.com/nikbibamon/dshrempub.git",
@@ -44,6 +44,7 @@
       ]
     },
     "commands": [
+      {"command": "tvijo.chooseWorkspace", "title": "Choose active local workspace", "category": "Tvijo"},
       {
         "command": "tvijo.choosePack",
         "title": "Choose skill pack",

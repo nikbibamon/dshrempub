@@ -106,6 +106,7 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
       if (!current.prefix && !included(name)) continue;
       entries += 1;
       const relative = current.prefix ? current.prefix + '/' + name : name;
+      if (folders.some(other => !sameFolder(other,folder) && sameFolder(other,{uri:vscode.Uri.joinPath(root,relative)}))) continue;
       tree.push(relative + (isDir ? '/' : ''));
       if (isDir && current.depth + 1 < MAX_DEPTH) queue.push({ uri: vscode.Uri.joinPath(current.uri, name), depth: current.depth + 1, prefix: relative });
     }

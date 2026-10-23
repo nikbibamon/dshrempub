@@ -138,6 +138,7 @@ function host(options = {}) {
     await optionsHost.onRequest?.({url,body,method:options.method});
     requests.push({ url, body, method: options.method, token: options.headers.authorization });
     if (blockedRequest && url.endsWith(blockedRequest.path) && options.method === blockedRequest.method) await new Promise(resolve => { releaseRequest = resolve; });
+    if (url.endsWith('/account') && optionsHost.accountReply) { const response=await optionsHost.accountReply(options.headers.authorization); if(response)return response; }
     if (url.endsWith('/account')) return Response.json({ tenant_id: options.headers.authorization === 'Bearer account-b' ? 'tenant-b' : 'tenant-a', ...optionsHost.account });
     if (url.endsWith('/data-preferences')) return optionsHost.preferences === 'error' ? Response.json({error:'unavailable'},{status:503}) : Response.json(optionsHost.preferences ?? {preferences:[{purpose:'analytics',state:'denied'}]});
     if (url.endsWith('/packs')) return optionsHost.packs ? Response.json(optionsHost.packs) : Response.json({}, { status: 404 });
@@ -1428,6 +1429,13 @@ test('agent unknown cost blocks further steps and retains the billing journal', 
     assert.ok(app.feedback.length > 0);
     assert.equal(app.posts.filter(p => p.type === 'agent' && p.event.type === 'action').length, 0);
     assert.ok(app.local.pending(app.scope('tenant-a')),'unknown cost stays pending');
+    await app.receive({type:'ready'});
+    assert.ok(app.local.pending(app.scope('tenant-a')),'reconnect cannot erase unknown cost without a cost receipt');
+    await app.receive({type:'ask',agent:true,question:'must not dispatch again'});
+    assert.equal(app.requests.filter(r=>r.url.endsWith('/tasks')&&r.method==='POST').length,1);
+    app.taskSnapshot({status:'completed',budget:{held_usd:'0',spent_usd:'0.001'}});
+    await app.receive({type:'ready'});
+    assert.equal(app.local.pending(app.scope('tenant-a')),undefined);
   } finally { app.close(); }
 });
 
@@ -1536,7 +1544,7 @@ test('definitive pregrant refusal in agent mode leaves no phantom journal', asyn
 
 for (const [code, expected] of [
   ['free_preview_exhausted', 'Бесплатная проба завершена. Откройте условия кредита.'],
-  ['operator_allowance_exhausted', 'Дневной тестовый allowance оператора исчерпан.'],
+  ['operator_allowance_exhausted', 'Общий лимит аккаунта или дневной лимит исчерпан.'],
   ['credits_or_daily_cap_exhausted', 'Исчерпан кредит или дневной лимит аккаунта.'],
   ['insufficient_credit', 'Доступный кредит не покрывает резерв этой задачи.']
 ]) {
@@ -2452,14 +2460,15 @@ test('context selection ignores stale account scope and persists local selected 
  }finally{app.close();}
 });
 
-test('conversation history in local mode explains how to choose a server project',async()=>{
+test('conversation history in local mode opens preserved local history without a server project',async()=>{
  const app=host();
  try{
   await app.receive({type:'ready'});
   await app.receive({type:'history',scopeKey:app.scope('tenant-a')});
   const state=app.posts.filter(p=>p.type==='state').at(-1);
-  assert.match(state.error.text,/Choose shared project/);
-  assert.match(state.error.text,/local conversation remains/);
+  assert.equal(state.error,null);
+  assert.equal(app.shown.length,1);
+  assert.equal(app.shown[0].language,'markdown');
   assert.deepEqual(app.errors,[]);
   assert.equal(app.requests.filter(r=>r.method==='POST').length,0);
  }finally{app.close();}
@@ -2504,4 +2513,77 @@ test('preview omits only automatic context when retained conversation consumes t
   assert.ok(sent.some(m=>m.content===prior));assert.equal(sent.at(-1).content,'what next');
   assert.ok(app.posts.some(p=>p.type==='activity'&&/context omitted/.test(p.detail)));
  }finally{app.close();}
+});
+
+test('reconnect automatically reconciles terminal tasks without dispatch, losing draft or history',async()=>{
+ const app=host();
+ try {
+  await app.receive({type:'ready'});
+  const scope=app.scope('tenant-a');
+  await app.local.saveHistory(scope,[{role:'user',content:'preserved history'}]);
+  await app.local.savePending(scope,{taskId:'task-test',idempotencyKey:'interrupted',apiBase:app.base});
+  await app.receive({type:'ready'});
+  assert.equal(app.local.pending(scope),undefined);
+  assert.equal(app.local.history(scope)[0].content,'preserved history');
+  assert.equal(app.requests.filter(r=>r.method==='POST').length,0);
+  assert.equal(app.posts.filter(p=>p.type==='state').at(-1).pending,false);
+ } finally {app.close();}
+});
+
+test('simple multi-root Full access uses only selected ai-os folder, never editor focus or parent',async()=>{
+ const parent=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'multi-root-'));
+ const a=path.join(parent,'ai-os'),b=path.join(parent,'centabot');await fs.mkdir(a);await fs.mkdir(b);
+ await fs.writeFile(path.join(a,'selected.txt'),'SELECTED_FOLDER_SENTINEL');await fs.writeFile(path.join(b,'private.txt'),'OTHER_FOLDER_SENTINEL');
+ let chosen='ai-os';
+ const app=host({root:a,pick:rows=>rows.find(row=>row.folder?.name===chosen),chatSequence:[JSON.stringify({tool:'read_file',path:'selected.txt'}),JSON.stringify({tool:'finish',answer:'read selected folder'})]});
+ try {
+  app.vscode.workspace.workspaceFolders=[{name:'parent',uri:app.Uri.file(parent)},{name:'ai-os',uri:app.Uri.file(a)},{name:'centabot',uri:app.Uri.file(b)}];
+  app.vscode.workspace.getWorkspaceFolder=uri=>app.vscode.workspace.workspaceFolders.filter(f=>uri.fsPath.startsWith(f.uri.fsPath+'/')).sort((x,y)=>y.uri.fsPath.length-x.uri.fsPath.length)[0];
+  app.editor({document:{uri:app.Uri.file(path.join(b,'private.txt')),getText:()=> 'OTHER_FOLDER_SENTINEL'},selection:{isEmpty:true}});
+  app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);app.settings.set('agentModel','ds41f');
+  await app.receive({type:'ready'});assert.equal(app.posts.filter(p=>p.type==='state').at(-1).workspaceSelected,false);
+  await app.receive({type:'chooseWorkspace'});
+  await enableFullAccess(app);
+  await app.receive({type:'ask',agent:true,question:'Read selected.txt'});
+  const calls=app.requests.filter(r=>r.url.endsWith('/chat'));
+  assert.equal(calls.length,2);assert.match(JSON.stringify(calls[1].body),/SELECTED_FOLDER_SENTINEL/);assert.doesNotMatch(JSON.stringify(calls),/OTHER_FOLDER_SENTINEL/);
+  assert.equal(app.requests.find(r=>r.url.endsWith('/tasks')&&r.method==='POST').body.model,'ds41f');
+  assert.equal(app.warnings.length,1);
+  chosen='centabot';await app.receive({type:'chooseWorkspace'});
+  assert.equal(app.posts.filter(p=>p.type==='state').at(-1).fullAccess.enabled,false);
+  chosen='parent';await app.receive({type:'chooseWorkspace'});
+  await app.receive({type:'agentPreset',scopeKey:app.scope('tenant-a'),preset:'full',requestId:'parent'});
+  assert.equal(app.posts.filter(p=>p.type==='state').at(-1).fullAccess.enabled,false);
+  assert.equal(app.warnings.length,1);
+ } finally {app.close();}
+});
+
+test('verified account identity is sent persistently and expired login never falls back to anonymous',async()=>{
+ const app=host({account:{identity:{email:'admin@example.test',email_verified:true,display_name:'Admin'}}});
+ try{
+  await app.receive({type:'ready'});
+  let state=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.authState,'signed_in');assert.equal(state.account.identity.email,'admin@example.test');
+  await app.context.secrets.store('tvijo.auth',JSON.stringify({access_token:'test-token',api_base:app.base,expires_at:'2000-01-01T00:00:00Z'}));
+  await app.receive({type:'ready'});state=app.posts.filter(p=>p.type==='state').at(-1);
+  assert.equal(state.signedIn,false);assert.equal(state.account,null);assert.equal(state.authState,'error');assert.match(state.authError,/expired/);
+  await app.receive({type:'ask',question:'Must not dispatch'});assert.equal(app.requests.filter(r=>r.method==='POST').length,0);
+ }finally{app.close();}
+});
+
+
+test('delayed account A unauthorized response cannot clear newly verified account B',async()=>{
+ let delay=false,release,waiting=false;
+ const app=host({accountReply:async token=>{
+  if(delay && token==='Bearer test-token') {delay=false;waiting=true;await new Promise(resolve=>release=resolve);return Response.json({error:{code:'authentication_required'}},{status:401});}
+ }});
+ try {
+  await app.receive({type:'ready'});delay=true;
+  const old=app.receive({type:'ready'});
+  for(let i=0;i<100&&!waiting;i++)await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(waiting);
+  await app.context.secrets.store('tvijo.auth',JSON.stringify({access_token:'account-b',api_base:app.base}));
+  await app.receive({type:'ready'});release();await old;
+  const state=app.posts.filter(p=>p.type==='state').at(-1);
+  assert.equal(state.signedIn,true);assert.equal(state.account.tenant_id,'tenant-b');assert.equal(state.authState,'signed_in');assert.equal(state.authError,'');
+ }finally{release?.();app.close();}
 });

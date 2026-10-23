@@ -20,8 +20,10 @@ ${REWIND_CSS}
 #recovery{flex-shrink:0;max-height:260px;overflow:auto;padding:8px 12px;border-top:1px solid var(--border)}#recovery summary{font-size:12px;cursor:pointer;padding:4px 0}.recovery-card{padding:8px;margin:6px 0;border:1px solid var(--border);border-radius:6px}.recovery-card p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 6px}.recovery-actions{display:flex;flex-wrap:wrap;gap:6px}.recovery-actions button{font-size:11px}#recovery-notes{font-size:11px;overflow-wrap:anywhere}
 #full-access-warning{flex-shrink:0;margin:6px 10px;padding:8px;border:1px solid #d99b32;border-radius:6px;background:rgba(217,155,50,.12);font-size:12px;overflow-wrap:anywhere;max-width:calc(100% - 36px);max-height:180px;overflow:auto}#full-access-warning[hidden]{display:none}.full-access-row{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;margin-top:5px}.full-access-folder{min-width:0;overflow-wrap:anywhere;flex:1 1 120px}.full-access-row button{max-width:100%;white-space:normal}
 header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(--vscode-contrastBorder,var(--border));border-radius:999px;background:var(--surface);color:var(--text)}#elapsed-chip{white-space:nowrap}#agent-map-button{white-space:nowrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
+#workspace-choice,#identity-button{min-width:0;max-width:100%;overflow-wrap:anywhere;white-space:normal;text-align:left}#identity-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:5px 12px;border-bottom:1px solid var(--border);flex-shrink:0}#identity-button{font-size:12px}#identity-state{font-size:11px;overflow-wrap:anywhere}
 </style></head><body>
 <header><strong id="brand" title="Tvijo">Tvijo</strong><button id="history" class="icon" type="button" title="History" aria-label="History">◷</button><button id="new" class="icon" type="button" title="New session" aria-label="New session">＋</button></header>
+<div id="identity-bar"><button id="workspace-choice" type="button">Local workspace…</button><button id="identity-button" type="button">Connecting…</button><span id="identity-state" role="status" aria-live="polite"></span></div>
 <aside id="settings-drawer" aria-label="Chat settings" hidden><div class="drawer-heading"><strong id="drawer-title">Chat settings</strong><button id="drawer-close" class="icon" type="button" aria-label="Close settings">×</button></div>
 <nav aria-label="Workspace"><button id="tab-chat" type="button" aria-selected="true">Chat</button><button id="tab-context" type="button" aria-selected="false">Context</button><button id="tab-usage" type="button" aria-selected="false">Usage</button><button id="tab-terminal" type="button" aria-selected="false">Terminal</button></nav>
 <div class="drawer-tools"><button id="signin" type="button">Sign in</button><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="engineering" type="button" aria-pressed="false">Engineering view</button><button id="extension-settings" type="button">Extension settings…</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button></div>
@@ -450,6 +452,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     document.getElementById('signin').textContent = t(lastSignedIn ? 'signedIn' : 'signIn');
     document.getElementById('composer-signin').textContent = t('signIn');
     document.getElementById('composer-signin').hidden = lastSignedIn;
+    renderIdentity();
     document.getElementById('new').title = t('new');
     document.getElementById('settings').title = t('settings');
     if (uiMode === 'chat') document.getElementById('question').placeholder = t('ask');
@@ -483,6 +486,18 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   let lastStatus = '';
   let lastAttachments = [];
   let lastAccount = null;
+  let lastAuthState = 'loading', lastAuthError = '', activeWorkspaceLabel = '';
+  function renderIdentity() {
+    const profile = lastAccount?.identity;
+    const name = profile?.email_verified && profile.email ? profile.email : profile?.display_name;
+    const labels = locale === 'ru' ? {loading:'Проверка аккаунта…',connecting:'Ожидание входа в браузере…',signed_out:'Не выполнен вход',error:'Ошибка подключения',signed_in:'Аккаунт подтверждён'} : {loading:'Checking account…',connecting:'Waiting for browser sign-in…',signed_out:'Signed out',error:'Connection error',signed_in:'Account verified'};
+    const button = document.getElementById('identity-button');
+    button.textContent = lastSignedIn ? (name || (locale === 'ru' ? 'Аккаунт ' : 'Account ') + (lastAccount?.tenant_id || '')) : (lastAuthState === 'connecting' || lastAuthState === 'loading' ? labels[lastAuthState] : t('signIn'));
+    button.disabled = lastAuthState === 'connecting';
+    button.title = lastSignedIn ? (locale === 'ru' ? 'Открыть аккаунт' : 'Open account') : t('signIn');
+    document.getElementById('identity-state').textContent = lastAuthError || labels[lastAuthState] || labels.signed_out;
+    document.getElementById('workspace-choice').textContent = (locale === 'ru' ? 'Локально · ' : 'Local · ') + (activeWorkspaceLabel || (locale === 'ru' ? 'Выбрать папку…' : 'Choose folder…'));
+  }
   function setTheme(next) { theme = next; document.body.setAttribute('data-theme', theme); updateThemeButton(); saveState(); }
   function renderBudget(account) {
     const budget = document.getElementById('budget');
@@ -490,7 +505,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     const values = [];
     if (typeof preview?.tasks_remaining === 'number' && Number.isFinite(preview.tasks_remaining)) values.push(preview.tasks_remaining + ' ' + (locale === 'ru' ? 'задач' : 'tasks'));
     if (typeof preview?.tokens_remaining === 'number' && Number.isFinite(preview.tokens_remaining)) values.push(preview.tokens_remaining.toLocaleString() + ' ' + (locale === 'ru' ? 'токенов' : 'tokens'));
-    if (typeof preview?.remaining_usd === 'number' && Number.isFinite(preview.remaining_usd)) values.push('$' + preview.remaining_usd.toFixed(3));
+    if (preview?.remaining_usd != null && Number.isFinite(Number(preview.remaining_usd))) values.push('$' + Number(preview.remaining_usd).toFixed(3) + (preview.renewing === false ? (locale === 'ru' ? ' из $' : ' of $') + preview.total_usd : ''));
     budget.textContent = values.join(' · ');
     document.getElementById('connection-label').textContent = lastSignedIn ? t('ready') : t('signIn');
   }
@@ -731,6 +746,9 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       lastSignedIn = !!data.signedIn;
       document.getElementById('composer-signin').hidden = lastSignedIn;
       lastAccount = data.account || null;
+      lastAuthState = data.authState || (lastSignedIn ? 'signed_in' : 'signed_out'); lastAuthError = data.authError || '';
+      activeWorkspaceLabel = data.workspaceSelected === false ? '' : data.projectLabel || '';
+      renderIdentity();
       if (lastUsage && (!data.signedIn || !data.account || scopeKey !== lastUsageScope || (lastUsage.account && data.account.tenant_id !== lastUsage.account.tenant_id))) { lastUsage = null; document.getElementById('usage-items').replaceChildren(); }
       document.getElementById('signin').textContent = t(lastSignedIn ? 'signedIn' : 'signIn');
       renderBudget(lastAccount);
@@ -793,6 +811,8 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   document.getElementById('map-close').addEventListener('click', () => { setTab('chat'); document.getElementById('agent-map-button').focus(); });
   document.getElementById('agent-map').addEventListener('keydown', event => { if (event.key === 'Escape') { setTab('chat'); document.getElementById('agent-map-button').focus(); } });
   document.getElementById('pack-picker').addEventListener('click', () => post({type:'choosePack'}));
+  document.getElementById('identity-button').addEventListener('click', () => post({type:'account'}));
+  document.getElementById('workspace-choice').addEventListener('click', () => post({type:'chooseWorkspace'}));
   document.getElementById('composer-signin').addEventListener('click', () => post({type:'account'}));
   document.getElementById('signin').addEventListener('click', () => post({type:lastSignedIn ? 'account' : 'account'}));
   document.getElementById('new').addEventListener('click', () => post({type:'new'}));
