@@ -1,8 +1,27 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.10.3. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.4. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
+
+## Compact chat
+
+The editor opens in the simple view: project title, conversation history and a new
+chat button above the transcript; attachments, permission mode, model, settings
+and Send/Stop stay beside the composer. Settings holds interrupted runs, account
+usage, connections and an optional Engineering view. Failed requests keep your
+draft and show one actionable message in the chat.
+
+Use **Settings → Select project context** to choose top-level folders and files.
+The preview is a bounded local summary with bytes and an approximate token count;
+it is not a full repository index and makes no model call. Secrets, binaries and
+excluded build directories stay excluded. Automatic context may be omitted to
+fit the remaining trial allowance. Explicit attachments are not silently reduced.
+
+TokenTvijo (TT) is service credit; model tokens measure text processed. Check the
+quoted ceiling and actual receipt for each task. Pro orchestration, configurable
+worker teams and research integrations are a planned managed service, not an
+active subscription included with this extension. See the [workspace guide](https://dsh.tvijo.com/workspace-guide#product-value).
 
 ## Permission presets
 
@@ -13,7 +32,7 @@ Enable it for the active editor's workspace folder (or the first open folder)
 through the native modal. It requires a trusted workspace and a permission record
 bound to this host's local folder identity; workspace settings cannot enable it.
 
-A persistent warning lists enabled folders. **Revert** stops active work using
+A compact permission indicator lists enabled folders. **Revert** stops active work using
 that permission and removes it in one click. Full access leaves normal preset
 settings unchanged, so reverting restores their behavior. Explicitly choosing
 another Agent preset also revokes Full access for the current folder.
@@ -49,7 +68,7 @@ requires the model to retry with exact text.
 
 After installing an update, run **Developer: Reload Window** to activate it. The
 installed package version and the currently running extension host can differ
-until reload. Version0.10.3 checks fresh account tokens and the complete escaped
+until reload. Version 0.10.4 checks fresh account tokens and the complete escaped
 request before reservation, omitting optional automatic context when it cannot
 fit. Explicit selections and attachments are never silently shortened. If they
 exceed the allowance, the draft remains available for a new conversation or a
@@ -64,7 +83,7 @@ per run. Recovery records are available for seven days and separated by account,
 thread and workspace. Composer drafts are also saved locally after a one-second
 pause in typing.
 
-After a restart, **Interrupted run** offers **Restore transcript** and, when a task
+After a restart, **Settings → Interrupted runs** offers **Restore transcript** and, when a task
 identifier is known, **Fetch result**. Fetch reads the existing task's available
 result or status. Restoration keeps the transcript in local history; it does not
 resume tools or submit another model task. Recovered logs are excluded from later
@@ -72,7 +91,7 @@ automatic model context. **Dismiss** hides the card without cancelling its task.
 
 ## Actions and context captures
 
-Use **+** (or the header actions button) for Attach file, Mention file, Problems,
+Use **+** for Attach file, Mention file, Problems,
 Terminal output, Clear conversation, Rewind, Export conversation as Markdown and
 Switch model. The menu is keyboard accessible and localized in English and Russian.
 Type `@src/file.js` or `@"path with spaces.js"` to resolve a workspace file before
@@ -341,7 +360,7 @@ Open **Tvijo → Chat**, or run **Tvijo: Open chat** from `Ctrl+Shift+P`. Use `+
 
 **Sign in:** the clipboard contains only the eight-character code. **Open browser** opens a prefilled approval link; after Google/password sign-in you return to the approval form. Approval is still explicit.
 
-**Try first:** self-service accounts receive a sponsored preview of 5 tasks, 50,000 model tokens and USD0.05 total, whichever ends first. The shared preview pool is USD1 per UTC day. Preview supports the cheap Flash/Devstral routes; it is not a payment or revenue, and premium models require paid credit. No card, automatic debit or per-question operator approval. Failed attempts and unknown token usage may retain quota; the API never automatically retries.
+**Try first:** self-service accounts receive a sponsored preview of 50 tasks, 50,000 model tokens and USD0.05 total, whichever ends first. The shared preview pool is USD1 per UTC day. Preview supports the cheap Flash/Devstral routes; it is not a payment or revenue, and premium models require paid credit. No card, automatic debit or per-question operator approval. Failed attempts and unknown token usage may retain quota; the API never automatically retries.
 
 The terminal opens on your VS Code extension host in the first open workspace folder. It does not start a model or run generated commands. Codex uses your own separate login/subscription. Read [terminal setup](https://dsh.tvijo.com/connect), [manual](https://dsh.tvijo.com/learn), [API](https://dsh.tvijo.com/dev), [feedback](https://dsh.tvijo.com/feedback), [privacy](https://dsh.tvijo.com/privacy). Source mirror: https://github.com/nikbibamon/dshcode.
 

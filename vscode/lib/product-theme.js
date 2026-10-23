@@ -41,6 +41,7 @@ const THEME_CSS = `
 
 const COPY = {
   en: {
+    upTo:'Up to', quoteLabel:'Quote', ceilingLabel:'Ceiling', tariffLabel:'Tariff', chatSettings:'Chat settings', history:'History', closeSettings:'Close settings', engineeringView:'Engineering view', simpleView:'Simple view', extensionSettings:'Extension settings…', contextSelect:'Select project context…', historyPrivacy:'Chat stays in this workspace and is separate from Copilot. Submitted tasks also appear in server history.', legacyPrivacy:'Older unassigned chat/draft is preserved locally and is not sent to this account. Server task history belongs to your signed-in account.',
     chat:'Chat', context:'Context', terminal:'Terminal', new:'New session', settings:'Settings', account:'Account',
     title:'Build with context.', intro:'Ask about this file, your project, or a focused task.',
     hint:'Add private project context, then ask when you are ready.', empty:'No context attached yet.', terminalInfo:'Open your project terminal in VS Code. Commands use your own local credentials.',
@@ -66,6 +67,7 @@ const COPY = {
     contextHelp:'With “Ask me”, the first request asks whether to include a bounded project summary. Review it with Preview context; secrets and binaries are excluded.'
   },
   ru: {
+    upTo:'До', quoteLabel:'Оценка', ceilingLabel:'Лимит', tariffLabel:'Тариф', chatSettings:'Настройки чата', history:'История', closeSettings:'Закрыть настройки', engineeringView:'Инженерный вид', simpleView:'Простой вид', extensionSettings:'Настройки расширения…', contextSelect:'Выбрать контекст проекта…', historyPrivacy:'Чат хранится в этой папке отдельно от Copilot. Отправленные задачи также видны в истории сервера.', legacyPrivacy:'Старый чат и черновик без аккаунта сохранены локально и не отправляются в этот аккаунт. История задач на сервере относится к вашему аккаунту.',
     chat:'Чат', context:'Контекст', terminal:'Терминал', new:'Новая сессия', settings:'Настройки', account:'Аккаунт',
     title:'Работайте с контекстом.', intro:'Спросите об этом файле, проекте или задаче.',
     hint:'Добавьте приватный контекст проекта и задайте вопрос.', empty:'Контекст пока не добавлен.', terminalInfo:'Откройте терминал проекта в VS Code. Команды используют ваши локальные учётные данные.',

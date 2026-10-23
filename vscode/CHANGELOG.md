@@ -1,3 +1,11 @@
+## 0.10.4 — 2026-10-23
+
+- Compact chat by default: project/history/new at the top, controls beside the composer.
+- Technical panels, interrupted runs and usage moved into Settings; optional Engineering view.
+- Select bounded local project context and preview its size before sending.
+- Agent preview preflight and actionable inline errors preserve drafts without duplicate popups.
+- Clear separation of TokenTvijo service credit, model tokens and planned Pro capabilities.
+
 ## 0.10.3 — 2026-10-22
 
 - Check fresh preview tokens and the complete escaped request before creating a task. Omit optional automatic context when necessary; preserve explicit questions, selections, history and attachments.

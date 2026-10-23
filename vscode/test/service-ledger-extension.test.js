@@ -97,7 +97,8 @@ test('in-flight quote cannot reserve after external credential change or API-bas
       else { app.changeBase('http://localhost:18107/api/dshrem/v1'); app.changeBase(app.base); }
       app.release(); await pending;
       assert.equal(app.calls.filter(c=>c.route === '/tasks').length,0);
-      assert.ok(app.errors.some(e=>e.includes('changed')));
+      assert.ok(app.posts.some(post=>post.type==='state'&&post.error?.text.includes('changed')));
+      assert.equal(app.errors.length,0,'chat renders the error without a native duplicate');
       assert.ok(!tenantState(app.context).pending(app.scope));
     } finally { app.release(); app.close(); }
   }
@@ -142,6 +143,7 @@ test('delayed reservation response journals its task but never infers after API-
     assert.equal(app.calls.some(c=>c.route.endsWith('/chat')),false);
     const journal=tenantState(app.context).pending(app.scope);
     assert.equal(journal.taskId,'task-a');assert.equal(journal.request.quote_id,'quote-a');
-    assert.ok(app.errors.some(e=>e.includes('changed')));
+    assert.ok(app.posts.some(post=>post.type==='state'&&post.error?.text.includes('changed')));
+      assert.equal(app.errors.length,0,'chat renders the error without a native duplicate');
   } finally {app.release();app.close();}
 });

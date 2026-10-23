@@ -1,4 +1,6 @@
 'use strict';
+
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const core = require('../lib/client');
@@ -131,4 +133,15 @@ test('preview preflight accounts for Cyrillic wire escaping, preserves explicit 
   assert.equal(core.previewContextBytes(48000,null),0);
   assert.equal(core.previewContextBytes(48000,{preview:{}}),0);
   assert.equal(JSON.stringify(messages),before);
+});
+
+test('service held micro Tvijo values retain TT units and fail-closed blocking',()=>{
+ for(const value of [0,2500000]){
+  const state=core.taskStateOf({status:'completed',receipt:{held_micro_tvijo:value}});
+  assert.equal(state.held,value/1000000);
+  assert.equal(state.heldUnit,'TT');
+  assert.equal(core.pendingBlocks(state),value!==0);
+ }
+ assert.equal(core.taskStateOf({status:'completed',budget:{held_usd:'2.5'}}).held,2.5);
+ assert.equal(core.pendingBlocks(core.taskStateOf({status:'completed',receipt:{held_micro_tvijo:'0'}})),true);
 });

@@ -46,12 +46,19 @@ test('service receipts show unknown model counts and cannot inject markup or sur
   assert.ok(cleared>0);
 });
 
-test('quote ceiling is visible only in its exact view scope', () => {
+test('quote estimate is scoped and localized; ceiling details require engineering view', () => {
   const v=sidebar();
   v.emit('window:message',{data:{type:'quote',scopeKey:'tenant-a',quote:{quote_id:'q',ceiling_micro_tvijo:1234567,tariff_version:'v1'}}});
-  assert.equal(v.element('state').textContent,'Estimated up to — TT · Quote q · 1.234567 TT ceiling · tariff v1');
+  assert.equal(v.element('state').textContent,'Up to — TT');
   v.emit('window:message',{data:{type:'quote',scopeKey:'other',quote:{quote_id:'private-other'}}});
-  assert.equal(v.element('state').textContent,'Estimated up to — TT · Quote q · 1.234567 TT ceiling · tariff v1');
+  assert.equal(v.element('state').textContent,'Up to — TT');
+  v.emit('engineering:click',{});
+  assert.equal(v.element('state').textContent,'Up to — TT · Quote q · Ceiling 1.234567 TT · Tariff v1');
+  v.emit('window:message',{data:{type:'quote',scopeKey:'other',quote:{quote_id:'private-other',ceiling_micro_tvijo:9999999}}});
+  assert.equal(v.element('state').textContent,'Up to — TT · Quote q · Ceiling 1.234567 TT · Tariff v1');
+  v.emit('engineering:click',{});
+  v.emit('lang:click',{});
+  assert.equal(v.element('state').textContent,'До — TT');
 });
 
 test('service events keep signed integer deltas separate from model usage',()=>{

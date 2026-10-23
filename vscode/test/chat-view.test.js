@@ -265,7 +265,7 @@ test('sidebar shows localized model, workflow and method choices in its own menu
   assert.ok(texts.includes('Режим работы'));
   assert.ok(texts.includes('Метод рассуждения'));
   assert.ok(texts.includes('Сначала доказательства'));
-  assert.equal(view.element('workflow-label').textContent, 'DeepSeek V4.1 Flash · Сначала доказательства');
+  assert.equal(view.element('workflow-label').textContent, 'DeepSeek V4.1 Flash');
   assert.equal(view.element('workflow').title, 'Модель и метод');
 });
 
@@ -461,7 +461,7 @@ test('agent and plan labels use the configured agent model while chat shows mode
     models: [{ id: 'coding', name: 'DSHREM Coding' }, { id: 'ds41f', name: 'DeepSeek V4.1 Flash' }],
     model: 'coding', agentModel: 'ds41f', agentMode: 'single', reasoningMethod: 'plan-check'
   } } });
-  assert.equal(view.element('workflow-label').textContent, 'DSHREM Coding · Plan, then check');
+  assert.equal(view.element('workflow-label').textContent, 'DSHREM Coding');
   view.emit('mode:click', {}); view.element('mode-menu').children.find(item=>item.attributes['data-mode']==='manual').click();
   view.emit('window:message',{data:{type:'presetResult',scopeKey:'tenant-a',requestId:view.outgoing.at(-1).requestId,preset:'manual',ok:true}});
   assert.equal(view.element('workflow-label').textContent, 'DeepSeek V4.1 Flash');
@@ -606,4 +606,84 @@ test('expired cached drafts cannot outlive the seven-day disk recovery window',(
   view.element('question').value='fresh';view.emit('question:input',{});
   assert.ok(view.state().draftTimes['workspace-a']>Date.now()-1000);
   assert.equal(view.outgoing.at(-1).composerScope,'workspace-a');
+});
+
+
+test('compact settings preserve host controls and persist engineering preference without losing draft', () => {
+  const view = sidebar();
+  view.element('question').value = 'Keep my draft';
+  view.emit('settings:click',{});
+  assert.equal(view.element('settings-drawer').hidden,false);
+  view.emit('engineering:click',{});
+  assert.equal(view.element('body').attributes['data-view'],'engineering');
+  assert.equal(view.state().engineering,true);
+  assert.equal(view.element('question').value,'Keep my draft');
+  view.emit('extension-settings:click',{});
+  assert.equal(view.outgoing.at(-1).type,'settings');
+  view.emit('context-select:click',{});
+  assert.equal(view.outgoing.at(-1).type,'contextSelect');
+  assert.equal(view.element('settings-drawer').hidden,true);
+  view.emit('history:click',{});
+  assert.equal(view.element('settings-drawer').hidden,true);
+  assert.equal(view.outgoing.at(-1).type,'history');
+  view.emit('settings:click',{});
+  view.emit('drawer-close:click',{});
+  assert.equal(view.element('settings-drawer').hidden,true);
+});
+
+test('compact view has localized privacy, scoped project title and an always accessible running Stop', () => {
+  const view = sidebar({}, {projectLabel:'My project',legacyHistory:true,busy:true});
+  assert.equal(view.element('brand').textContent,'My project');
+  assert.equal(view.element('cancel').hidden,false);
+  assert.equal(view.element('send').hidden,true);
+  view.emit('cancel:click',{});
+  assert.equal(view.outgoing.at(-1).type,'cancel');
+  view.emit('lang:click',{});
+  assert.match(view.element('history-note').textContent,/сохранены локально/);
+  assert.equal(view.element('context-select').textContent,'Выбрать контекст проекта…');
+  assert.equal(view.element('settings').attributes['aria-label'],'Настройки');
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-b',busy:false}});
+  assert.equal(view.element('brand').textContent,'Tvijo');
+  assert.equal(view.element('send').hidden,false);
+  assert.equal(view.element('cancel').hidden,true);
+});
+
+test('simple model label expands to method in engineering view only', () => {
+  const view = sidebar({}, {options:{models:[{id:'test',name:'Test model'}],model:'test',reasoningMethod:'plan-check'}});
+  assert.equal(view.element('workflow-label').textContent,'Test model');
+  view.emit('engineering:click',{});
+  assert.equal(view.element('workflow-label').textContent,'Test model · Plan, then check');
+  view.emit('engineering:click',{});
+  assert.equal(view.element('workflow-label').textContent,'Test model');
+});
+
+
+test('signed-out composer offers account activation even with cached transcript, then hides on sign-in', () => {
+  const messages=[{role:'assistant',content:'Cached answer'}];
+  const view = sidebar({}, {signedIn:false,messages});
+  assert.equal(view.element('composer-signin').hidden,false);
+  assert.equal(view.element('composer-signin').textContent,'Sign in');
+  view.emit('composer-signin:click',{});
+  assert.equal(view.outgoing.at(-1).type,'account');
+  view.emit('lang:click',{});
+  assert.equal(view.element('composer-signin').textContent,'Войти');
+  view.emit('window:message',{data:{type:'state',signedIn:true,messages}});
+  assert.equal(view.element('composer-signin').hidden,true);
+  view.emit('window:message',{data:{type:'state',signedIn:false,messages}});
+  assert.equal(view.element('composer-signin').hidden,false);
+});
+
+test('quote state is concise and localized in simple view, detailed only in engineering', () => {
+  const view = sidebar();
+  const quote={estimated_max_micro_tvijo:1500000,ceiling_micro_tvijo:2000000,quote_id:'private-quote-123',tariff_version:'v7'};
+  view.emit('window:message',{data:{type:'quote',scopeKey:'tenant-a',quote}});
+  assert.equal(view.element('state').textContent,'Up to 1.5 TT');
+  view.emit('lang:click',{});
+  assert.equal(view.element('state').textContent,'До 1,5 TT');
+  view.emit('engineering:click',{});
+  assert.match(view.element('state').textContent,/private-quote-123.*Лимит 2 TT.*Тариф v7/);
+  view.emit('engineering:click',{});
+  assert.equal(view.element('state').textContent,'До 1,5 TT');
+  view.emit('window:message',{data:{type:'state',messages:[],status:'Ready'}});
+  assert.equal(view.element('state').textContent,'Ready');
 });

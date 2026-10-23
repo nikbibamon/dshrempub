@@ -188,7 +188,8 @@ test('returning A to B to A cannot revive delayed work or an earlier webview act
     await app.commands.get('tvijo.chooseThread')();
     app.release(); await refreshing;
     assert.notEqual(app.state().scopeKey, oldScope);
-    assert.ok(app.errors.some(message => message.includes('changed')));
+    assert.ok(app.posts.some(post => post.type === 'state' && post.error?.text.includes('changed')));
+    assert.equal(app.errors.length,0,'chat renders the scope error without a native duplicate');
     await app.receive({ type: 'ask', scopeKey: oldScope, question: 'Old action from first A' });
     assert.equal(app.calls.some(call => call.route === '/tasks'), false);
     assert.equal(app.state().messages[0].content, 'Browser history');
@@ -206,7 +207,8 @@ test('a key cannot reconcile another project journal or issue a second grant', a
     await app.commands.get('tvijo.cancelPending')();
     assert.equal(app.calls.some(call => call.route.startsWith('/tasks')), false);
     assert.equal(local.pending(app.scope).idempotencyKey, 'unsettled');
-    assert.ok(app.errors.some(message => message.includes('another project')));
+    assert.ok(app.posts.some(post => post.type === 'state' && post.error?.text.includes('another project')));
+    assert.equal(app.errors.length,0,'chat renders the project error without a native duplicate');
   } finally { app.close(); }
 });
 

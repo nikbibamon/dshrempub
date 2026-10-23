@@ -21,18 +21,20 @@ ${REWIND_CSS}
 #full-access-warning{flex-shrink:0;margin:6px 10px;padding:8px;border:1px solid #d99b32;border-radius:6px;background:rgba(217,155,50,.12);font-size:12px;overflow-wrap:anywhere;max-width:calc(100% - 36px);max-height:180px;overflow:auto}#full-access-warning[hidden]{display:none}.full-access-row{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;margin-top:5px}.full-access-folder{min-width:0;overflow-wrap:anywhere;flex:1 1 120px}.full-access-row button{max-width:100%;white-space:normal}
 header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(--vscode-contrastBorder,var(--border));border-radius:999px;background:var(--surface);color:var(--text)}#elapsed-chip{white-space:nowrap}#agent-map-button{white-space:nowrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
 </style></head><body>
-<header><strong id="brand"><span id="brand-mark" aria-hidden="true">›_</span>DSHREM</strong><span id="elapsed-chip" class="run-chip" aria-label="Elapsed time">Elapsed —</span><button id="agent-map-button" class="run-chip" type="button" title="Observed running agents; opens Agent Map" aria-expanded="false" aria-controls="agent-map">Agents —</button><button id="pack-picker" type="button" hidden aria-haspopup="dialog"></button><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="signin" type="button">Sign in</button><button id="new" class="icon" type="button" title="New session" aria-label="New session">＋</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings">⚙</button></header>
+<header><strong id="brand" title="Tvijo">Tvijo</strong><button id="history" class="icon" type="button" title="History" aria-label="History">◷</button><button id="new" class="icon" type="button" title="New session" aria-label="New session">＋</button></header>
+<aside id="settings-drawer" aria-label="Chat settings" hidden><div class="drawer-heading"><strong id="drawer-title">Chat settings</strong><button id="drawer-close" class="icon" type="button" aria-label="Close settings">×</button></div>
 <nav aria-label="Workspace"><button id="tab-chat" type="button" aria-selected="true">Chat</button><button id="tab-context" type="button" aria-selected="false">Context</button><button id="tab-usage" type="button" aria-selected="false">Usage</button><button id="tab-terminal" type="button" aria-selected="false">Terminal</button></nav>
+<div class="drawer-tools"><button id="signin" type="button">Sign in</button><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="engineering" type="button" aria-pressed="false">Engineering view</button><button id="extension-settings" type="button">Extension settings…</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button></div>
+<div class="drawer-tools"><span id="elapsed-chip" class="run-chip" aria-label="Elapsed time">Elapsed —</span><button id="agent-map-button" class="run-chip" type="button" title="Observed running agents; opens Agent Map" aria-expanded="false" aria-controls="agent-map">Agents —</button><button id="pack-picker" type="button" hidden aria-haspopup="dialog"></button></div>
+<details id="recovery" hidden><summary id="recovery-title">Interrupted runs</summary><p id="recovery-notes" role="status"></p><div id="recovery-list"></div></details>
+<div class="product-links"><button id="product-guide" type="button">Tvijo AI guide</button><button id="connections" type="button">Connections</button><button id="tasks" type="button">Server task history</button><button id="context-select" type="button">Select project context…</button><button id="context-preview" type="button">Preview context</button><button id="quick-edit" type="button">Quick edit</button></div>
+<p id="shared-thread-note" hidden><a id="shared-thread-link" href="#"></a></p><p id="history-note" class="mini-select"></p>
+<div id="account-status" role="status"><span class="dot">●</span><span id="connection-label">Connecting…</span><span id="budget"></span></div></aside>
 <section id="rewind" aria-labelledby="rewind-title" hidden><div id="rewind-heading"><h2 id="rewind-title">Rewind</h2><button id="rewind-close" type="button">Back to chat</button></div><p id="rewind-hint"></p><p id="rewind-status" role="status"></p><div id="rewind-list"></div></section><main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
 <section id="full-access-warning" role="region" aria-label="Full access warning" hidden></section>
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
-<details id="recovery" hidden><summary id="recovery-title">Interrupted runs</summary><p id="recovery-notes" role="status"></p><div id="recovery-list"></div></details>
 <div id="agent-log" role="log" aria-live="polite"></div>
-<div class="product-links"><button id="product-guide" type="button">Tvijo AI guide</button><button id="connections" type="button">Connections</button><button id="tasks" type="button">Server task history</button><button id="context-preview" type="button">Preview context</button><button id="quick-edit" type="button">Quick edit</button></div>
-<p id="shared-thread-note" hidden><a id="shared-thread-link" href="#"></a></p>
-<p id="history-note" class="mini-select">Chat stays in this workspace and is separate from Copilot. Submitted tasks also appear in server history.</p>
-<div id="account-status" role="status"><span class="dot">●</span><span id="connection-label">Connecting…</span><span id="budget"></span></div>
-<form id="form"><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><p id="mode-help" role="note"></p><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode" aria-haspopup="menu" aria-controls="mode-menu" aria-expanded="false">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
+<form id="form"><button id="composer-signin" type="button">Sign in</button><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><p id="mode-help" role="note"></p><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode" aria-haspopup="menu" aria-controls="mode-menu" aria-expanded="false">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="settings-drawer">⚙</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
 <div id="plus-menu" role="menu" aria-label="Actions"><button id="attach" data-action-id="tvijo.attachFile" type="button" role="menuitem">Attach file…</button><button id="mention-file" data-action-id="tvijo.mentionFile" type="button" role="menuitem">Mention file…</button><button id="attach-problems" data-action-id="tvijo.attachProblems" type="button" role="menuitem">@problems</button><button id="attach-terminal" data-action-id="tvijo.attachTerminal" type="button" role="menuitem">@terminal</button><button id="workspace" type="button" role="menuitem">Choose workspace file…</button><button id="selection" type="button" role="menuitem">Use editor selection</button><button id="path" type="button" role="menuitem">Paste workspace path…</button><button id="clear-conversation" data-action-id="tvijo.newConversation" type="button" role="menuitem">Clear conversation</button><button id="rewind-action" data-action-id="tvijo.rewind" type="button" role="menuitem">Rewind…</button><button id="export-conversation" data-action-id="tvijo.export" type="button" role="menuitem">Export conversation as Markdown</button><button id="switch-model" data-action-id="tvijo.chooseWorkflow" type="button" role="menuitem">Switch model</button><button id="all-actions" type="button" role="menuitem">All commands…</button></div>
 <div id="mode-menu" role="menu" aria-label="Mode" hidden></div><div id="options-menu" role="menu" aria-label="Model and method"></div>
 <div id="notice" role="alert"><p id="notice-text"></p><button id="notice-action" type="button">Resolve task</button></div>
@@ -59,6 +61,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   const modeButton = document.getElementById('mode');
   const agentLog = document.getElementById('agent-log');
   let uiMode = 'chat';
+  document.getElementById('settings-drawer').hidden = true;
   const notice = document.getElementById('notice');
   const noticeText = document.getElementById('notice-text');
   const noticeActionButton = document.getElementById('notice-action');
@@ -70,6 +73,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   let optionState = null;
   let fullAccess = null;
   let currentNotice = null;
+  let lastQuote = null;
   let lastContext = null;
   let activityTimer = null;
   let activityStarted = 0;
@@ -113,6 +117,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     if (focusedId) for (const button of canvas.querySelectorAll('button')) if (button.getAttribute('data-map-id') === focusedId) { button.focus({preventScroll:true}); break; }
   }
   function mapVisibility(open) {
+    if(open) setDrawer(false);
     mapOpen = open;
     document.getElementById('agent-map').hidden = !open;
     document.getElementById('agent-map-button').setAttribute('aria-expanded', String(open));
@@ -137,10 +142,13 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   const legacyDraft = typeof saved?.legacyDraft === 'string' ? saved.legacyDraft : typeof saved?.draft === 'string' ? saved.draft : '';
   locale = saved?.locale === 'ru' ? 'ru' : 'en';
   uiMode = ['chat','agent','plan'].includes(saved?.mode) ? saved.mode : 'chat';
+  let engineering = saved?.engineering === true;
+  document.body.setAttribute('data-view', engineering ? 'engineering' : 'simple');
+  let legacyHistory = false;
   let theme = ['dark','light','system'].includes(saved?.theme) ? saved.theme : 'system';
   document.body.setAttribute('data-theme', theme);
   const t = key => COPY[locale][key] || COPY.en[key] || key;
-  const saveState = () => { if (scopeKey) drafts[composerScope || scopeKey] = question.value; vscode.setState?.({drafts,draftTimes,legacyDraft,locale,theme,mode:uiMode,composerScope}); };
+  const saveState = () => { if (scopeKey) drafts[composerScope || scopeKey] = question.value; vscode.setState?.({drafts,draftTimes,legacyDraft,locale,theme,engineering,mode:uiMode,composerScope}); };
   const post = message => vscode.postMessage({ ...message, scopeKey });
   const saveDraft = () => { if (scopeKey) draftTimes[composerScope || scopeKey] = Date.now(); saveState(); if (scopeKey) post({type:'composerDraft',composerScope,text:question.value,mode:uiMode}); };
   const setTimer = typeof setInterval === 'function' ? setInterval : () => null;
@@ -174,7 +182,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     const selected = uiMode === 'chat' ? optionState.model : optionState.agentModel;
     const model = (optionState.models || []).find(item => item.id === selected) || { id: selected, name: selected };
     const method = { 'evidence-first': 'methodEvidence', 'plan-check': 'methodPlan', 'peer-review': 'methodPeer' }[optionState.reasoningMethod];
-    document.getElementById('workflow-label').textContent = modelLabel(model) + (uiMode === 'chat' && method ? ' · ' + t(method) : '');
+    document.getElementById('workflow-label').textContent = modelLabel(model) + (engineering && uiMode === 'chat' && method ? ' · ' + t(method) : '');
   }
   function closeOptions() { optionsMenu.className = ''; document.getElementById('workflow').setAttribute('aria-expanded', 'false'); }
   const ACTIVITY = ['✻','✶','✷','✸','✹','✺','✹','✸','✷','✶'];
@@ -271,6 +279,10 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     noticeText.textContent = text || '';
     noticeActionButton.hidden = !action; noticeActionButton.textContent = action === 'account' ? t('signIn') : action === 'context' ? t('contextPreview') : t('resolvePending');
     notice.className = text ? 'visible' : '';
+  }
+  function drawQuote(q) {
+    const amount = v => Number.isSafeInteger(v) && v >= 0 ? (v / 1000000).toLocaleString(locale === 'ru' ? 'ru-RU' : 'en-US', {maximumFractionDigits:6}) : '—';
+    state.textContent = t('upTo') + ' ' + amount(q.estimated_max_micro_tvijo) + ' TT' + (engineering ? ' · ' + t('quoteLabel') + ' ' + (q.quote_id || '—') + ' · ' + t('ceilingLabel') + ' ' + amount(q.ceiling_micro_tvijo) + ' TT · ' + t('tariffLabel') + ' ' + (q.tariff_version || '—') : '');
   }
   function updateMode() {
     const preset = uiMode === 'plan' ? 'plan' : optionState?.agentPreset || 'manual';
@@ -386,6 +398,16 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   }
   function setLocale(next) {
     locale = next; document.documentElement.lang = locale;
+    document.getElementById('drawer-title').textContent = t('chatSettings');
+    for (const [id,key] of [['history','history'],['drawer-close','closeSettings'],['settings','settings'],['new','new']]) {
+      document.getElementById(id).title = t(key); document.getElementById(id).setAttribute('aria-label',t(key));
+    }
+    document.getElementById('settings-drawer').setAttribute('aria-label',t('chatSettings'));
+    document.getElementById('engineering').textContent = t(engineering ? 'simpleView' : 'engineeringView');
+    document.getElementById('engineering').setAttribute('aria-pressed',String(engineering));
+    document.getElementById('extension-settings').textContent = t('extensionSettings');
+    document.getElementById('context-select').textContent = t('contextSelect');
+    document.getElementById('history-note').textContent = t(legacyHistory || legacyDraft ? 'legacyPrivacy' : 'historyPrivacy');
     drawRecovery();
     modeMenu.setAttribute('aria-label', t('mode'));
     document.getElementById('rewind-title').textContent = locale === 'ru' ? 'Восстановление' : 'Rewind';
@@ -426,6 +448,8 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     if (lastUsage) renderUsage(lastUsage);
     document.getElementById('tab-terminal').textContent = t('terminal');
     document.getElementById('signin').textContent = t(lastSignedIn ? 'signedIn' : 'signIn');
+    document.getElementById('composer-signin').textContent = t('signIn');
+    document.getElementById('composer-signin').hidden = lastSignedIn;
     document.getElementById('new').title = t('new');
     document.getElementById('settings').title = t('settings');
     if (uiMode === 'chat') document.getElementById('question').placeholder = t('ask');
@@ -452,6 +476,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     const previous = lastMessages ? JSON.parse(lastMessages) : [];
     lastMessages = null; render(previous); renderBudget(lastAccount);
     renderAttachments(lastAttachments);
+    if(lastQuote) drawQuote(lastQuote);
     saveState();
   }
   let lastSignedIn = false;
@@ -470,6 +495,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     document.getElementById('connection-label').textContent = lastSignedIn ? t('ready') : t('signIn');
   }
   function setTab(tab) {
+    setDrawer(false);
     mapVisibility(false);
     rewindPanel.hidden = true;
     for (const name of ['chat','context','terminal','usage']) document.getElementById('tab-' + name).setAttribute('aria-selected', String(name === tab));
@@ -537,6 +563,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     send.disabled = blocked || !!pendingModeRequestId || !scopeKey; newConversation.disabled = blocked || !scopeKey;
     for (const id of ['attach','workspace','selection','path','plus','workflow','mode']) document.getElementById(id).disabled = blocked;
     document.getElementById('cancel').hidden = !running;
+    send.hidden = running;
     document.getElementById('cancel').textContent = running ? (uiMode !== 'chat' ? t('agentStop') : t('cancel')) : t('resolvePending');
     document.getElementById('cancel').title = running ? (uiMode !== 'chat' ? t('agentStop') : t('cancel')) : t('resolvePending');
     document.getElementById('clear-context').disabled = blocked;
@@ -644,6 +671,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       return;
     }
     if (data.type === 'state') {
+      lastQuote = null;
       const nextScope = typeof data.scopeKey === 'string' ? data.scopeKey : null;
       const nextComposerScope = typeof data.composerScope === 'string' ? data.composerScope : nextScope;
       if (scopeKey !== nextScope || composerScope !== nextComposerScope) {
@@ -667,6 +695,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
         saveState();
       }
       if (data.locale && data.locale !== locale) setLocale(data.locale);
+      document.getElementById('brand').textContent = typeof data.projectLabel === 'string' && data.projectLabel.trim() ? data.projectLabel.slice(0,120) : 'Tvijo';
       renderRunSession(data.runSession);
       if (data.workflow && !data.options) { window.tvijoWorkflow = data.workflow; document.getElementById('workflow-label').textContent = data.workflow; }
       const packPicker = document.getElementById('pack-picker');
@@ -700,12 +729,14 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       pending = !!data.pending;
       controls(); renderAttachments(data.attachments || []);
       lastSignedIn = !!data.signedIn;
+      document.getElementById('composer-signin').hidden = lastSignedIn;
       lastAccount = data.account || null;
       if (lastUsage && (!data.signedIn || !data.account || scopeKey !== lastUsageScope || (lastUsage.account && data.account.tenant_id !== lastUsage.account.tenant_id))) { lastUsage = null; document.getElementById('usage-items').replaceChildren(); }
       document.getElementById('signin').textContent = t(lastSignedIn ? 'signedIn' : 'signIn');
       renderBudget(lastAccount);
       updateMode();
-      document.getElementById('history-note').textContent = data.legacyHistory || legacyDraft ? 'Older unassigned chat/draft is preserved locally and is not sent to this account. Server task history belongs to your signed-in account.' : 'Chat stays in this workspace and is separate from Copilot. Submitted tasks also appear in server history.';
+      legacyHistory = !!data.legacyHistory;
+      document.getElementById('history-note').textContent = t(legacyHistory || legacyDraft ? 'legacyPrivacy' : 'historyPrivacy');
     } else if (data.type === 'presetResult') {
       if (data.scopeKey !== scopeKey || !pendingModeRequestId || data.requestId !== pendingModeRequestId) return;
       if (data.ok) { uiMode = data.preset === 'plan' ? 'plan' : 'agent'; saveDraft(); }
@@ -713,10 +744,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       pendingModeRequestId = null; closeModeMenu(true); controls(); updateMode();
     } else if (data.type === 'quote') {
       if (data.scopeKey !== scopeKey) return;
-      const q = data.quote || {};
-      const ceiling = Number.isSafeInteger(q.ceiling_micro_tvijo) && q.ceiling_micro_tvijo >= 0 ? (q.ceiling_micro_tvijo / 1000000).toLocaleString('en-US', { maximumFractionDigits: 6 }) : '—';
-      const estimate = Number.isSafeInteger(q.estimated_max_micro_tvijo) && q.estimated_max_micro_tvijo >= 0 ? (q.estimated_max_micro_tvijo / 1000000).toLocaleString('en-US', { maximumFractionDigits: 6 }) : '—';
-      state.textContent = 'Estimated up to ' + estimate + ' TT · Quote ' + q.quote_id + ' · ' + ceiling + ' TT ceiling · tariff ' + q.tariff_version;
+      lastQuote = data.quote || {}; drawQuote(lastQuote);
     } else if (data.type === 'usage') {
       if (data.scopeKey !== undefined && data.scopeKey !== scopeKey) return;
       renderUsage(data.usage); setTab('usage');
@@ -765,6 +793,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   document.getElementById('map-close').addEventListener('click', () => { setTab('chat'); document.getElementById('agent-map-button').focus(); });
   document.getElementById('agent-map').addEventListener('keydown', event => { if (event.key === 'Escape') { setTab('chat'); document.getElementById('agent-map-button').focus(); } });
   document.getElementById('pack-picker').addEventListener('click', () => post({type:'choosePack'}));
+  document.getElementById('composer-signin').addEventListener('click', () => post({type:'account'}));
   document.getElementById('signin').addEventListener('click', () => post({type:lastSignedIn ? 'account' : 'account'}));
   document.getElementById('new').addEventListener('click', () => post({type:'new'}));
   document.getElementById('cancel').addEventListener('click', () => post({type:'cancel'}));
@@ -791,7 +820,18 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   document.getElementById('connections').addEventListener('click', () => post({type:'connections'}));
   document.getElementById('product-guide').addEventListener('click', () => post({type:'productGuide'}));
   document.getElementById('tasks').addEventListener('click', () => post({type:'tasks'}));
-  document.getElementById('settings').addEventListener('click', () => post({type:'settings'}));
+  function setDrawer(open) {
+    document.getElementById('settings-drawer').hidden = !open;
+    document.getElementById('settings').setAttribute('aria-expanded',String(open));
+    if (open) document.getElementById('drawer-close').focus();
+  }
+  document.getElementById('settings').addEventListener('click', () => setDrawer(document.getElementById('settings-drawer').hidden));
+  document.getElementById('history').addEventListener('click', () => { setDrawer(false); post({type:'history'}); });
+  document.getElementById('drawer-close').addEventListener('click', () => {setDrawer(false);document.getElementById('settings').focus();});
+  document.getElementById('settings-drawer').addEventListener('keydown', event => {if(event.key==='Escape'){setDrawer(false);document.getElementById('settings').focus();}});
+  document.getElementById('extension-settings').addEventListener('click', () => post({type:'settings'}));
+  document.getElementById('context-select').addEventListener('click', () => {setDrawer(false);post({type:'contextSelect'});});
+  document.getElementById('engineering').addEventListener('click', () => {engineering=!engineering;document.body.setAttribute('data-view',engineering?'engineering':'simple');setLocale(locale);});
   document.getElementById('tab-chat').addEventListener('click', () => setTab('chat'));
   document.getElementById('tab-context').addEventListener('click', () => setTab('context'));
   document.getElementById('tab-terminal').addEventListener('click', () => setTab('terminal'));

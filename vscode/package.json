@@ -2,7 +2,7 @@
   "name": "tvijo-dshrem",
   "displayName": "Tvijo DSHREM",
   "description": "Managed coding and bounded reviews for shared projects with a per-task spending cap. Provider API credentials remain on the service.",
-  "version": "0.10.3",
+  "version": "0.10.4",
   "repository": {
     "type": "git",
     "url": "https://github.com/nikbibamon/dshrempub.git",
@@ -167,6 +167,11 @@
       {
         "command": "tvijo.agentPlan",
         "title": "Run agent in plan mode",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.contextSelect",
+        "title": "Select project context",
         "category": "Tvijo"
       },
       {

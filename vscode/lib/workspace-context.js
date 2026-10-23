@@ -6,7 +6,11 @@
 // any bytes reach the service.
 
 const path = require('node:path');
+const localFs = require('node:fs/promises');
+const {constants:fsConstants} = require('node:fs');
 const projectRules = require('./project-rules');
+const {checkKnowledgeFile} = require('./client');
+const CREDENTIAL_TOKEN = /\b(?:tvijo_pk_[A-Za-z0-9_-]{15,}|sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})\b/;
 
 const MAX_DEPTH = 3;
 const MAX_ENTRIES = 2500;
@@ -21,7 +25,7 @@ const EXCLUDED_DIRS = new Set([
   'vendor', 'obj', 'artifacts', 'tmp'
 ]);
 
-const EXCLUDED_FILE = /^(?:\.env(?:\.|$)|secrets?\.|credentials?\.|auth\.json$|id_rsa|id_ed25519|.*\.(?:db|sqlite|sqlite3|log|vsix|zip|tar|gz|tgz|png|jpe?g|gif|webp|ico|pdf|pem|key|p12|pfx|crt|der|bin|exe|dll|so|dylib|woff2?|ttf|mp4|mov|webm)$)/i;
+const EXCLUDED_FILE = /^(?:\.env(?:\.|$)|\.npmrc$|\.netrc$|secrets?\.|credentials?\.|auth\.json$|id_rsa|id_ed25519|.*\.(?:db|sqlite|sqlite3|log|vsix|zip|tar|gz|tgz|png|jpe?g|gif|webp|ico|pdf|pem|key|p12|pfx|crt|der|bin|exe|dll|so|dylib|woff2?|ttf|mp4|mov|webm)$)/i;
 
 const PRIORITY = [
   'README.md', 'README_RU.md', 'readme.md', 'AGENTS.md', 'CLAUDE.md',
@@ -32,6 +36,26 @@ const PRIORITY = [
 function excluded(name, isDirectory) {
   if (isDirectory) return EXCLUDED_DIRS.has(name) || name.startsWith('.');
   return EXCLUDED_FILE.test(name);
+}
+
+// A fixed-size read remains bounded even if a file grows after provider stat.
+async function readBoundedLocal(absolute) {
+  const before = await localFs.lstat(absolute);
+  if (!before.isFile() || before.isSymbolicLink()) return null;
+  const handle = await localFs.open(absolute, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0) | (fsConstants.O_NONBLOCK || 0));
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.ino !== before.ino || stat.dev !== before.dev) return null;
+    if (stat.size > MAX_FILE_BYTES) return {tooLarge:true};
+    const buffer = Buffer.alloc(MAX_FILE_BYTES + 1);
+    let used = 0;
+    while (used < buffer.length) {
+      const {bytesRead} = await handle.read(buffer,used,buffer.length-used,used);
+      if (!bytesRead) break;
+      used += bytesRead;
+    }
+    return used > MAX_FILE_BYTES ? {tooLarge:true} : {bytes:buffer.subarray(0,used)};
+  } finally { await handle.close(); }
 }
 
 function decode(bytes) {
@@ -48,7 +72,7 @@ function sameFolder(a, b) {
     (a.uri.authority || '') === (b.uri.authority || '') && a.uri.fsPath === b.uri.fsPath;
 }
 
-async function collect(vscode, { document = null, selectionText = '', maxBytes = DEFAULT_MAX_BYTES, knownPaths = [], knownSecrets = [], contextMode = 'on', folder: requestedFolder = null, allowRules } = {}) {
+async function collect(vscode, { document = null, selectionText = '', maxBytes = DEFAULT_MAX_BYTES, knownPaths = [], knownSecrets = [], contextMode = 'on', folder: requestedFolder = null, selectedPaths = null, selectionForFolder, allowRules } = {}) {
   const folders = vscode.workspace.workspaceFolders || [];
   if (!folders.length) return { text: '', summary: { root: '', files: 0, bytes: 0, truncated: false, activePath: '', rules: { status: 'unavailable' } } };
   const requested = requestedFolder && folders.find(candidate => sameFolder(candidate, requestedFolder));
@@ -56,6 +80,9 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
   const activeFolder = activeCandidate && folders.find(candidate => sameFolder(candidate, activeCandidate));
   if (requestedFolder && !requested) throw new Error('The selected workspace folder is no longer available.');
   const folder = requested || activeFolder || folders[0];
+  if (typeof selectionForFolder === 'function') selectedPaths = selectionForFolder(folder);
+  const selected = Array.isArray(selectedPaths) ? new Set(selectedPaths.filter(name => typeof name === 'string' && name && !name.includes('/') && !name.includes('\\') && name !== '..')) : null;
+  const included = relative => !selected || selected.has(relative.split('/')[0]);
   const root = folder.uri;
   const rootName = path.basename(folder.uri.fsPath);
   const limit = Math.min(Math.max(Number(maxBytes) || DEFAULT_MAX_BYTES, 4096), 200000);
@@ -63,6 +90,8 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
   const seen = new Set();
   let entries = 0;
   let truncated = false;
+  let skippedLarge = 0, skippedSensitive = 0, skippedUnsupported = 0;
+  const sensitive = (name,bytes) => checkKnowledgeFile(name,bytes) || CREDENTIAL_TOKEN.test(decode(bytes)) || (Array.isArray(knownSecrets) && knownSecrets.some(secret => typeof secret === 'string' && secret.length >= 4 && decode(bytes).includes(secret)));
 
   const queue = [{ uri: root, depth: 0, prefix: '' }];
   while (queue.length && entries < MAX_ENTRIES && tree.length < MAX_TREE_LINES) {
@@ -73,7 +102,8 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
     for (const [name, type] of listing) {
       if (entries >= MAX_ENTRIES || tree.length >= MAX_TREE_LINES) { truncated = true; break; }
       const isDir = type === vscode.FileType.Directory;
-      if (excluded(name, isDir)) continue;
+      if ((type & vscode.FileType.SymbolicLink) || excluded(name, isDir)) continue;
+      if (!current.prefix && !included(name)) continue;
       entries += 1;
       const relative = current.prefix ? current.prefix + '/' + name : name;
       tree.push(relative + (isDir ? '/' : ''));
@@ -103,12 +133,23 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
   push('secrets and binaries are excluded locally\n');
   push('tree:\n' + tree.map((item) => '  ' + item).join('\n') + '\n');
 
-  for (const name of PRIORITY) {
+  for (const name of new Set([...PRIORITY, ...(selected || [])])) {
+    if (!included(name) || EXCLUDED_FILE.test(name)) continue;
     const uri = vscode.Uri.joinPath(root, name);
     try {
       const stat = await vscode.workspace.fs.stat(uri);
-      if (stat.type === vscode.FileType.Directory || stat.type === vscode.FileType.SymbolicLink) continue;
-      const bytes = await vscode.workspace.fs.readFile(uri);
+      if ((stat.type & vscode.FileType.Directory) || (stat.type & vscode.FileType.SymbolicLink)) continue;
+      const customFile = selected !== null && !PRIORITY.includes(name);
+      if ((Number.isFinite(stat.size) && stat.size > MAX_FILE_BYTES) || (customFile && (!Number.isSafeInteger(stat.size) || stat.size < 0))) { skippedLarge++; continue; }
+      let bytes;
+      if (customFile) {
+        if (uri.scheme !== 'file' || uri.authority) { skippedUnsupported++; continue; }
+        const result = await readBoundedLocal(uri.fsPath);
+        if (!result) continue;
+        if (result.tooLarge) { skippedLarge++; continue; }
+        bytes = result.bytes;
+      } else bytes = await vscode.workspace.fs.readFile(uri);
+      if (selected !== null && sensitive(name,bytes)) { skippedSensitive++; continue; }
       seen.add(name);
       const text = decode(bytes.subarray(0, MAX_FILE_BYTES));
       if (!text || !printable(text)) continue;
@@ -116,17 +157,18 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
     } catch { /* A missing manifest is normal. */ }
   }
 
-  if (document && activePath && activePath !== '.tvijo' && !activePath.startsWith('.tvijo/') && !seen.has(activePath) && !EXCLUDED_FILE.test(path.basename(activePath)) && !activePath.split('/').some((part) => EXCLUDED_DIRS.has(part) || part.startsWith('.'))) {
+  if (document && activePath && included(activePath) && activePath !== '.tvijo' && !activePath.startsWith('.tvijo/') && !seen.has(activePath) && !EXCLUDED_FILE.test(path.basename(activePath)) && !activePath.split('/').some((part) => EXCLUDED_DIRS.has(part) || part.startsWith('.'))) {
     seen.add(activePath);
     const body = selectionText && !document.isDirty ? selectionText : document.getText();
     const clipped = body.slice(0, MAX_FILE_BYTES);
     const label = selectionText ? 'active selection' : 'active file';
     const start = selectionText ? document.selection.start.line + 1 : 1;
-    push('\n--- ' + label + ': ' + activePath + (selectionText ? ' (lines ' + start + '-' + (document.selection.end.line + 1) + ')' : '') + ' ---\n' + clipped + '\n');
+    if (selected !== null && sensitive(activePath,Buffer.from(clipped))) skippedSensitive++;
+    else push('\n--- ' + label + ': ' + activePath + (selectionText ? ' (lines ' + start + '-' + (document.selection.end.line + 1) + ')' : '') + ' ---\n' + clipped + '\n');
   }
 
   const supportedRoot = root.scheme === 'file' && (root.authority || '') === '';
-  const rules = contextMode === 'off'
+  const rules = selected !== null || contextMode === 'off'
     ? { text: '', status: 'disabled', paths: [] }
     : !supportedRoot
       ? { text: '', status: 'unsupported', paths: [] }
@@ -150,7 +192,7 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
   }
   push('[END WORKSPACE CONTEXT]\n');
   const text = parts.join('');
-  return { text, summary: { root: rootName, files: tree.length, bytes: Buffer.byteLength(text, 'utf8'), truncated, activePath, rules: rulesStatus } };
+  return { text, summary: { root: rootName, files: tree.length, bytes: Buffer.byteLength(text, 'utf8'), truncated, skippedLarge, skippedSensitive, skippedUnsupported, activePath, rules: rulesStatus } };
 }
 
 module.exports = { collect, DEFAULT_MAX_BYTES, EXCLUDED_DIRS, EXCLUDED_FILE };

@@ -30,7 +30,7 @@ class ServiceError extends Error {
 // An HTTP status alone, a proxy response, or an idempotency conflict proves nothing.
 const GRANT_REFUSALS = new Set(['project_key_task_cap_exceeded', 'project_key_daily_cap_exceeded', 'project_key_scope_refused', 'project_key_route_refused', 'unsupported_task_request', 'unsupported_workflow', 'model_unavailable', 'council_route_unavailable', 'invalid_amount', 'task_cap_must_be_at_most_1', 'invalid_title', 'idempotency_key_required', 'operator_allowance_exhausted', 'insufficient_credit', 'credits_or_daily_cap_exhausted', 'previous_task_not_settled', 'free_preview_exhausted', 'preview_choose_flash_or_devstral', 'preview_daily_pool_exhausted', 'authentication_required', 'origin_refused', 'account_changed', 'invalid_json', 'object_required', 'request_too_large']);
 const REFUSAL_MESSAGES = {
-  preview_context_limit: 'The project context exceeds your remaining preview token allowance. Reduce project context or attachments and send again.',
+  preview_context_limit: 'This request exceeds your remaining preview token allowance. Start a new conversation or reduce attachments. Your draft is preserved.',
   charge_pending: 'The task has an unresolved provider charge. Check this task before sending another request; no automatic retry was made.',
   model_request_failed: 'The model request failed. Check the task result and spending before sending again.',
   usage_recovery_unavailable: 'Usage could not be verified. The task remains held for reconciliation; no automatic retry was made.',
@@ -189,7 +189,7 @@ function taskStateOf(snapshot) {
   const status = String(snapshot?.status ?? snapshot?.task?.status ?? '').toLowerCase();
   if ((snapshot?.byok || snapshot?.task?.byok)?.provider_cost_status === 'unknown') return { status, terminal:false, held:null };
   const serviceHeld = snapshot?.receipt?.held_micro_tvijo ?? snapshot?.task?.receipt?.held_micro_tvijo;
-  if (serviceHeld !== undefined) return { status, terminal: TERMINAL.has(status), held: Number.isSafeInteger(serviceHeld) && serviceHeld >= 0 ? serviceHeld / 1000000000 : null };
+  if (serviceHeld !== undefined) return { status, terminal: TERMINAL.has(status), held: Number.isSafeInteger(serviceHeld) && serviceHeld >= 0 ? serviceHeld / 1000000 : null, heldUnit:'TT' };
   const heldValue = snapshot?.held_usd ?? snapshot?.task?.held_usd ?? snapshot?.budget?.held_usd ?? snapshot?.task?.budget?.held_usd;
   const validHeld = typeof heldValue === 'number' || (typeof heldValue === 'string' && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(heldValue));
   const held = validHeld ? Number(heldValue) : null;
@@ -200,7 +200,7 @@ function taskStateOf(snapshot) {
 function pendingBlocks(state) { return !state.terminal || state.held !== 0; }
 
 const CREDENTIAL_NAME = /^(?:\.env(?:\..*)?|\.npmrc|\.netrc|id_(?:rsa|ed25519)|.*\.(?:pem|key|p12|pfx))$/i;
-const CREDENTIAL_TEXT = /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?:^|[^a-z])(?:[a-z0-9_-]*(?:api[_-]?key|auth[_-]?token|access[_-]?token|password|passwd|secret|private[_-]?key|credential)[a-z0-9_-]*)\s*[:=]\s*\S+/im;
+const CREDENTIAL_TEXT = /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?:^|[^a-z])(?:[a-z0-9_-]*(?:api[_-]?key|auth[_-]?token|access[_-]?token|password|passwd|secret|private[_-]?key|credential)[a-z0-9_-]*)[\"']?\s*[:=]\s*\S+/im;
 
 // Upload is explicit and conservative: refusing a harmless file is cheaper than leaking a secret.
 function checkKnowledgeFile(name, bytes) {

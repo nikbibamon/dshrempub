@@ -6,9 +6,85 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const { collect } = require('../lib/workspace-context');
+const {createContextSelection} = require('../lib/context-selection');
 
-function host() {
-  const root = '/repo';
+test('local context selection excludes deselected paths, manifests and active files', async () => {
+  const {vscode,document} = host();
+  const result = await collect(vscode,{document,selectedPaths:['src']});
+  assert.match(result.text,/src\/index.js/);
+  assert.doesNotMatch(result.text,/Project README|package.json|AGENTS.md/);
+  const empty = await collect(vscode,{document,selectedPaths:[]});
+  assert.doesNotMatch(empty.text,/src|console.log|README/);
+});
+
+test('local multi-select preferences persist per folder and reject scope changes', async () => {
+  const {vscode} = host();
+  const values = new Map();
+  const state = {get:key=>values.get(key),update:async(key,value)=>values.set(key,value)};
+  let choices;
+  vscode.window = {showQuickPick:async(items,options)=>{choices=items;assert.equal(options.canPickMany,true);return items.filter(item=>item.label==='src');}};
+  const selector = createContextSelection({vscode,state});
+  const folder = vscode.workspace.workspaceFolders[0];
+  await selector.choose(folder);
+  assert.deepEqual(selector.selected(folder),['src']);
+  assert.ok(!choices.some(item=>item.label==='.env'||item.label==='node_modules'));
+  assert.equal(selector.selected({uri:vscode.Uri.file('/other')}),null);
+  let calls=0;
+  await assert.rejects(selector.choose(folder,async()=>{if(++calls===3)throw Error('scope changed');}),/scope changed/);
+  assert.deepEqual(selector.selected(folder),['src']);
+});
+
+test('selected oversized or unknown-size files are skipped before read',async()=>{
+ const {vscode}=host();
+ const read=[];
+ vscode.workspace.fs.stat=async uri=>({type:1,...(uri.fsPath.endsWith('large.txt')?{size:1000000000}:{})});
+ vscode.workspace.fs.readFile=async uri=>{read.push(uri.fsPath);throw Error('must not read');};
+ const result=await collect(vscode,{selectedPaths:['large.txt','unknown.txt']});
+ assert.deepEqual(read,[]);
+ assert.equal(result.summary.skippedLarge,2);
+});
+
+test('selected credential JSON and known secrets never enter context',async()=>{
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || os.tmpdir(),'selected-sensitive-'));
+ const {vscode}=host(root);
+ const data={'config.json':'{"api_key":"DO_NOT_SEND_THIS_VALUE"}','notes.txt':'account supplied token: hidden-session-value','safe.txt':'safe project overview'};
+ for(const [name,text] of Object.entries(data)) await fs.writeFile(path.join(root,name),text);
+ vscode.workspace.fs.stat=async uri=>({type:1,size:Buffer.byteLength(data[path.basename(uri.fsPath)]||'')});
+ vscode.workspace.fs.readFile=async uri=>Buffer.from(data[path.basename(uri.fsPath)]||'');
+ const result=await collect(vscode,{selectedPaths:Object.keys(data),knownSecrets:['hidden-session-value']});
+ assert.doesNotMatch(result.text,/DO_NOT_SEND_THIS_VALUE|hidden-session-value/);
+ assert.match(result.text,/safe project overview/);
+ assert.equal(result.summary.skippedSensitive,2);
+});
+
+test('selected local files use bounded no-follow reads despite stale provider metadata',async()=>{
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || os.tmpdir(),'selected-local-'));
+ await fs.writeFile(path.join(root,'large.txt'),'x'.repeat(12001));
+ await fs.writeFile(path.join(root,'safe.txt'),'LOCAL SAFE CONTENT');
+ await fs.symlink(path.join(root,'safe.txt'),path.join(root,'linked.txt'));
+ const {vscode}=host(root);
+ // Provider metadata can be stale or miss a symlink; the descriptor decides.
+ vscode.workspace.fs.stat=async()=>({type:1,size:1});
+ vscode.workspace.fs.readFile=async()=>{throw Error('unbounded provider read must not run');};
+ const result=await collect(vscode,{selectedPaths:['large.txt','safe.txt','linked.txt']});
+ assert.equal(result.summary.skippedLarge,1);
+ assert.match(result.text,/--- safe.txt ---\nLOCAL SAFE CONTENT/);
+ assert.doesNotMatch(result.text,/--- linked.txt ---|xxx/);
+});
+
+test('custom selected content from non-file providers is skipped without an unbounded read',async()=>{
+ const {vscode}=host();
+ vscode.workspace.workspaceFolders[0].uri.scheme='remote';
+ vscode.workspace.fs.stat=async()=>({type:1,size:5});
+ let reads=0;
+ vscode.workspace.fs.readFile=async()=>{reads++;return Buffer.from('data');};
+ const result=await collect(vscode,{selectedPaths:['custom.txt']});
+ assert.equal(reads,0);
+ assert.equal(result.summary.skippedUnsupported,1);
+ assert.doesNotMatch(result.text,/--- custom.txt ---/);
+});
+
+function host(root = '/repo') {
   const files = new Map([
     ['README.md', 'Project README\n'],
     ['AGENTS.md', 'Keep existing agent notes.\n'],
