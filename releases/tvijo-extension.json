@@ -1,6 +1,6 @@
 {
   "schema": "tvijo.extension-release/v1",
-  "as_of": "2026-10-22",
+  "as_of": "2026-10-23",
   "product": {
     "id": "tvijo-dshrem-vscode",
     "name": "Tvijo DSHREM for VS Code",
@@ -9,29 +9,29 @@
       "ru": "Помощь с кодом: выбранный контекст, проверяемые правки и задачи с лимитом."
     }
   },
-  "latest_version": "0.10.3",
+  "latest_version": "0.10.6",
   "channel": "preview",
   "publication": {
-    "status": "prepared",
-    "published_at": null,
+    "status": "published",
+    "published_at": "2026-10-23",
     "note": {
-      "en": "Prepared and installed locally. Reload Window is required to activate the new host. Marketplace publication is not performed.",
-      "ru": "Подготовлено и установлено локально. Для активации нужен Reload Window. Публикации в Marketplace не было."
+      "en": "Direct VSIX release. Reload Window after installation. Marketplace publication was not performed.",
+      "ru": "Прямой выпуск VSIX. После установки выполните Reload Window. Публикации в Marketplace не было."
     }
   },
   "package": {
-    "filename": "tvijo-dshrem-0.10.3.vsix",
+    "filename": "tvijo-dshrem-0.10.6.vsix",
+    "sha256": "2fface64594570c4b7e8ebc4759a22408f260b8120dc83f6ba84a0bc49ccfd4d",
+    "bytes": 797378,
     "editor_requirement": "^1.90.0",
-    "sha256": "c2bbbb6d06eee077ea940f1cdf3a504adc60f574fd70565f81706a0db3d15c8e",
-    "bytes": 239087,
-    "source_commit": "f65491cf840e8fcf649540a37c2e279fb9a1aa3d",
-    "verified_environment": "600 extension checks; two synthetic-host Chromium viewports; installed JavaScript payload verified; active VS Code host requires Reload Window"
+    "source_commit": "9285b5aaedfa582be10b39e025c9638887a4c4f0",
+    "verified_environment": "636 extension and 22 gateway tests; four synthetic Chromium locale/viewport flows. Real Devstral and ds41f each read/create/edit/read owned files; separate read/finish followups completed normally. Fifteen metered calls including initial diagnostic failure. Native Windows desktop unavailable."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
-    "issues": "https://github.com/nikbibamon/dshrempub/issues",
-    "source": "https://github.com/nikbibamon/dshrempub/tree/f65491cf840e8fcf649540a37c2e279fb9a1aa3d",
-    "changelog": "https://github.com/nikbibamon/dshrempub/blob/f65491cf840e8fcf649540a37c2e279fb9a1aa3d/vscode/CHANGELOG.md"
+    "source": "https://github.com/nikbibamon/dshrempub/tree/9285b5aaedfa582be10b39e025c9638887a4c4f0",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/9285b5aaedfa582be10b39e025c9638887a4c4f0/vscode/CHANGELOG.md",
+    "issues": "https://github.com/nikbibamon/dshrempub/issues"
   },
   "features": [
     {
@@ -108,6 +108,94 @@
     }
   ],
   "releases": [
+    {
+      "version": "0.10.6",
+      "date": "2026-10-23",
+      "title": {
+        "en": "Project subfolders and working model tools",
+        "ru": "Подпапки проектов и работающие инструменты моделей"
+      },
+      "changes": [
+        {
+          "en": "Browse an actual subfolder within local/SSH workspaces, including canonical paths under symlink roots. Exact-scope consent can cover an enclosing folder and its descendants.",
+          "ru": "Выбор реальной подпапки локальной/SSH рабочей области, включая канонические пути симлинков. Явное согласие может охватывать родительскую папку и её содержимое."
+        },
+        {
+          "en": "Show only the selected folder permission; isolate context, tool cwd, history and drafts. Keep the selected Chat/Agent model and restored mode consistent. Earlier unassigned history remains viewable.",
+          "ru": "Показываются права только выбранной папки; контекст, cwd, история и черновики разделены. Выбор модели Chat/Agent и восстановленный режим согласованы. Прежняя история доступна отдельно."
+        },
+        {
+          "en": "Prune optional context before hard UTF-8 request limits even for admin accounts; preserve the explicit task and tool results. Normalize a single native model function call into the guarded editor action protocol.",
+          "ru": "Автоконтекст сокращается до проверки жёстких UTF-8 лимитов, включая admin; задание и результаты инструментов сохраняются. Одиночный native tool call преобразуется в защищённый протокол действий редактора."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Native Windows UI was unavailable. File-action flows reached their bounded step limit; separate read/finish followups completed normally on both exact routes. Arbitrary long-running tasks were not tested.",
+          "ru": "Нативный Windows UI недоступен. Сценарии изменения файлов достигли лимита шагов; отдельные чтение/finish завершились штатно на обоих точных маршрутах. Произвольные длительные задачи не проверены."
+        }
+      ]
+    },
+    {
+      "version": "0.10.5",
+      "date": "2026-10-23",
+      "title": {
+        "en": "Local workspace and visible account",
+        "ru": "Локальная папка и видимый аккаунт"
+      },
+      "changes": [
+        {
+          "en": "Choose one persistent local/SSH host folder; keep account identity visible; local history needs no shared project.",
+          "ru": "Выбор одной постоянной папки локального/SSH-хоста, видимый аккаунт и локальная история без общего проекта."
+        },
+        {
+          "en": "Compact older request context and reconcile settled tasks on reconnect. Explicit operator grant is USD20 total, nonrenewing, with the existing USD5 daily guard.",
+          "ru": "Сокращение старого контекста запроса и сверка завершённых задач при подключении. Явный grant оператора: $20 всего без возобновления при сохранении дневного ограничения $5."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Native Windows/VS Code desktop interaction is not verified. Multi-project containing roots require choosing a child project for tools and Full access.",
+          "ru": "Нативный Windows/VS Code интерфейс не проверен. Для инструментов и полного доступа в составной родительской папке выберите дочерний проект."
+        }
+      ]
+    },
+    {
+      "version": "0.10.4",
+      "date": "2026-10-23",
+      "title": {
+        "en": "More room for your conversation",
+        "ru": "Больше места для разговора"
+      },
+      "changes": [
+        {
+          "en": "Compact chat by default: history and new chat above; attachments, mode, model, settings and stop below.",
+          "ru": "Компактный чат по умолчанию: история и новый чат сверху; вложения, режим, модель, настройки и остановка снизу."
+        },
+        {
+          "en": "Usage, recovery and advanced controls move into Settings; Engineering view remains available.",
+          "ru": "Расходы, восстановление и дополнительные инструменты перенесены в настройки; инженерный вид доступен."
+        },
+        {
+          "en": "Choose local folders and files for context; preview size without a model call. Fresh quota checks preserve the draft when a request cannot fit.",
+          "ru": "Выбор локальных папок и файлов для контекста; оценка размера без вызова модели. Проверка актуальной квоты сохраняет черновик, если запрос не помещается."
+        },
+        {
+          "en": "Readable inline errors replace duplicate native popups; TT estimates and held balances use the correct units.",
+          "ru": "Читаемые сообщения внутри чата заменяют повторные всплывающие ошибки; оценки и резерв TT показывают правильные единицы."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Browser tests use a synthetic VS Code host. Native Windows/macOS and paid provider inference were not tested for this release.",
+          "ru": "Браузерные тесты используют имитацию хоста VS Code. Нативные Windows/macOS и платные запросы провайдеру в этом выпуске не проверены."
+        },
+        {
+          "en": "Folder selection filters a bounded project snapshot; it is not full recursive RAG indexing. Arbitrary selected contents require a local file provider.",
+          "ru": "Выбор папок фильтрует ограниченный снимок проекта; это не полная рекурсивная RAG-индексация. Чтение произвольных выбранных файлов требует локального файлового провайдера."
+        }
+      ]
+    },
     {
       "version": "0.10.3",
       "date": "2026-10-22",
@@ -394,17 +482,11 @@
     }
   ],
   "verification": {
-    "date": "2026-10-22",
-    "cli_tests": 10,
-    "extension_tests": 596,
-    "launcher_tests": 7,
-    "python_release_checks": 16,
-    "reproducible_vsix": true,
+    "date": "2026-10-23",
+    "extension_tests": 636,
     "native_gui": {
-      "en": "0.10.2 native dialog integration NOT_RUN; synthetic host and rendered webview checked.",
-      "ru": "Нативный диалог 0.10.2 отдельно не проверялся; проверены синтетический хост и отрисованный webview."
-    },
-    "gateway_checks": 20,
-    "browser_viewport_cases": 2
+      "en": "Not tested. Synthetic Chromium UI plus actual authenticated Devstral/ds41f service and filesystem receipts.",
+      "ru": "Не проверен. Синтетический Chromium UI и реальные авторизованные вызовы Devstral/ds41f с квитанциями и файлами."
+    }
   }
 }

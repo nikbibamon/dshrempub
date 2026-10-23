@@ -20,6 +20,9 @@ class ReleaseCheckTests(unittest.TestCase):
         self.vsix = self.directory / 'candidate.vsix'
         self.catalog = self.directory / 'catalog.json'
         self.data = json.loads(CATALOG.read_bytes())
+        # Archive fixtures exercise preparation, independently of the current
+        # public catalog's already-published lifecycle state.
+        self.data['publication'].update(status='prepared',published_at=None)
         self.version = self.data['latest_version']
         self.engine = self.data['package']['editor_requirement']
         self.meta = {'name': 'tvijo-dshrem', 'publisher': 'tvijo', 'version': self.version,
@@ -214,6 +217,12 @@ class ReleaseCheckTests(unittest.TestCase):
         self.data['package']['sha256'] = '0' * 64
         self.catalog.write_text(json.dumps(self.data))
         self.assert_rejected('digest or size')
+
+    def test_published_catalog_cannot_bypass_preparation_check(self):
+        self.prepare()
+        self.data['publication'].update(status='published',published_at='2026-10-23')
+        self.write_catalog()
+        self.assert_rejected('separately verified promotion')
 
 
 if __name__ == '__main__':
