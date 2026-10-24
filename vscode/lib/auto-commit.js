@@ -9,10 +9,10 @@ function gitEnvironment(source,workspaceRoot,index){
  Object.assign(env,{GIT_TERMINAL_PROMPT:'0',GIT_EDITOR:'true',GIT_CEILING_DIRECTORIES:path.dirname(workspaceRoot)});
  if(index)env.GIT_INDEX_FILE=index;return env;
 }
-function runGit(start,args,{input,index,timeoutMs=start.timeoutMs||120000,signal:abortSignal,onPrepared}={}){
+function runGit(start,args,{input,index,timeoutMs=start.timeoutMs||120000,signal:abortSignal,onPrepared,author}={}){
  return new Promise((resolve,reject)=>{
   if(abortSignal?.aborted){resolve({ok:false,code:null,cancelled:true,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)});return;}
-  const child=spawn('git',[...(args[0]==='check-ignore'?[]:['--literal-pathspecs']),...args],{cwd:start.root,env:gitEnvironment(start.environment,start.workspaceRoot,index),shell:false,detached:process.platform!=='win32',stdio:['pipe','pipe','pipe']});
+  const child=spawn('git',[...(args[0]==='check-ignore'?[]:['--literal-pathspecs']),...args],{cwd:start.root,env:{...gitEnvironment(start.environment,start.workspaceRoot,index),...require('./commit-author').identityEnv(author)},shell:false,detached:process.platform!=='win32',stdio:['pipe','pipe','pipe']});
   let stdout=Buffer.alloc(0),stderr=Buffer.alloc(0),timedOut=false,cancelled=false,finished=false,truncated=false,term,kill;
   const send=s=>{try{if(process.platform!=='win32')process.kill(-child.pid,s);else child.kill(s);}catch{}};
   const stop=()=>{send('SIGINT');if(!term)term=setTimeout(()=>{send('SIGTERM');kill=setTimeout(()=>send('SIGKILL'),1000);},1000);};
@@ -83,8 +83,8 @@ async function proveCommit(start,identity){
  }catch{return {ok:false,hashes};}
 }
 function identityFailure(response,hashes){return {...response,ok:false,withdrawn:false,reason:'commit_identity_unproven',identityWarning:true,observedHashes:[...new Set(hashes.filter(value=>/^[a-f0-9]{40,64}$/.test(value)))].slice(0,12)};}
-async function capture({root,workspaceRoot=root,storageRoot,environment=process.env,timeoutMs=120000}={}){
- const start={root,workspaceRoot,storageRoot,environment,timeoutMs,ok:false};
+async function capture({root,workspaceRoot=root,storageRoot,environment=process.env,timeoutMs=120000,author=null}={}){
+ const start={root,workspaceRoot,storageRoot,environment,timeoutMs,author,ok:false};
  try{
   start.root=fs.realpathSync(root);start.workspaceRoot=fs.realpathSync(workspaceRoot);
   if(!within(start.workspaceRoot,start.root))return {...start,reason:'repo_outside_workspace'};
@@ -99,7 +99,7 @@ async function capture({root,workspaceRoot=root,storageRoot,environment=process.
   const head=await runGit(start,['rev-parse','--verify','HEAD']);if(!head.ok)return {...start,reason:'unborn_head'};start.head=output(head);start.refs=await readRefs(start);start.commitNonce=randomBytes(32).toString('hex');start.reflogs=await captureReflogs(start);
   const progress=await progressReason(start);if(progress)return {...start,reason:progress};
   const name=await runGit(start,['config','user.name']),email=await runGit(start,['config','user.email']);
-  if(!name.ok||!email.ok||!output(name)||!output(email))return {...start,reason:'missing_identity'};
+  if(!author&&(!name.ok||!email.ok||!output(name)||!output(email)))return {...start,reason:'missing_identity'};
   start.startIndex=entries((await git(start,['ls-files','--stage','-z'])).stdout);
   return {...start,ok:true};
  }catch(error){return {...start,reason:error.reason||'no_repo'};}
@@ -186,7 +186,7 @@ async function commitTask({start,writes=[],result,aborted=false,signal,events=[]
   if(await progressReason(start))return {...response,reason:'operation_in_progress'};
   for(const file of selected){if(!sameEntry(await indexEntries(start,file.relative),file.head))return {...response,reason:'index_changed'};if(!fs.readFileSync(safePath(start.root,file.relative,true)).equals(file.bytes))return {...response,reason:'disk_changed'};}
   if(cancelled())return {...response,reason:'task_cancelled'};
-  const committed=await runGit(start,['commit','-F',messageFile],{index,signal});
+  const committed=await runGit(start,['commit','-F',messageFile],{index,signal,author:start.author});
   const observedHead=await runGit(start,['rev-parse','HEAD']),observed=output(observedHead);
   if(!observedHead.ok)return identityFailure(response,[start.head]);
   if(!committed.ok && observed===start.head)return {...response,reason:cancelled()?'task_cancelled':committed.timedOut?'hook_timeout':'hook_or_signing_failed',detail:clean(committed.stderr.toString('utf8')).slice(0,2000)};

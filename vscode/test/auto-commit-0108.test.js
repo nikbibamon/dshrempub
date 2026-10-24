@@ -24,7 +24,7 @@ for(const name of ['x.txt','a [*].txt','-dash.txt','nested/code.txt'])test('0.10
  const r=await f.run();assert.equal(r.ok,true,JSON.stringify(r));assert.deepEqual(f.git('diff-tree','--no-commit-id','--name-only','-r','HEAD').split('\n'),[name]);
  assert.equal(f.git('diff','--cached','--name-only'),'user.txt');assert.equal(f.git('diff','--cached','--',name),'');assert.equal(f.git('diff','--name-only'), 'dirty.txt');
  assert.equal(execFileSync('git',['--git-dir='+remote,'rev-parse','HEAD'],{env:f.environment,encoding:'utf8'}).trim(),remoteHead);
- const msg=f.git('show','-s','--format=%B','HEAD');assert.match(msg,/Tvijo-Agent: tvijo-dshrem 0\.10\.9/);assert.match(msg,/Tvijo-Model: served-a, served-b/);assert.match(msg,/Tvijo-Task: fixture-task/);assert.match(msg,/Co-Authored-By: Tvijo Agent \(served-a\)/);assert.equal(f.git('show','-s','--format=%an <%ae>'),'Fixture User <fixture@example.test>');
+ const msg=f.git('show','-s','--format=%B','HEAD');assert.match(msg,/Tvijo-Agent: tvijo-dshrem 0\.10\.10/);assert.match(msg,/Tvijo-Model: served-a, served-b/);assert.match(msg,/Tvijo-Task: fixture-task/);assert.match(msg,/Co-Authored-By: Tvijo Agent \(served-a\)/);assert.equal(f.git('show','-s','--format=%an <%ae>'),'Fixture User <fixture@example.test>');
 });
 test('0.10.8 auto-commit skips mixed authorship and staged paths with reasons',async()=>{
  const f=await fixture();f.writes[0].previous='USER changed before agent\n';let r=await f.run();assert.equal(r.ok,false);assert.equal(r.skipped[0].reason,'mixed_authorship');
@@ -222,4 +222,12 @@ test('judgefix3 concurrent user amend while Tvijo post-commit hook waits preserv
  const pending=f.run();await waitForHook(path.join(f.root,'created-a.hash'));const a=fs.readFileSync(path.join(f.root,'created-a.hash'),'utf8').trim();
  fs.writeFileSync(path.join(f.root,'user-extra.txt'),'USER EXTRA');f.git('add','--','user-extra.txt');f.git('commit','--amend','--no-edit');const b=f.git('rev-parse','HEAD'),before=fs.readFileSync(path.join(f.root,'.git/index'));fs.writeFileSync(path.join(f.root,'release-hook'),'release');const r=await pending;
  assert.notEqual(a,b);assert.equal(f.git('rev-parse',a+'^'),f.start.head);assert.equal(f.git('rev-parse',b+'^'),f.start.head);assert.equal(r.ok,false);assert.equal(r.identityWarning,true);assert.equal(r.withdrawn,false);assert.ok(r.observedHashes.includes(a));assert.ok(r.observedHashes.includes(b));assert.equal(f.git('rev-parse','HEAD'),b);assert.deepEqual(fs.readFileSync(path.join(f.root,'.git/index')),before);
+});
+
+test('private commit identity replaces both author and committer without editing Git config',async()=>{
+ const f=await fixture();const author={name:'Tvijo',email:'noreply@tvijo.com'};
+ const start=await api().capture({root:f.root,storageRoot:f.storageRoot,environment:f.environment,author});
+ const result=await f.run({start});assert.equal(result.ok,true,JSON.stringify(result));
+ assert.equal(f.git('show','-s','--format=%an <%ae> / %cn <%ce>'),'Tvijo <noreply@tvijo.com> / Tvijo <noreply@tvijo.com>');
+ assert.equal(f.git('config','user.email'),'fixture@example.test');
 });

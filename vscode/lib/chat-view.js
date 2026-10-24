@@ -1,6 +1,7 @@
 'use strict';
 
 const { randomBytes } = require('node:crypto');
+const { PALETTE_CSS } = require('./theme-palette');
 const { THEME_CSS, COPY } = require('./product-theme');
 const { renderMarkdown, safeExternalUrl } = require('./markdown');
 const { renderAgentMap, buildAgentMap } = require('./agent-map');
@@ -18,6 +19,7 @@ function chatHtml(webview) {
 ${THEME_CSS}
 ${CHAT_CSS}
 ${REWIND_CSS}
+${PALETTE_CSS}
 #recovery{flex-shrink:0;max-height:260px;overflow:auto;padding:8px 12px;border-top:1px solid var(--border)}#recovery summary{font-size:12px;cursor:pointer;padding:4px 0}.recovery-card{padding:8px;margin:6px 0;border:1px solid var(--border);border-radius:6px}.recovery-card p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 6px}.recovery-actions{display:flex;flex-wrap:wrap;gap:6px}.recovery-actions button{font-size:11px}#recovery-notes{font-size:11px;overflow-wrap:anywhere}
 nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(--vscode-contrastBorder,var(--border));border-radius:999px;background:var(--surface);color:var(--text)}#elapsed-chip{white-space:nowrap}#agent-map-button{white-space:nowrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
 </style></head><body>
@@ -54,6 +56,32 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   const attached = document.getElementById('attachments');
   const fileInput = document.getElementById('file');
   const plusMenu = document.getElementById('plus-menu');
+  let plusAnchor = document.getElementById('plus');
+  function positionPlus() {
+    if (plusMenu.className !== 'open') return;
+    const rect = plusAnchor.getBoundingClientRect(), gap = 8;
+    const above = rect.top - gap, below = innerHeight - rect.bottom - gap;
+    const up = above >= below;
+    plusMenu.style.position = 'fixed';
+    plusMenu.style.maxHeight = Math.max(30, (up ? above : below) - gap) + 'px';
+    plusMenu.style.bottom = up ? Math.max(gap, innerHeight - rect.top + gap) + 'px' : 'auto';
+    plusMenu.style.top = up ? 'auto' : (rect.bottom + gap) + 'px';
+    plusMenu.style.left = Math.max(gap, Math.min(rect.left, innerWidth - plusMenu.offsetWidth - gap)) + 'px';
+  }
+  function togglePlus(anchor) {
+    const open = plusMenu.className !== 'open'; closeOptions(); closeModeMenu();
+    plusAnchor = anchor; plusMenu.className = open ? 'open' : '';
+    for (const id of ['plus','commands']) document.getElementById(id).setAttribute('aria-expanded',String(open));
+    if (open) { positionPlus(); document.getElementById('attach').focus(); }
+  }
+  window.addEventListener('resize', positionPlus);
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(positionPlus).observe(document.getElementById('form'));
+  document.body.addEventListener('pointerdown', event => {
+    if (!plusMenu.contains(event.target) && !event.target.closest('#plus,#commands')) closePlus();
+  });
+  document.body.addEventListener('focusin', event => {
+    if (!plusMenu.contains(event.target) && !event.target.closest('#plus,#commands')) closePlus();
+  });
   const optionsMenu = document.getElementById('options-menu');
   const modeMenu = document.getElementById('mode-menu');
   const modeButton = document.getElementById('mode');
@@ -707,6 +735,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   }
   window.addEventListener('message', event => {
     const data = event.data;
+    if (data.type === 'state' && ['blue','violet','teal','amber','mono','spectrum'].includes(data.colorTheme)) document.body.setAttribute('data-palette',data.colorTheme);
     if(data.type === 'chooseFolder'){openFolderBrowser();return;}
     if(data.type === 'openSettings'){setDrawer(true);return;}
     if (data.type === 'rewind') {
@@ -900,7 +929,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   document.getElementById('quick-edit').addEventListener('click', () => post({ type: 'quickEdit' }));
   document.getElementById('workflow').addEventListener('click', () => { renderOptions(optionState); plusMenu.className = ''; document.getElementById('plus').setAttribute('aria-expanded','false'); const open = optionsMenu.className !== 'open'; optionsMenu.className = open ? 'open' : ''; document.getElementById('workflow').setAttribute('aria-expanded', String(open)); });
   document.getElementById('commands').setAttribute('aria-haspopup','menu');
-  document.getElementById('commands').addEventListener('click', () => { plusMenu.className = plusMenu.className ? '' : 'open'; const open = plusMenu.className === 'open'; document.getElementById('plus').setAttribute('aria-expanded', String(open)); document.getElementById('commands').setAttribute('aria-expanded', String(open)); if (open) document.getElementById('attach').focus(); });
+  document.getElementById('commands').addEventListener('click', () => togglePlus(document.getElementById('commands')));
   const closePlus = () => { plusMenu.className = ''; document.getElementById('plus').setAttribute('aria-expanded','false'); document.getElementById('commands').setAttribute('aria-expanded','false'); };
   for (const button of plusMenu.querySelectorAll('[data-action-id]')) button.addEventListener('click', () => {closePlus();if(button.dataset.actionId==='tvijo.attachFile')fileInput.click();else post({type:'action',actionId:button.dataset.actionId});});
   document.getElementById('all-actions').addEventListener('click', () => {closePlus();post({type:'commands'});});
@@ -909,7 +938,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   plusMenu.addEventListener('keydown', event => {
     const items = Array.from(plusMenu.querySelectorAll('[role="menuitem"]'));
     const index = items.indexOf(document.activeElement);
-    if (event.key === 'Escape') {plusMenu.className='';document.getElementById('plus').setAttribute('aria-expanded','false');document.getElementById('plus').focus();}
+    if (event.key === 'Escape') {event.stopPropagation();closePlus();plusAnchor.focus();}
     else if (['ArrowDown','ArrowUp','Home','End'].includes(event.key)) {event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length;items[next]?.focus();}
     else if(event.key==='Enter'||event.key===' '){event.preventDefault();document.activeElement?.click();}
   });
@@ -936,7 +965,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   document.getElementById('lang').addEventListener('click', () => { setLocale(locale === 'en' ? 'ru' : 'en'); post({type:'locale', value:locale}); });
   document.getElementById('theme').addEventListener('click', () => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system'));
   document.body.addEventListener('keydown', event => { if (event.key === 'Escape') { if (plusMenu.className === 'open') { closePlus(); document.getElementById('plus').focus(); } if (optionsMenu.className === 'open') { closeOptions(); document.getElementById('workflow').focus(); } } });
-  document.getElementById('plus').addEventListener('click', () => { closeOptions(); plusMenu.className = plusMenu.className ? '' : 'open'; document.getElementById('plus').setAttribute('aria-expanded', plusMenu.className === 'open' ? 'true' : 'false'); if (plusMenu.className === 'open') document.getElementById('attach').focus(); });
+  document.getElementById('plus').addEventListener('click', () => togglePlus(document.getElementById('plus')));
   fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
   question.addEventListener('paste', event => {
     const images = Array.from(event.clipboardData?.files || []).filter(file => file.type.startsWith('image/'));

@@ -155,7 +155,7 @@ function host(options = {}) {
     if (url.includes('/tasks/by-idempotency/')) return Response.json(lookup);
     if (url.endsWith('/tasks/task-test') || url.endsWith('/tasks/task-test/cancel')) return Response.json(taskSnapshot);
     if (url.endsWith('/workspace/usage')) return Response.json({ account: { tenant_id: 'test-tenant', budget: { spent_usd: '0', held_usd: '0', remaining_usd: '.05' } }, scope: { loaded_tasks: 0, total_account_tasks: 0 }, tasks: [] });
-    if (url.endsWith('/chat')) { const content = optionsHost.chatSequence?.[chatIndex++] || chatContent; return Response.json({ choices: [{ message: { content } }], ...optionsHost.chatExecution, task: chatCost === null ? null : { spent_usd: '0.001', held_usd: '0' }, evidence: [] }); }
+    if (url.endsWith('/chat')) { const content = optionsHost.chatSequence?.[chatIndex++] || chatContent; return Response.json({ choices: [{ message: { content } }], ...optionsHost.chatExecution, task: chatCost === null ? null : { spent_usd: String(chatCost ?? '0.001'), held_usd: '0' }, evidence: [] }); }
     throw new Error('unexpected test URL');
   };
   extension.activate(context);
@@ -923,7 +923,8 @@ test('Auto requires both approval flags before unique replacements and new files
       if (kind==='unique replacement') app.editor({document:{uri:app.Uri.file(file),version:1,isClosed:false,getText:()=>before,positionAt:n=>n}});
       await app.commands.get('tvijo.agent')();
       assert.equal(applies,0,kind);
-      assert.equal(app.warnings.length,1,kind);
+      assert.equal(app.warnings.filter(w=>/wants to write/.test(w[0])).length,1,kind);
+      assert.ok(app.warnings.some(w=>/reached 1 steps/.test(w[0])));
       assert.match(app.warnings[0][0],/wants to write/);
       assert.equal(fs.existsSync(path.join(root,'new.js')),false);
       assert.equal(fs.readFileSync(file,'utf8'),before);
@@ -1474,8 +1475,8 @@ test('Auto applies unique replacements but asks before replacing an existing fil
       app.settings.set('workspaceContext','off'); app.settings.set('agentAutoApply',true); app.settings.set('agentAutoRun',true); app.settings.set('agentMaxSteps',1);
       attachSavedDocument(app,file,before);
       await app.commands.get('tvijo.agent')();
-      if (tool==='replace_in_file') { assert.equal(applies,1); assert.equal(app.warnings.length,0); }
-      else { assert.equal(applies,0); assert.equal(app.warnings.length,1); assert.match(app.warnings[0][0],/wants to write/); }
+      if (tool==='replace_in_file') { assert.equal(applies,1); assert.equal(app.warnings.filter(w=>/wants to write/.test(w[0])).length,0); }
+      else { assert.equal(applies,0); assert.equal(app.warnings.filter(w=>/wants to write/.test(w[0])).length,1); assert.match(app.warnings[0][0],/wants to write/); }
       assert.equal(fs.readFileSync(file,'utf8'),tool==='replace_in_file'?'const next = 2;\n':before);
     } finally { app.close(); }
   }
@@ -1506,7 +1507,7 @@ test('quick edit stops after an account change during apply confirmation', async
     if (message.startsWith('Apply the reviewed')) await app.context.secrets.store('tvijo.auth', JSON.stringify({ access_token: 'different-token', api_base: app.base }));
   } });
   try {
-    app.settings.set('workspaceContext', 'off');
+    app.settings.set('workspaceContext', 'off');app.settings.set('autoApply',false);
     const file = path.resolve(__dirname, '../lib/actions.js');
     app.editor({ document: { uri: app.Uri.file(file), version: 1, isUntitled: false, isClosed: false, getText: () => 'original', positionAt: () => new app.Position(0, 0) } });
     app.warning('Apply to buffer');
@@ -1963,7 +1964,7 @@ test('run prompts are durable before chat, agent and Quick Edit dispatch, and co
       }});
     try {
       app.settings.set('workspaceContext','off');
-      if (kind === 'edit') {
+      if (kind === 'edit') {app.settings.set('autoApply',false);
         app.editor({document:{uri:app.Uri.file(path.join(app.root,'journal-edit.js')),version:1,isUntitled:false,isClosed:false,getText:()=> 'original\n'}});
         await app.commands.get('tvijo.quickEdit')();
       } else await app.receive({type:'ask',question:'durable goal',agent:kind === 'agent'});
@@ -2862,10 +2863,10 @@ test('0.10.8 release gate G: symlink volume, default Auto, saved edit, test and 
   x.app.vscode.workspace.updateWorkspaceFolders=(at,count,...added)=>{x.app.vscode.workspace.workspaceFolders.splice(at,count,...added);x.app.workspaceChanged();return true;};
   await x.app.commands.get('tvijo.workInFolder')(x.app.Uri.file(link));let state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.error.action,'addWorkspaceFolder');
   await x.app.receive({type:'addWorkspaceFolder'});state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.workspacePath,x.root);assert.equal(state.options.agentPreset,'auto');
-  const beforeWarnings=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,beforeWarnings,'ZERO approvals during default Auto task');assert.equal(x.app.posts.find(p=>p.type==='agent' && p.event?.type==='start').event.maxSteps,30);
+  const beforeWarnings=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,beforeWarnings,'ZERO approvals during default Auto task');assert.equal(x.app.posts.find(p=>p.type==='agent' && p.event?.type==='start').event.maxSteps,60);
   assert.equal(await fs.readFile(x.file,'utf8'),'50\n');const check=x.results().find(r=>r.stdout?.includes('GATE_TEST_GREEN'));assert.equal(check?.ok,true,JSON.stringify(x.results()));
   assert.equal(git('rev-list','--count','HEAD'),'2');assert.equal(git('diff-tree','--no-commit-id','--name-only','-r','HEAD'),'x.txt');assert.equal(git('diff','--cached','--name-only'),'user-staged.txt');assert.equal(git('diff','--cached','--','x.txt'),'');assert.equal(git('diff','--name-only'),'dirty.txt');
-  const msg=git('show','-s','--format=%B');assert.match(msg,/Tvijo-Agent: tvijo-dshrem 0\.10\.9/);assert.match(msg,/Tvijo-Model: served-gate-model/);assert.match(msg,/Co-Authored-By:/);
+  const msg=git('show','-s','--format=%B');assert.match(msg,/Tvijo-Agent: tvijo-dshrem 0\.10\.10/);assert.match(msg,/Tvijo-Model: served-gate-model/);assert.match(msg,/Co-Authored-By:/);
   assert.equal(execFileSync('git',['--git-dir='+remote,'rev-parse','HEAD'],{env,encoding:'utf8'}),remoteBefore);
   const calls=x.calls();assert.match(JSON.stringify(calls),/CANARY_B_FOLLOW_STYLE/);assert.doesNotMatch(JSON.stringify(calls),/CANARY_A_MUST_NOT_LOAD/);
   state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.account.identity.email,'gate@example.test');assert.equal(state.runtimeVersion,require('../package.json').version);assert.ok(state.loadedRules.some(r=>r.file==='AGENTS.md'));
@@ -3035,7 +3036,7 @@ test('DSH production native commit preserves private Undo identity and verified 
   await x.run();let state=x.app.posts.filter(p=>p.type==='state').at(-1);const index=state.messages.findIndex(row=>row.autoCommit);assert.ok(index>=0);
   const message=x.git('show','-s','--format=%B',state.messages[index].autoCommit.hash),nonce=message.match(/^Tvijo-Commit-Nonce: ([a-f0-9]{64})$/m)?.[1];
   assert.ok(nonce);assert.equal(JSON.stringify(x.app.posts).includes(nonce),false);assert.deepEqual(Object.keys(state.messages[index].autoCommit),['hash']);
-  assert.match(message,/Tvijo-Agent: tvijo-dshrem 0\.10\.9/);assert.match(message,/Tvijo-Model: gpt-6\.1-sol/);assert.doesNotMatch(message,/Tvijo-Model:.*ds41f/);
+  assert.match(message,/Tvijo-Agent: tvijo-dshrem 0\.10\.10/);assert.match(message,/Tvijo-Model: gpt-6\.1-sol/);assert.doesNotMatch(message,/Tvijo-Model:.*ds41f/);
   await x.app.receive({type:'undoCommit',index,scopeKey:state.scopeKey});assert.equal(x.git('rev-parse','HEAD'),x.head);
   state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.messages[index].autoCommit,undefined);assert.match(state.messages[index].content,/Commit undone/);
   assert.equal(await fs.readFile(path.join(x.root,'code.txt'),'utf8'),x.content);assert.equal(x.app.errors.length,0);
@@ -3080,4 +3081,24 @@ test('judgefix3 production Undo uses private identity proof and nonce stays out 
  try{await x.run();let state=x.app.posts.filter(p=>p.type==='state').at(-1);const index=state.messages.findIndex(row=>row.autoCommit);assert.ok(index>=0);const hash=state.messages[index].autoCommit.hash,msg=x.git('show','-s','--format=%B',hash),nonce=msg.match(/^Tvijo-Commit-Nonce: ([a-f0-9]{64})$/m)?.[1];assert.ok(nonce);assert.equal(JSON.stringify(x.calls()).includes(nonce),false);assert.equal(JSON.stringify(state).includes(nonce),false);assert.deepEqual(Object.keys(state.messages[index].autoCommit),['hash']);
   await x.app.receive({type:'undoCommit',index,scopeKey:state.scopeKey});assert.equal(x.git('rev-parse','HEAD'),x.before);state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.messages[index].autoCommit,undefined);assert.match(state.messages[index].content,/Commit undone/);assert.equal(x.app.errors.length,0);
  }finally{x.close();}
+});
+
+test('settings panel saves validated values on host and reports failures without applying them',async()=>{
+ const app=host();try{
+  await app.commands.get('tvijo.settings')();const panel=app.panels[0];
+  await panel.receive({type:'saveSetting',key:'tvijo.agentMaxSteps',value:90});assert.equal(app.settings.get('agentMaxSteps'),90);
+  await panel.receive({type:'saveSetting',key:'tvijo.agentBudgetUsd',value:NaN});assert.equal(app.settings.has('agentBudgetUsd'),false);assert.ok(app.posts.find(x=>x.type==='settingsSaved'&&x.error));
+  await panel.receive({type:'saveSetting',key:'tvijo.telegram.ownerId',value:'123456'});assert.equal(app.settings.has('telegram.ownerId'),false);
+  await panel.receive({type:'saveSetting',key:'tvijo.colorTheme',value:'teal'});assert.equal(app.settings.get('colorTheme'),'teal');
+  await panel.receive({type:'guideAction',id:'configExample'});assert.ok(app.docs.some(d=>d.language==='jsonc'&&d.content.includes('tvijo.agentBudgetUsd')));
+  assert.equal(app.requests.filter(r=>r.url.endsWith('/tasks')&&r.method==='POST').length,0);
+ }finally{app.close();}
+});
+
+test('host budget warning adds only the chosen increment to this run and preserves cost receipts',async()=>{
+ const app=host({chatCost:'0.004',chatSequence:['{"tool":"list_dir","path":"."}','{"tool":"list_dir","path":"."}','{"tool":"finish","status":"done","answer":"done"}']});
+ try{app.settings.set('workspaceContext','off');app.settings.set('agentBudgetUsd',0.01);app.warning(' +$2');await app.commands.get('tvijo.agent')();
+ const grants=app.requests.filter(r=>r.url.endsWith('/tasks')&&r.method==='POST');assert.equal(grants.length,3);assert.equal(Number(grants[0].body.max_usd),0.01);assert.equal(Number(grants[1].body.max_usd),0.006);assert.equal(Number(grants[2].body.max_usd),1);
+ assert.equal(app.settings.get('agentBudgetUsd'),0.01);assert.ok(app.warnings.some(w=>w[0].includes('Increase the limit')));assert.equal(app.errors.length,0);
+ }finally{app.close();}
 });

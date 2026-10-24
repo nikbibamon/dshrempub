@@ -1,3 +1,15 @@
+## 0.10.10 — 2026-10-24
+
+- Anchor the + menu to its button; dismiss on outside pointer/focus, Escape or a second click. Keep it within a narrow viewport even when notices change composer height.
+- Edit and validate settings directly in Tvijo. English/Russian descriptions follow the editor language; localized native VS Code descriptions are packaged too. Telegram setup/start/stop reports the real connection state; legacy ownerId is not an active configuration field.
+- Add six accent palettes based on the operator-provided Hotido swatch reference. Light/dark and high-contrast editor choices remain available.
+- Default chat and Agent model: ds41f. Quick Edit auto-apply is on. Agent defaults to 60 steps, offers +30 up to 200 after explicit approval, and retains the original run/context/cost accounting.
+- Default local Agent budget stays $2. At 80% observed usage, offer +$2/+$5/+$10 for this run only. Dismissal keeps the cap. No automatic purchase, credit grant, provider substitution or server-limit increase.
+- Collect up to 200 KB by default and offer 1 MB for a truncated local preview. Sent excerpts are bounded to 60 KB before the existing request/account checks; this setting cannot expand the service window. No paid calls for preview.
+- OCR language checkboxes show installed Tesseract packs. English/Russian remain the default. Screenshot analysis still consumes extracted text, not image pixels/layout.
+- Auto-commit identity choices: existing Git name/email (default), random stable account-scoped local ID without email, or generic Tvijo. Both author and committer are replaced in private/generic mode for new automatic commits only. No website user-registry integration or legal-compliance claim is made.
+- Open a commented settings.example.json through Tvijo: Open configuration file example. Tokens remain in SecretStorage.
+
 # 0.10.9 — 2026-10-24
 
 - Add opt-in DSH Harness dispatch on the selected local/SSH project host, with fixed ds41f coordinator and subscription Sol/Astra/Claude worker policies. Preserve the compact 0.10.8 interface, Auto, sticky folders, project rules and guarded local auto-commit.

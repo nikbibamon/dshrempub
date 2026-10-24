@@ -13,7 +13,7 @@ function sidebar(initialState = {}, initialHostState = {}) {
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
       value: '', disabled: false, textContent: '',
-      attributes: {},
+      attributes: {},style:{},offsetWidth:220,getBoundingClientRect(){return {top:700,bottom:730,left:12,right:42,width:30,height:30};},
       addEventListener(type, fn) { (this.handlers ||= {})[type] = fn; if (id) listeners.set(`${id}:${type}`, fn); },
       focus() { document.activeElement = this; }, replaceChildren(...nodes) { this.children = nodes; }, append(...nodes) { this.children = [...(this.children || []), ...nodes]; }, requestSubmit() {},
       querySelectorAll(selector) { const nodes=this.children||[]; return selector.includes(':not(:disabled)') ? nodes.filter(node=>!node.disabled) : nodes; },
@@ -31,7 +31,7 @@ function sidebar(initialState = {}, initialHostState = {}) {
     : selector.includes('[role="menuitem"]') ? ['attach','mention-file','attach-problems','attach-terminal','workspace','selection','path','clear-conversation','rewind-action','export-conversation','switch-model','all-actions'].map(element) : [];
   const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
   assert.ok(script, 'webview script exists');
-  vm.runInNewContext(script, { document, window, URL, acquireVsCodeApi: () => ({ postMessage: (message) => outgoing.push(message), getState: () => savedState, setState: (next) => { savedState = next; } }) });
+  vm.runInNewContext(script, { document, window, URL, innerHeight:850,innerWidth:720, acquireVsCodeApi: () => ({ postMessage: (message) => outgoing.push(message), getState: () => savedState, setState: (next) => { savedState = next; } }) });
   listeners.get('window:message')({ data: { type: 'state', scopeKey: 'tenant-a', messages: [], signedIn: true, attachments: [], ...initialHostState } });
   return { element, outgoing, created, document, state: () => savedState, emit: (key, event) => {
     if (event?.data?.type === 'state' && event.data.scopeKey === undefined) event = { data: { ...event.data, scopeKey: 'tenant-a' } };

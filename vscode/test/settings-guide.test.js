@@ -50,11 +50,11 @@ test('DOM execution supports search, language, setting actions and safe refresh'
   let receive;
   const html = settingsHtml({}, { properties });
   const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)[1];
-  const document = { documentElement: {}, getElementById: get, createElement: () => new Element() };
+  const document = { body:new Element(), documentElement: {}, getElementById: get, createElement: () => new Element() };
   vm.runInNewContext(script, { document, URL, acquireVsCodeApi: () => ({ postMessage: message => messages.push(message) }), window: { addEventListener: (_, fn) => { receive = fn; } } });
   assert.equal(get('cards').children.length, Object.keys(properties).length);
   get('cards').children[0].children.at(-1).handlers.click();
-  assert.equal(messages[0].key, 'tvijo.orchestration.enabled');
+  assert.equal(messages[0].key, 'tvijo.commitIdentity');
   get('search').value = 'ocrLanguages'; get('search').handlers.input();
   assert.equal(get('cards').children.length, 1);
   get('language').handlers.click();

@@ -15,7 +15,7 @@ const CREDENTIAL_TOKEN = /\b(?:tvijo_pk_[A-Za-z0-9_-]{15,}|sk-[A-Za-z0-9_-]{12,}
 const MAX_DEPTH = 3;
 const MAX_ENTRIES = 2500;
 const MAX_TREE_LINES = 400;
-const DEFAULT_MAX_BYTES = 48000;
+const DEFAULT_MAX_BYTES = 200000;
 const MAX_FILE_BYTES = 12000;
 
 const EXCLUDED_DIRS = new Set([
@@ -85,7 +85,7 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
   const included = relative => !selected || selected.has(relative.split('/')[0]);
   const root = folder.uri;
   const rootName = path.basename(folder.uri.fsPath);
-  const limit = Math.min(Math.max(Number(maxBytes) || DEFAULT_MAX_BYTES, 4096), 200000);
+  const limit = Math.min(Math.max(Number(maxBytes) || DEFAULT_MAX_BYTES, 4096), 1000000);
   const tree = [];
   const seen = new Set();
   let entries = 0;

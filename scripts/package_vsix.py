@@ -33,6 +33,7 @@ def build(repo, output):
             str(rel) in {
                 "package.json", "extension.js", "workspace.js",
                 "README.md", "CHANGELOG.md", "PRIVACY.md",
+                "package.nls.json", "package.nls.ru.json", "settings.example.json",
             }
             or (rel.parts[0] == "lib" and rel.suffix == ".js")
             or (rel.parts[0] == "media" and rel.suffix in {".svg", ".png", ".jpg"})

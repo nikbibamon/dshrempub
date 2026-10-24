@@ -1,0 +1,25 @@
+{
+  // EN: Copy selected values into User / Remote settings.json; do not put secrets here.
+  // RU: Скопируйте нужные значения в User / Remote settings.json; секреты сюда не помещайте.
+  "tvijo.model": "ds41f",
+  "tvijo.agentModel": "ds41f",
+  "tvijo.agentBudgetUsd": 2,
+  "tvijo.agentMaxSteps": 60,
+  "tvijo.autoApply": true,
+  "tvijo.agentAutoApply": true,
+  "tvijo.agentAutoRun": true,
+  "tvijo.autoCommit": "afterTask",
+  // git: Git name/email; private: local random ID; tvijo: generic author.
+  "tvijo.commitIdentity": "git",
+  "tvijo.workspaceContext": "ask",
+  "tvijo.workspaceContextMaxBytes": 200000,
+  "tvijo.ocrLanguages": "eng+rus",
+  "tvijo.colorTheme": "blue",
+  // Configure owner/token in Tvijo > Settings > Telegram, then Start bot.
+  // Владелец и токен: Tvijo > Настройки > Telegram, затем «Запустить бота».
+  "tvijo.telegram.enabled": false,
+  "tvijo.telegram.allowedServices": [],
+  // Advanced / Для администратора: keep the default unless using your own service.
+  "tvijo.apiBase": "https://dsh.tvijo.com/api/dshrem/v1",
+  "tvijo.orchestration.enabled": false
+}

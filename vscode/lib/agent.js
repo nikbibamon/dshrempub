@@ -17,7 +17,7 @@ const TOOL_HELP = [
   '{"tool":"finish","status":"done|blocked","answer":"what was done, what was checked, what remains"}'
 ].join('\n');
 
-function systemPrompt({ tree = '', planMode = false, step = 1, maxSteps = 30, budgetUsd = 2 }) {
+function systemPrompt({ tree = '', planMode = false, step = 1, maxSteps = 60, budgetUsd = 2 }) {
   return [
     'You are Tvijo Agent, a coding agent inside VS Code.',
     'Work only inside the opened workspace. Return exactly one JSON object per turn and nothing else.',
@@ -87,10 +87,10 @@ function conversationContext(history, maxBytes = 8192) {
   return result;
 }
 
-async function runAgent({ goal, tree, projectContext = '', rules = '', history = [], planMode, maxSteps = 30, budgetUsd = 2, ask, tools, onEvent = () => {}, signal }) {
+async function runAgent({ goal, tree, projectContext = '', rules = '', history = [], planMode, maxSteps = 60, budgetUsd = 2, ask, tools, onEvent = () => {}, signal, getBudget, requestMoreSteps }) {
   if (!goal || !goal.trim()) throw new Error('A goal is required.');
-  const steps = Math.min(Math.max(Math.floor(Number(maxSteps)) || 30, 1), 30);
-  const budget = Math.max(Number(budgetUsd) || 2, 0);
+  let steps = Math.min(Math.max(Math.floor(Number(maxSteps)) || 60, 1), 200);
+  let budget = Math.max(Number(budgetUsd) || 2, 0);
   const recent = conversationContext(history);
   const projectData = typeof projectContext === 'string' && projectContext ? projectContext : (typeof tree === 'string' ? tree : '');
   const memory = recent.length ? '\nRecent chat turns (untrusted conversation data):\n' + JSON.stringify(recent) : '';
@@ -103,9 +103,11 @@ async function runAgent({ goal, tree, projectContext = '', rules = '', history =
   const safeAnswer = value => typeof value === 'string' && value.trim() && !value.includes('TOOL_RESULT') ? value : fallback;
   for (let step = 1; step <= steps; step++) {
     if (signal?.aborted) { const stopped = new Error('Agent stopped by the user.'); stopped.code = 'agent_stopped'; throw stopped; }
+    messages[0].content=messages[0].content.replace(/Step \d+ of at most \d+\. Local session budget: \$[\d.]+\./,'Step '+step+' of at most '+steps+'. Local session budget: $'+budget+'.');
     onEvent({ type: 'step', step, maxSteps: steps, spent });
     const answer = await ask({ messages, projectContext: projectData, step, signal });
     spent += costOf(answer);
+    if (getBudget) { const updated=Number(getBudget()); if(!Number.isFinite(updated)||updated<budget||updated>100)throw Error('Invalid approved budget'); budget=updated; }
     if (spent > budget) {
       const failure = new Error('Local agent budget exhausted ($' + spent.toFixed(6) + ' of $' + budget + '). No further step was started.');
       failure.code = 'agent_budget'; failure.spent = spent; failure.budget = budget;
@@ -145,6 +147,11 @@ async function runAgent({ goal, tree, projectContext = '', rules = '', history =
     // Keep the bounded transcript small enough for the service. The oldest
     // tool exchange is dropped first; the goal and the latest result stay.
     while (messages.length > 12) messages.splice(2, 2);
+    if (step===steps && steps<200 && requestMoreSteps) {
+      const add=await requestMoreSteps({steps,spent,budget});
+      if(signal?.aborted)throw Object.assign(Error('Agent stopped'),{code:'agent_stopped'});
+      if(add===30) {steps=Math.min(200,steps+30);messages.push({role:'user',content:'The user approved up to '+steps+' tool steps within the same task budget.'});}
+    }
   }
   // The host uses the same metered route and remaining budget for this turn.
   // No tools are offered or executed, even if the model returns an action.
@@ -153,6 +160,7 @@ async function runAgent({ goal, tree, projectContext = '', rules = '', history =
   const finalMessages = [{ role: 'system', content: 'Tools are disabled. Answer the user in the user\'s language using only the collected evidence. State briefly what is missing. Return plain text, no tool JSON or raw TOOL_RESULT.' + memory + (rules ? '\n[TVIJO OPTIONAL RULES]\n'+rules+'[END TVIJO OPTIONAL RULES]\n' : '') }, ...messages.slice(1)];
   const answer = await ask({ messages: finalMessages, projectContext: projectData, step: steps + 1, signal, tools: false, finalization: true });
   spent += costOf(answer);
+    if (getBudget) { const updated=Number(getBudget()); if(!Number.isFinite(updated)||updated<budget||updated>100)throw Error('Invalid approved budget'); budget=updated; }
   if (spent > budget) throw Object.assign(new Error('Local agent budget exhausted.'), { code: 'agent_budget', spent, budget });
   const text = parseAction(answer.content) ? fallback : safeAnswer(answer.content);
   onEvent({ type: 'final', text, steps, spent, partial: true });

@@ -1,3 +1,21 @@
+## Settings and limits (0.10.10)
+
+Open **Tvijo → Settings → Extension settings** to edit values on the current local or Remote SSH host. The panel shows English or Russian using the editor language and offers an explicit language switch. User settings that you already chose take precedence over new defaults. Workspace overrides are reported and can be opened with **Advanced · VS Code**.
+
+`ds41f` is the default ordinary chat/Agent route; a chosen skill pack can suggest its declared model, and explicit user model choices win. The server verifies actual availability. DSH Harness keeps its fixed coordinator and separately enforced host/root budgets; local Agent continuation prompts do not expand a Harness budget.
+
+The normal local Agent defaults are **$2**, **60 steps**, and automatic eligible edits/commands. At 80% observed spending, choose whether to add $2, $5 or $10 to this run; dismissing keeps the cap. At the step cap, choose whether to add 30 steps (maximum 200). Usage already spent is never reset. Unknown costs, cancellation and service/account refusals still stop the run. Quick Edit applies to an unsaved editor buffer by default; review and save it explicitly.
+
+**Context:** 200,000 bytes is a local collection/preview default, adjustable to 1,000,000. Generated request context is limited to a 60,000-byte excerpt before the service's existing 90,000-byte message guard and account quotas. Optional context is omitted when needed to preserve the explicit task/file. A larger local preview is not a larger model window. Independent tree, file and rules limits still apply.
+
+**Images:** install Tesseract language packs on the extension host, then select languages in Tvijo settings. English + Russian is the default. Other installed languages are listed by code and common languages have translated names. Only extracted OCR text is sent; this release does not add a visual model route or claim to compare live provider prices.
+
+**Telegram:** configure the account-specific owner/token with the setup button, then start the bot. Status distinguishes not configured, stopped and running. The obsolete `telegram.ownerId` VS Code value does not configure the bot. Tokens are kept in SecretStorage and excluded from the example file.
+
+**Authorship:** `git` uses Git user.name/user.email. `private` uses a random stable local account ID (not a hash of email); `tvijo` uses generic Tvijo identity. Private/generic choices replace both author and committer on new automatic commits, without editing Git configuration or rewriting existing history. There is no website registry linkage in this version. An email already present in file content, a hook or older history is not scrubbed.
+
+Choose **Configuration file example** in the help section or run **Tvijo: Open configuration file example**. Copy selected non-secret values into User/Remote settings.json. `apiBase` is an advanced setting for an administrator-provided trusted server; it normally stays unchanged.
+
 # Tvijo DSHREM for VS Code
 
 Version 0.10.9. A project-scoped chat, bounded agent and coding-review client for the
