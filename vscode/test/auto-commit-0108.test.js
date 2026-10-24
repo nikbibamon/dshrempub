@@ -86,7 +86,7 @@ test('0.10.8 signing failure is reported without disabling signing',async()=>{
  const f=await fixture();f.git('config','commit.gpgSign','true');f.git('config','gpg.program','/bin/false');assert.equal((await f.run()).reason,'hook_or_signing_failed');assert.equal(f.git('rev-list','--count','HEAD'),'1');
 });
 test('0.10.8 hooks that move HEAD cannot silently commit on a new parent',async()=>{
- const f=await fixture();const hook=path.join(f.root,'.git/hooks/pre-commit');fs.writeFileSync(hook,'#!/bin/sh\nnext=$(git commit-tree HEAD^{tree} -p HEAD -m "Concurrent user commit")\ngit update-ref refs/heads/work "$next" HEAD\n',{mode:0o755});assert.equal((await f.run()).reason,'head_moved');assert.equal(f.git('show','-s','--format=%s'),'Concurrent user commit');assert.equal(f.git('diff','--cached','--name-only'),'');
+ const f=await fixture();const hook=path.join(f.root,'.git/hooks/pre-commit');fs.writeFileSync(hook,'#!/bin/sh\nnext=$(git commit-tree HEAD^{tree} -p HEAD -m "Concurrent user commit")\ngit update-ref refs/heads/work "$next" HEAD\n',{mode:0o755});assert.equal((await f.run()).reason,'commit_identity_unproven');assert.equal(f.git('show','-s','--format=%s'),'Concurrent user commit');assert.equal(f.git('diff','--cached','--name-only'),'');
 });
 test('0.10.8 trailer injection cannot create forged attribution lines',async()=>{
  const f=await fixture();const r=await f.run({result:{reason:'finish',status:'done',text:'Safe title\n\nTvijo-Model: forged\nCo-Authored-By: Evil <bad@evil.test>'},models:['served-a\nTvijo-Task: injected'],taskId:'task\nCo-Authored-By: forged'});assert.equal(r.ok,true);const msg=f.git('show','-s','--format=%B');assert.match(msg,/^Safe title\n/);assert.doesNotMatch(msg,/\nTvijo-Model: forged|\nCo-Authored-By: Evil|\nTvijo-Task: injected/);assert.equal(msg.match(/^Tvijo-Task:/gm).length,1);
@@ -167,5 +167,46 @@ test('judgefix2 hook-added commit withdrawal refuses a changed branch and preser
  const f=await fixture();const before=f.git('write-tree');
  fs.writeFileSync(path.join(f.root,'.git/hooks/pre-commit'),'#!/bin/sh\nprintf extra > extra.txt\ngit add -- extra.txt\n',{mode:0o755});
  fs.writeFileSync(path.join(f.root,'.git/hooks/post-commit'),'#!/bin/sh\ngit update-ref refs/heads/other HEAD\ngit symbolic-ref HEAD refs/heads/other\n',{mode:0o755});
- const r=await f.run();assert.equal(r.ok,true);assert.equal(r.withdrawn,false);assert.equal(r.reason,'hook_added_paths_withdraw_failed');assert.equal(f.git('symbolic-ref','HEAD'),'refs/heads/other');assert.notEqual(f.git('rev-parse','HEAD'),f.start.head);assert.equal(f.git('write-tree'),before);assert.equal(fs.existsSync(path.join(f.root,'.git/HEAD.lock')),false);
+ const r=await f.run();assert.equal(r.ok,false);assert.equal(r.withdrawn,false);assert.equal(r.identityWarning,true);assert.equal(r.reason,'commit_identity_unproven');assert.equal(f.git('symbolic-ref','HEAD'),'refs/heads/other');assert.notEqual(f.git('rev-parse','HEAD'),f.start.head);assert.equal(f.git('write-tree'),before);assert.equal(fs.existsSync(path.join(f.root,'.git/HEAD.lock')),false);
+});
+
+for(const operation of ['amend','another-commit','reset'])test('judgefix3 extra post-commit reflog update never withdraws user history: '+operation,async()=>{
+ const f=await fixture();fs.writeFileSync(path.join(f.root,'user.txt'),'USER STAGED');f.git('add','--','user.txt');const before=fs.readFileSync(path.join(f.root,'.git/index'));
+ fs.writeFileSync(path.join(f.root,'.git/hooks/pre-commit'),'#!/bin/sh\nif ! test -f initial-extra; then printf once > initial-extra; printf extra > extra.txt; git add -- extra.txt; fi\n',{mode:0o755});
+ const command=operation==='amend'?'printf replacement > extra.txt\ngit add -- extra.txt\ngit commit --amend --no-edit':operation==='another-commit'?'printf followup > extra.txt\ngit add -- extra.txt\ngit commit -m "User follow-up"':'git reset --soft HEAD';
+ fs.writeFileSync(path.join(f.root,'.git/hooks/post-commit'),'#!/bin/sh\nif test -f hook-once; then exit 0; fi\nprintf once > hook-once\ngit rev-parse HEAD > tvijo-a.hash\n'+command+'\ngit rev-parse HEAD > user-b.hash\n',{mode:0o755});
+ const r=await f.run(),a=fs.readFileSync(path.join(f.root,'tvijo-a.hash'),'utf8').trim(),b=fs.readFileSync(path.join(f.root,'user-b.hash'),'utf8').trim();
+ assert.equal(r.ok,false,JSON.stringify(r));assert.equal(r.withdrawn,false);assert.equal(r.identityWarning,true);assert.equal(r.reason,'commit_identity_unproven');assert.equal(f.git('rev-parse','HEAD'),b);assert.notEqual(b,f.start.head);assert.ok(r.observedHashes.includes(a));assert.ok(r.observedHashes.includes(b));assert.deepEqual(fs.readFileSync(path.join(f.root,'.git/index')),before);
+ if(operation==='amend'){assert.notEqual(a,b);assert.equal(f.git('rev-parse',a+'^'),f.start.head);assert.equal(f.git('rev-parse',b+'^'),f.start.head);assert.equal(f.git('show',a+':extra.txt'),'extra');assert.equal(f.git('show',b+':extra.txt'),'replacement');assert.equal(f.git('show','-s','--format=%B',a),f.git('show','-s','--format=%B',b),'amend copied the valid nonce; nonce alone is insufficient');}
+ assert.equal((await api().undo({...r,hash:b,root:f.root,workspaceRoot:f.root,environment:f.environment})).reason,'commit_identity_unproven');assert.equal(f.git('rev-parse','HEAD'),b);
+});
+test('judgefix3 disabled reflog forbids withdrawal and preserves the user index',async()=>{
+ const f=await fixture();f.git('config','core.logAllRefUpdates','false');const start=await api().capture({...f.start});const before=fs.readFileSync(path.join(f.root,'.git/index'));
+ fs.writeFileSync(path.join(f.root,'.git/hooks/pre-commit'),'#!/bin/sh\nprintf extra > extra.txt\ngit add -- extra.txt\n',{mode:0o755});
+ const r=await f.run({start});assert.equal(r.withdrawn,false);assert.equal(r.identityWarning,true);assert.equal(r.ok,false);assert.notEqual(f.git('rev-parse','HEAD'),f.start.head);assert.deepEqual(fs.readFileSync(path.join(f.root,'.git/index')),before);assert.equal(fs.readFileSync(f.file,'utf8'),'50\n');
+});
+for(const name of ['HEAD','refs/heads/work'])test('judgefix3 missing '+name+' reflog forbids withdrawal and index reconciliation',async()=>{
+ const f=await fixture(),before=fs.readFileSync(path.join(f.root,'.git/index'));
+ fs.writeFileSync(path.join(f.root,'.git/hooks/pre-commit'),'#!/bin/sh\nprintf extra > extra.txt\ngit add -- extra.txt\n',{mode:0o755});
+ fs.writeFileSync(path.join(f.root,'.git/hooks/post-commit'),'#!/bin/sh\nmv .git/logs/'+name+' .git/logs/'+name+'.preserved\n',{mode:0o755});
+ const r=await f.run();assert.equal(r.ok,false);assert.equal(r.identityWarning,true);assert.equal(r.withdrawn,false);assert.notEqual(f.git('rev-parse','HEAD'),f.start.head);assert.deepEqual(fs.readFileSync(path.join(f.root,'.git/index')),before);
+});
+test('judgefix3 one proven nonce commit still withdraws hook-added paths without changing disk or index',async()=>{
+ const f=await fixture(),before=fs.readFileSync(path.join(f.root,'.git/index'));fs.writeFileSync(path.join(f.root,'.git/hooks/pre-commit'),'#!/bin/sh\nprintf extra > extra.txt\ngit add -- extra.txt\n',{mode:0o755});
+ const r=await f.run();assert.equal(r.withdrawn,true,JSON.stringify(r));assert.equal(r.ok,false);assert.ok(r.identity?.nonce?.match(/^[a-f0-9]{64}$/));assert.equal(f.git('show','-s','--format=%B',r.hash).split('\n').filter(line=>line.startsWith('Tvijo-Commit-Nonce:')).length,1);assert.equal(f.git('rev-parse','HEAD'),f.start.head);assert.deepEqual(fs.readFileSync(path.join(f.root,'.git/index')),before);assert.equal(fs.readFileSync(f.file,'utf8'),'50\n');assert.equal(fs.readFileSync(path.join(f.root,'extra.txt'),'utf8'),'extra');
+});
+for(const kind of ['missing-proof','wrong-nonce','changed-creation-log','replacement-hash'])test('judgefix3 Undo refuses an unproven commit: '+kind,async()=>{
+ const f=await fixture(),r=await f.run();assert.equal(r.ok,true);let identity=r.identity,hash=r.hash;
+ if(kind==='missing-proof')identity=undefined;
+ if(kind==='wrong-nonce')identity={...identity,nonce:'0'.repeat(64)};
+ if(kind==='changed-creation-log'){const log=path.join(f.root,'.git/logs/HEAD');const text=fs.readFileSync(log,'utf8');fs.writeFileSync(log,text.replace('commit: Replace 45 with 50','commit (amend): Replace 45 with 50'));}
+ if(kind==='replacement-hash'){fs.writeFileSync(path.join(f.root,'extra.txt'),'user');f.git('add','--','extra.txt');f.git('commit','--amend','--no-edit');hash=f.git('rev-parse','HEAD');}
+ const head=f.git('rev-parse','HEAD'),before=fs.readFileSync(path.join(f.root,'.git/index'));const undone=await api().undo({...r,hash,identity,environment:f.environment});assert.equal(undone.ok,false);assert.equal(undone.reason,'commit_identity_unproven');assert.equal(f.git('rev-parse','HEAD'),head);assert.deepEqual(fs.readFileSync(path.join(f.root,'.git/index')),before);
+});
+
+test('judgefix3 concurrent user amend while Tvijo post-commit hook waits preserves sibling B and the user index',async()=>{
+ const f=await fixture();fs.writeFileSync(path.join(f.root,'.git/hooks/post-commit'),'#!/bin/sh\nif test -f post-once; then exit 0; fi\nprintf once > post-once\ngit rev-parse HEAD > created-a.hash\nwhile ! test -f release-hook; do sleep 0.02; done\n',{mode:0o755});
+ const pending=f.run();await waitForHook(path.join(f.root,'created-a.hash'));const a=fs.readFileSync(path.join(f.root,'created-a.hash'),'utf8').trim();
+ fs.writeFileSync(path.join(f.root,'user-extra.txt'),'USER EXTRA');f.git('add','--','user-extra.txt');f.git('commit','--amend','--no-edit');const b=f.git('rev-parse','HEAD'),before=fs.readFileSync(path.join(f.root,'.git/index'));fs.writeFileSync(path.join(f.root,'release-hook'),'release');const r=await pending;
+ assert.notEqual(a,b);assert.equal(f.git('rev-parse',a+'^'),f.start.head);assert.equal(f.git('rev-parse',b+'^'),f.start.head);assert.equal(r.ok,false);assert.equal(r.identityWarning,true);assert.equal(r.withdrawn,false);assert.ok(r.observedHashes.includes(a));assert.ok(r.observedHashes.includes(b));assert.equal(f.git('rev-parse','HEAD'),b);assert.deepEqual(fs.readFileSync(path.join(f.root,'.git/index')),before);
 });

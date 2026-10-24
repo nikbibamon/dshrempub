@@ -613,7 +613,7 @@ function activate(context) {
     const messages = history.map(item => {
       const content = item.display || item.content;
       const boundary = item.role === 'assistant' && typeof content === 'string' ? content.lastIndexOf('\n---\nTask ') : -1;
-      return boundary < 0 ? {role:item.role, content,agentRequest:item.agentRequest,autoCommit:item.autoCommit} : {role:item.role, content:content.slice(0,boundary), footer:content.slice(boundary + 5),agentRequest:item.agentRequest,autoCommit:item.autoCommit};
+      return boundary < 0 ? {role:item.role, content,agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined} : {role:item.role, content:content.slice(0,boundary), footer:content.slice(boundary + 5),agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined};
     });
     messages.push(...rewindNotes.filter(note => note.root === permissionFolder()?.uri.fsPath).map(note => ({role:'assistant', content:note.text})));
     let options = null;
@@ -710,9 +710,14 @@ function activate(context) {
       const report=JSON.parse(result.job.report || '{}');
       const evidence=require('./lib/orchestration').commitEvidence(report,commitStart);
       const committed=await autoCommit.commitTask({signal:abort.signal,excludedPaths:projectRulesHost.quarantinedPaths(),start:commitStart,writes:evidence.writes,events:evidence.events,result:{reason:'finish',status:result.job.status==='quality_pending'||result.job.status==='completed'?'done':'failed'},aborted:abort.signal.aborted,models:require('./lib/orchestration').completedModels(report),taskId:runId,guard:checked,enabled:!planMode&&config.get('autoCommit','afterTask')==='afterTask'});
-      const commitNote=committed.ok?'\nLocal commit: '+committed.hash:'\nAuto-commit: '+autoCommit.describe(committed.reason,uiLocale());
+      let commitNote=committed.ok?'\nLocal commit: '+committed.hash:'\nAuto-commit: '+autoCommit.describe(committed.reason,uiLocale());
+      if(committed.identityWarning)commitNote='\n'+autoCommit.describe('commit_identity_unproven',uiLocale())+'\n'+L('Hashes: ','Хеши: ')+committed.observedHashes.join(', ');
+      if(committed.hookAddedPaths?.length)commitNote+='\n'+(committed.withdrawn?L('Hook added files ','Хук добавил файлы ')+committed.hookAddedPaths.join(', ')+L(' — commit withdrawn; edits remain on disk. User index untouched.',' — коммит отозван, изменения остались на диске. Индекс пользователя не изменён.'):L('Hook added files; withdrawal could not safely complete. Review commit ','Хук добавил файлы; безопасный отзыв не выполнен. Проверьте коммит ')+committed.hash+': '+committed.hookAddedPaths.join(', '));
+      if(committed.ok && committed.cancelledAfterCommit)commitNote+='\n'+L('Cancel arrived after the commit was created. The commit is shown above; use Undo commit to undo it.','Отмена пришла после создания коммита. Коммит показан выше; используйте «Отменить коммит».');
+      if(committed.unverifiedHead)commitNote+='\n'+L('Git HEAD changed during cancellation; review commit ','HEAD Git изменился при отмене; проверьте коммит ')+committed.unverifiedHead;
+      if(committed.indexWarning)commitNote+='\n'+L('Commit created; check the Git index before continuing.','Коммит создан; проверьте индекс Git перед продолжением.');
       const answer=report.text || 'DSH Harness: '+result.job.status+'. Inspect Orchestration status for provider and quality receipts.';
-      await local.saveHistory(agentScope,[...local.history(agentScope),{role:'user',content:goal.trim()},{role:'assistant',content:answer+commitNote+'\n\nQuality and publication: '+result.job.status+'.',orchestration:{rootId:result.record.root_id,jobId:result.record.job_id,coordinatorAlias:report.coordinator_alias||'ds41f',meteredCoordinator:report.metered_model||'unknown',completedModels:require('./lib/orchestration').completedModels(report)},autoCommit:committed.ok?{hash:committed.hash,root:committed.root,workspaceRoot:committed.workspaceRoot}:undefined}].slice(-40));
+      await local.saveHistory(agentScope,[...local.history(agentScope),{role:'user',content:goal.trim()},{role:'assistant',content:answer+commitNote+'\n\nQuality and publication: '+result.job.status+'.',orchestration:{rootId:result.record.root_id,jobId:result.record.job_id,coordinatorAlias:report.coordinator_alias||'ds41f',meteredCoordinator:report.metered_model||'unknown',completedModels:require('./lib/orchestration').completedModels(report)},autoCommit:committed.ok?{hash:committed.hash,root:committed.root,workspaceRoot:committed.workspaceRoot,identity:committed.identity}:undefined}].slice(-40));
       await finishMap(auth,result.job.status==='quality_pending'?'quality_pending':result.job.status);
       lastAgentOutcome={scope:currentViewScope(auth.scope),text:'DSH Harness · '+result.job.status};
     } finally {agentAbort=null;agentRunning=false;busy=false;await postActivity('done','');await postChatState();}
@@ -1024,6 +1029,7 @@ function activate(context) {
       if(committed.ok){await context.globalState.update('tvijo.committedRun.'+rewindRunId,committed.hash);const key='tvijo.firstAutoCommit.'+createHash('sha256').update(committed.root).digest('hex'),first=!context.globalState.get(key);await context.globalState.update(key,true);
         commitText=L('Tvijo committed ','Tvijo закоммитил ')+committed.hash.slice(0,12)+(first?L(' · turn off in ⚙',' · выключить в ⚙'):'');
       }else if((savedWrites.size || hasCommandEffects) && committed.reason!=='off')commitText=L('No auto-commit: ','Без автокоммита: ')+autoCommit.describe(committed.reason,uiLocale());
+      if(committed.identityWarning)commitText=autoCommit.describe('commit_identity_unproven',uiLocale())+'\n'+L('Hashes: ','Хеши: ')+committed.observedHashes.join(', ');
       if(committed.skipped.length)commitText+='\n'+committed.skipped.map(f=>f.path+': '+autoCommit.describe(f.reason,uiLocale())).join('\n');
       if(savedWrites.size || hasCommandEffects)commitText+='\n'+L('Command side effects (rm/mv and other tool writes) are not tracked or committed.','Побочные эффекты команд (rm/mv и другие записи инструментов) не отслеживаются и не коммитятся.');
       if(taskEffectsText())commitText+='\n'+taskEffectsText();
@@ -1034,7 +1040,7 @@ function activate(context) {
       const finalText=result.text+(commitText?'\n\n'+commitText:'');
       await finishMap(auth, 'completed');
       const history = local.history(agentScope);
-      await local.saveHistory(agentScope, [...history, { role: 'user', content: goal.trim(), display: goal.trim(), recoveryRunId:localAgentRunId }, { role: 'assistant', content: result.text, display: finalText, autoCommit:committed.ok?{hash:committed.hash,root:committed.root,workspaceRoot:committed.workspaceRoot}:undefined, recoveryRunId:localAgentRunId, taskIds:mapSession(auth).tasks.map(task => task.id) }].slice(-40));
+      await local.saveHistory(agentScope, [...history, { role: 'user', content: goal.trim(), display: goal.trim(), recoveryRunId:localAgentRunId }, { role: 'assistant', content: result.text, display: finalText, autoCommit:committed.ok?{hash:committed.hash,root:committed.root,workspaceRoot:committed.workspaceRoot,identity:committed.identity}:undefined, recoveryRunId:localAgentRunId, taskIds:mapSession(auth).tasks.map(task => task.id) }].slice(-40));
       runJournals.finish(recoveryKey,localAgentRunId);
       await metrics.record({ event: 'agent', outcome: result.reason === 'step_limit' ? 'partial' : 'completed', mode: planMode ? 'plan' : 'agent', model: agentModel, steps: result.steps, cost_usd: result.spent, duration_ms: Date.now() - startedAt });
       lastAgentOutcome = { scope: currentViewScope(auth.scope), text: result.partial
