@@ -291,6 +291,11 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     optionState = options && Array.isArray(options.models) ? options : null;
     optionsMenu.replaceChildren();
     updateMode();
+    if (orchestrationState.enabled && uiMode !== 'chat') {
+      const fixed=document.createElement('p');fixed.textContent='DSH · ds41f + '+orchestrationState.policy;optionsMenu.append(fixed);
+      const settings=document.createElement('button');settings.type='button';settings.textContent=locale==='ru'?'Настройки и статус DSH':'DSH settings and status';settings.addEventListener('click',()=>{closeOptions();post({type:'settings'});});optionsMenu.append(settings);
+      return;
+    }
     if (!optionState) return;
     const group = (titleKey, rows) => {
       if (!rows.length) return;
@@ -776,7 +781,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       const rulesPanel=document.getElementById('loaded-rules');rulesPanel.replaceChildren();
       for(const rule of data.loadedRules || []){const row=document.createElement('div');row.className='rule-row';const toggle=document.createElement('button');toggle.type='button';toggle.textContent=(rule.quarantined?'⚠ ':rule.disabled?'☐ ':'☑ ')+rule.file+' · '+rule.bytes+' B'+(rule.truncated?(locale==='ru'?' · обрезано':' · truncated'):'')+(rule.status==='rejected'?' · '+rule.reason:'')+(rule.quarantined?(locale==='ru'?' · карантин — включить снова':' · quarantined — re-enable'):'');toggle.disabled=running;toggle.addEventListener('click',()=>post({type:rule.quarantined?'reenableRule':'toggleRule',id:rule.id}));row.append(toggle);rulesPanel.append(row);}
       renderRunSession(data.runSession);
-      if (data.workflow && !data.options) { window.tvijoWorkflow = data.workflow; document.getElementById('workflow-label').textContent = data.workflow; }
+      if (data.workflow && !data.options && !(orchestrationState.enabled && uiMode !== 'chat')) { window.tvijoWorkflow = data.workflow; document.getElementById('workflow-label').textContent = data.workflow; }
       const packPicker = document.getElementById('pack-picker');
       packPicker.hidden = !data.signedIn || !data.pack;
       packPicker.textContent = data.pack ? data.pack.label + ' ▾' : '';
@@ -891,7 +896,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   noticeActionButton.addEventListener('click', () => {if(currentNotice?.action==='rulesSettings'){setDrawer(true);return;}post({type: ['chooseFolder','addWorkspaceFolder'].includes(currentNotice?.action) ? currentNotice.action : currentNotice?.action === 'account' ? 'account' : currentNotice?.action === 'context' ? 'contextPreview' : 'cancel'});});
   document.getElementById('context-preview').addEventListener('click', () => post({ type: 'contextPreview' }));
   document.getElementById('quick-edit').addEventListener('click', () => post({ type: 'quickEdit' }));
-  document.getElementById('workflow').addEventListener('click', () => { plusMenu.className = ''; document.getElementById('plus').setAttribute('aria-expanded','false'); const open = optionsMenu.className !== 'open'; optionsMenu.className = open ? 'open' : ''; document.getElementById('workflow').setAttribute('aria-expanded', String(open)); });
+  document.getElementById('workflow').addEventListener('click', () => { renderOptions(optionState); plusMenu.className = ''; document.getElementById('plus').setAttribute('aria-expanded','false'); const open = optionsMenu.className !== 'open'; optionsMenu.className = open ? 'open' : ''; document.getElementById('workflow').setAttribute('aria-expanded', String(open)); });
   document.getElementById('commands').setAttribute('aria-haspopup','menu');
   document.getElementById('commands').addEventListener('click', () => { plusMenu.className = plusMenu.className ? '' : 'open'; const open = plusMenu.className === 'open'; document.getElementById('plus').setAttribute('aria-expanded', String(open)); document.getElementById('commands').setAttribute('aria-expanded', String(open)); if (open) document.getElementById('attach').focus(); });
   const closePlus = () => { plusMenu.className = ''; document.getElementById('plus').setAttribute('aria-expanded','false'); document.getElementById('commands').setAttribute('aria-expanded','false'); };

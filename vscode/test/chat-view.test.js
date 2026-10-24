@@ -681,3 +681,16 @@ test('0.10.7 locale changes preserve the transcript and empty folder Send opens 
  view.emit('lang:click',{});assert.ok(view.created.filter(n=>n.textContent==='TRANSCRIPT_SENTINEL').length>=2);
  assert.equal(view.element('messages').children.length,1);
 });
+
+
+test('DSH Agent and Plan show fixed truthful engine instead of dormant ordinary-model options',()=>{
+ for(const mode of ['agent','plan']){
+  const view=sidebar({}, {composerMode:mode,orchestration:{enabled:true,policy:'sol-astra'},workflow:'Managed Devstral',options:null});
+  assert.equal(view.element('workflow-label').textContent,'DSH · ds41f + sol-astra');
+  view.emit('workflow:click',{});
+  const button=view.element('options-menu').children.find(node=>node.tag==='button');assert.ok(button);button.click();
+  assert.equal(view.outgoing.at(-1).type,'settings');
+ }
+ const view=sidebar({}, {composerMode:'chat',orchestration:{enabled:true,policy:'sol'},options:{models:[{id:'ordinary',name:'Ordinary chat model'}],model:'ordinary'}});
+ assert.equal(view.element('workflow-label').textContent,'Ordinary chat model');
+});
