@@ -2978,3 +2978,17 @@ test('judgefix2 production scan truncation stops Full access command auto-approv
   const state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.rulesScanTruncated,true);assert.match(state.error.text,/scan truncated/);const {sidebar}=require('./helpers/sidebar');for(const locale of ['en','ru']){const view=sidebar({}, {...state,locale});view.element('notice-action').click();assert.equal(view.element('settings-drawer').hidden,false);assert.equal(view.element('rules-scan-note').hidden,false);assert.match(view.element('rules-scan-note').textContent,/truncated|усечено/);}
  }finally{x.close();}
 });
+
+for(const locale of ['en','ru'])test('judgefix3 production ambiguous amend reports history hashes without Undo or user-index changes: '+locale,async()=>{
+ const x=await judgefix2GitHost('post-commit','#!/bin/sh\nif test -f once; then exit 0; fi\nprintf once > once\ngit rev-parse HEAD > created-a.hash\nprintf user > extra.txt\ngit add -- extra.txt\ngit commit --amend --no-edit\ngit rev-parse HEAD > user-b.hash\n');
+ try{await x.app.context.globalState.update('tvijo.uiLocale',locale);const before=await fs.readFile(path.join(x.root,'.git/index'));await x.run();const a=(await fs.readFile(path.join(x.root,'created-a.hash'),'utf8')).trim(),b=(await fs.readFile(path.join(x.root,'user-b.hash'),'utf8')).trim();assert.equal(x.git('rev-parse','HEAD'),b);assert.notEqual(a,b);assert.deepEqual(await fs.readFile(path.join(x.root,'.git/index')),before);
+  const state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.messages.at(-1).autoCommit,undefined);const text=state.messages.at(-1).content;assert.match(text,locale==='ru'?/HEAD изменился во время коммита — Tvijo ничего не отзывал; проверьте историю/:/HEAD changed during commit — Tvijo withdrew nothing; inspect the history/);for(const hash of [x.before,a,b])assert.ok(text.includes(hash));
+  assert.ok(!JSON.stringify(x.calls()).includes('Tvijo-Commit-Nonce'));assert.equal(x.app.errors.length,0);
+ }finally{x.close();}
+});
+test('judgefix3 production Undo uses private identity proof and nonce stays out of model and webview state',async()=>{
+ const x=await judgefix2GitHost('post-commit','#!/bin/sh\nexit 0\n');
+ try{await x.run();let state=x.app.posts.filter(p=>p.type==='state').at(-1);const index=state.messages.findIndex(row=>row.autoCommit);assert.ok(index>=0);const hash=state.messages[index].autoCommit.hash,msg=x.git('show','-s','--format=%B',hash),nonce=msg.match(/^Tvijo-Commit-Nonce: ([a-f0-9]{64})$/m)?.[1];assert.ok(nonce);assert.equal(JSON.stringify(x.calls()).includes(nonce),false);assert.equal(JSON.stringify(state).includes(nonce),false);assert.deepEqual(Object.keys(state.messages[index].autoCommit),['hash']);
+  await x.app.receive({type:'undoCommit',index,scopeKey:state.scopeKey});assert.equal(x.git('rev-parse','HEAD'),x.before);state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.messages[index].autoCommit,undefined);assert.match(state.messages[index].content,/Commit undone/);assert.equal(x.app.errors.length,0);
+ }finally{x.close();}
+});

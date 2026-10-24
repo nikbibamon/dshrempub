@@ -610,7 +610,7 @@ function activate(context) {
     const messages = history.map(item => {
       const content = item.display || item.content;
       const boundary = item.role === 'assistant' && typeof content === 'string' ? content.lastIndexOf('\n---\nTask ') : -1;
-      return boundary < 0 ? {role:item.role, content,agentRequest:item.agentRequest,autoCommit:item.autoCommit} : {role:item.role, content:content.slice(0,boundary), footer:content.slice(boundary + 5),agentRequest:item.agentRequest,autoCommit:item.autoCommit};
+      return boundary < 0 ? {role:item.role, content,agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined} : {role:item.role, content:content.slice(0,boundary), footer:content.slice(boundary + 5),agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined};
     });
     messages.push(...rewindNotes.filter(note => note.root === permissionFolder()?.uri.fsPath).map(note => ({role:'assistant', content:note.text})));
     let options = null;
@@ -994,6 +994,7 @@ function activate(context) {
       if(committed.ok){await context.globalState.update('tvijo.committedRun.'+rewindRunId,committed.hash);const key='tvijo.firstAutoCommit.'+createHash('sha256').update(committed.root).digest('hex'),first=!context.globalState.get(key);await context.globalState.update(key,true);
         commitText=L('Tvijo committed ','Tvijo закоммитил ')+committed.hash.slice(0,12)+(first?L(' · turn off in ⚙',' · выключить в ⚙'):'');
       }else if((savedWrites.size || hasCommandEffects) && committed.reason!=='off')commitText=L('No auto-commit: ','Без автокоммита: ')+autoCommit.describe(committed.reason,uiLocale());
+      if(committed.identityWarning)commitText=autoCommit.describe('commit_identity_unproven',uiLocale())+'\n'+L('Hashes: ','Хеши: ')+committed.observedHashes.join(', ');
       if(committed.skipped.length)commitText+='\n'+committed.skipped.map(f=>f.path+': '+autoCommit.describe(f.reason,uiLocale())).join('\n');
       if(savedWrites.size || hasCommandEffects)commitText+='\n'+L('Command side effects (rm/mv and other tool writes) are not tracked or committed.','Побочные эффекты команд (rm/mv и другие записи инструментов) не отслеживаются и не коммитятся.');
       if(taskEffectsText())commitText+='\n'+taskEffectsText();
@@ -1004,7 +1005,7 @@ function activate(context) {
       const finalText=result.text+(commitText?'\n\n'+commitText:'');
       await finishMap(auth, 'completed');
       const history = local.history(agentScope);
-      await local.saveHistory(agentScope, [...history, { role: 'user', content: goal.trim(), display: goal.trim(), recoveryRunId:localAgentRunId }, { role: 'assistant', content: result.text, display: finalText, autoCommit:committed.ok?{hash:committed.hash,root:committed.root,workspaceRoot:committed.workspaceRoot}:undefined, recoveryRunId:localAgentRunId, taskIds:mapSession(auth).tasks.map(task => task.id) }].slice(-40));
+      await local.saveHistory(agentScope, [...history, { role: 'user', content: goal.trim(), display: goal.trim(), recoveryRunId:localAgentRunId }, { role: 'assistant', content: result.text, display: finalText, autoCommit:committed.ok?{hash:committed.hash,root:committed.root,workspaceRoot:committed.workspaceRoot,identity:committed.identity}:undefined, recoveryRunId:localAgentRunId, taskIds:mapSession(auth).tasks.map(task => task.id) }].slice(-40));
       runJournals.finish(recoveryKey,localAgentRunId);
       await metrics.record({ event: 'agent', outcome: result.reason === 'step_limit' ? 'partial' : 'completed', mode: planMode ? 'plan' : 'agent', model: agentModel, steps: result.steps, cost_usd: result.spent, duration_ms: Date.now() - startedAt });
       lastAgentOutcome = { scope: currentViewScope(auth.scope), text: result.partial
