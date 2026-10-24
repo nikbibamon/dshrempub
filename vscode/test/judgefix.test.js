@@ -7,7 +7,7 @@ function repository(){
  git('init','-b','work');git('config','user.name','Judge Fixture');git('config','user.email','judge@example.test');fs.writeFileSync(path.join(root,'x.txt'),'base');git('add','--','x.txt');git('commit','-m','Base');execFileSync('git',['clone','--bare',root,remote],{env,stdio:'pipe'});git('remote','add','origin',remote);fs.writeFileSync(path.join(root,'x.txt'),'next');git('add','--','x.txt');git('commit','-m','Local ahead');
  const remoteHead=()=>execFileSync('git',['--git-dir='+remote,'rev-parse','HEAD'],{env,encoding:'utf8'}).trim();return {base,root,remote,env,git,remoteHead};
 }
-test('judgefix counted Git policy merges inherited entries and blocks every push URL form at Git layer',()=>{
+test('limitation: inherited Git policy merges entries and blocks push URL forms; environment replacement is outside this policy',()=>{
  const f=repository(),{blockGitPush}=require('../lib/agent-command-env');const env=blockGitPush({...f.env,GIT_CONFIG_COUNT:'1',GIT_CONFIG_KEY_0:'tvijo.fixture',GIT_CONFIG_VALUE_0:'kept'});
  assert.equal(execFileSync('git',['config','tvijo.fixture'],{cwd:f.root,env,encoding:'utf8'}).trim(),'kept');assert.equal(env.GIT_CONFIG_COUNT,'3');
  const before=f.remoteHead();
@@ -19,7 +19,7 @@ test('judgefix counted Git policy merges inherited entries and blocks every push
  f.git('remote','set-url','origin',f.remote);f.git('config','remote.origin.pushurl',f.remote);
  const explicit=spawnSync('git',['push','origin','HEAD'],{cwd:f.root,env,encoding:'utf8'});assert.notEqual(explicit.status,0);assert.match(explicit.stderr,/transport 'file' not allowed/);assert.equal(f.remoteHead(),before);
 });
-test('judgefix agent command children inherit the push block through Python and npm scripts',async()=>{
+test('limitation: Python and npm Git children are blocked only with the inherited agent environment',async()=>{
  const f=repository(),{createTools}=require('../lib/local-tools');const before=f.remoteHead();fs.writeFileSync(path.join(f.root,'package.json'),JSON.stringify({scripts:{test:'git push origin HEAD'}}));fs.writeFileSync(path.join(f.root,'.npmrc'),'cache='+path.join(f.base,'npm-cache')+'\n');
  const tools=createTools({root:f.root,confirmRun:async()=>true,confirmWrite:async()=>false});
  for(const command of ['python3 -c "import subprocess,sys; sys.exit(subprocess.run([\'git\',\'push\',\'origin\',\'HEAD\']).returncode)"','npm test']){const result=await tools.execute({tool:'run_command',command});assert.equal(result.ok,false,command);assert.match(result.stderr,/transport .* not allowed/);assert.equal(f.remoteHead(),before);}

@@ -2,7 +2,10 @@
 
 - Block Git pushes inherited by Agent command children, including Python and npm; this also disables fetch/clone in those commands. Report HEAD/ref changes and refuse auto-commit after them.
 - Quarantine rules changed through commands until explicitly re-enabled in Settings; ask before further commands in that task.
-- Reconcile hook-formatted files using actual committed blobs and report hook-added paths without changing their user staging.
+- Reconcile hook-formatted files using actual committed blobs; withdraw commits with any hook-added path while preserving disk and user staging. Cancel observes live Git/hook execution and reports an already-created commit with Undo.
+- Scan rules throughout the selected subtree with visible scan caps; keep account-scoped quarantine across child-folder selection and case variants, including all .clinerules changes.
+- Commands run with your user's rights. Push is blocked for inherited environments; a program that rewrites its own environment is not stopped. Rules files changed by commands are quarantined, not prevented.
+- Команды выполняются с правами вашего пользователя. Push блокируется при унаследованном окружении; программа, заменяющая собственное окружение, не останавливается. Изменения файлов правил командами помещаются в карантин, а не предотвращаются.
 
 - Start in Auto mode with up to 30 steps; saved Agent edits are ready for tests. The task budget stays $2.
 - Keep the conversation clear with folder, mode and model controls below the composer; account details live in Settings.

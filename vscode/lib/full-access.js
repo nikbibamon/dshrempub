@@ -4,6 +4,7 @@ const {randomUUID} = require('node:crypto');
 
 const PREFIX = 'tvijo.fullAccess.v1.';
 const VALID_SCOPE = /^[a-f0-9]{64}$/;
+const FULL_ACCESS_LIMITS=Object.freeze({"en": "Commands run with your user's rights. Push is blocked for inherited environments; a program that rewrites its own environment is not stopped. Rules files changed by commands are quarantined, not prevented.", "ru": "Команды выполняются с правами вашего пользователя. Push блокируется при унаследованном окружении; программа, заменяющая собственное окружение, не останавливается. Изменения файлов правил командами помещаются в карантин, а не предотвращаются."});
 
 function createFullAccess({ vscode, state, scope, L = en => en, onRevoke = () => {} }) {
   let epoch = 0;
@@ -48,7 +49,7 @@ function createFullAccess({ vscode, state, scope, L = en => en, onRevoke = () =>
     try {
       await guard(); check(folder, key, capturedEpoch);
       const label = L('Enable Full access', 'Включить полный доступ');
-      const detail = folder.uri.fsPath + '\n' + L('Scope: this exact directory and all its descendants, including open child projects. Other siblings and ancestors are excluded. Automatically approve edits and commands using local host permissions. Agent edits are saved for disk checks; existing dirty buffers are refused. Hard command, path, secret, and budget limits and Rewind remain in effect. Commands are not an operating-system sandbox.', 'Область: именно эта папка и всё её содержимое, включая открытые дочерние проекты. Соседние и родительские папки исключены. Автоматически одобрять правки и команды с правами хоста. Правки агента сохраняются для проверок на диске; несохранённые пользовательские буферы не изменяются. Ограничения команд, путей, секретов и бюджета, а также Rewind сохраняются. Команды не изолированы песочницей ОС.');
+      const detail = folder.uri.fsPath + '\n' + L('Editor file-tool scope: this directory and its descendants. Commands start here but are not confined here. Agent edits are saved for disk checks; existing dirty buffers are refused. Hard command, path, secret, and budget limits and Rewind remain for editor tools and literal command checks, not as an OS sandbox. ', 'Область файловых инструментов редактора: эта папка и её содержимое. Команды запускаются здесь, но не ограничены этой папкой. Правки агента сохраняются для проверок; пользовательские несохранённые буферы защищены. Ограничения файловых инструментов, буквальных команд и бюджета, а также Rewind сохраняются, но не создают изоляцию ОС. ') + L(FULL_ACCESS_LIMITS.en,FULL_ACCESS_LIMITS.ru);
       const answer = await vscode.window.showWarningMessage(L('Enable Full access for this folder?', 'Включить полный доступ для этой папки?'), { modal: true, detail }, label);
       check(folder, key, capturedEpoch);
       await guard(); check(folder, key, capturedEpoch);
@@ -96,4 +97,4 @@ function createFullAccess({ vscode, state, scope, L = en => en, onRevoke = () =>
   return { status, enable, disable, capture, assertCurrent, invalidate };
 }
 
-module.exports = { PREFIX, createFullAccess };
+module.exports = { PREFIX, createFullAccess, FULL_ACCESS_LIMITS };

@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const { PREFIX, createFullAccess } = require('../lib/full-access');
 
 const a = 'a'.repeat(64), b = 'b'.repeat(64), c = 'c'.repeat(64);
-function setup() {
+function setup(locale='en') {
   const folder = (name, uri = {}) => ({ name, uri: { scheme: 'file', authority: '', fsPath: `/work/${name}`, ...uri } });
   const first = folder('one'), second = folder('two');
   const values = new Map();
@@ -12,7 +12,7 @@ function setup() {
   const prompts = [];
   const vscode = { workspace: { isTrusted: true, workspaceFolders: [first, second] }, window: { showWarningMessage: async (message, options, label) => { prompts.push({ message, options, label }); return label; } } };
   let scopeOverride;
-  const access = createFullAccess({ vscode, state, scope: f => scopeOverride ? scopeOverride(f) : f === first ? a : f === second ? b : c });
+  const access = createFullAccess({ vscode, state, L:(en,ru)=>locale==='ru'?ru:en, scope: f => scopeOverride ? scopeOverride(f) : f === first ? a : f === second ? b : c });
   return { access, first, second, vscode, state, values, prompts, setScope: fn => { scopeOverride = fn; } };
 }
 
@@ -103,4 +103,10 @@ test('Russian consent requires the explicit localized native button',async()=>{
 
 test('an explicitly approved folder survives a host helper restart with the same identity only',async()=>{
   const x=setup();await x.access.enable(x.first);const restored=createFullAccess({vscode:x.vscode,state:x.state,scope:f=>f===x.first?a:b});assert.equal(restored.status(x.first).enabled,true);assert.equal(restored.status(x.second).enabled,false);await restored.disable(x.first);assert.equal(x.access.status(x.first).enabled,false);
+});
+
+test('judgefix2 Full access consent and helper plainly document inherited-environment and post-write quarantine limitations EN/RU',async()=>{
+ const {FULL_ACCESS_LIMITS}=require('../lib/full-access');const {SETTINGS_HELP}=require('../lib/settings-guide');
+ for(const locale of ['en','ru']){const x=setup(locale);assert.equal(await x.access.enable(x.first),true);assert.ok(FULL_ACCESS_LIMITS?.[locale]);assert.ok(x.prompts[0].options.detail.includes(FULL_ACCESS_LIMITS[locale]));assert.ok(SETTINGS_HELP['tvijo.agentAutoRun'][locale].includes(FULL_ACCESS_LIMITS[locale]));}
+ assert.match(FULL_ACCESS_LIMITS.en,/quarantined, not prevented/);assert.match(FULL_ACCESS_LIMITS.en,/rewrites its own environment is not stopped/);
 });
