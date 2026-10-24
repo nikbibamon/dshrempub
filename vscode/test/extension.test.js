@@ -3063,7 +3063,7 @@ test('DSH production native commit reports concurrent user amend hashes without 
  try{
   const before=await fs.readFile(path.join(x.root,'.git/index'));await x.run();const a=(await fs.readFile(path.join(x.root,'created-a.hash'),'utf8')).trim(),b=(await fs.readFile(path.join(x.root,'user-b.hash'),'utf8')).trim();
   assert.equal(x.git('rev-parse','HEAD'),b);assert.notEqual(a,b);assert.deepEqual(await fs.readFile(path.join(x.root,'.git/index')),before);
-  const state=x.app.posts.filter(p=>p.type==='state').at(-1),answer=state.messages.at(-1);assert.equal(answer.autoCommit,undefined);assert.match(answer.content,/HEAD changed during commit — Tvijo withdrew nothing; inspect the history/);
+  const state=x.app.posts.filter(p=>p.type==='state').at(-1),answer=state.messages.at(-1);assert.equal(answer.autoCommit,undefined);assert.match(answer.content,/Git history changed; open Source Control/);
   for(const hash of [x.head,a,b])assert.ok(answer.content.includes(hash));assert.equal(x.app.errors.length,0);
  }finally{x.app.close();}
 });
