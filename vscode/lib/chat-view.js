@@ -647,6 +647,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
           const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
           button.addEventListener('click', () => post({type,index})); actions.append(button);
         }
+        if(item.agentRequest){const agent=document.createElement('button');agent.type='button';agent.textContent=locale==='ru'?'Сделать агентом':'Make it an agent';agent.disabled=running || submitting;agent.addEventListener('click',()=>post({type:'makeAgent',index}));actions.append(agent);}
         block.append(actions);
       }
     }

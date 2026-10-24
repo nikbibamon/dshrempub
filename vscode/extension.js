@@ -2111,6 +2111,7 @@ function activate(context) {
       await postActivity('context', L('Automatic context omitted to fit the service request limits.', 'Автоконтекст пропущен, чтобы уложиться в ограничения запроса сервиса.'));
     }
     if(contextEnabled && contextMode!=='off' && !contextSummary){const r=projectRulesHost.snapshot({folder:permissionFolder(),knownSecrets:[auth.access_token,auth.refresh_token].filter(Boolean)});chatRules=r.text;chatRuleGrants=chatRules?[{}]:[];}
+    if(!selectionState)messages.unshift({role:'system',content:require('./lib/chat-mode').CHAT_SYSTEM_PROMPT});
     if(chatRules)messages.unshift({role:'system',content:'[TVIJO OPTIONAL RULES]\n'+chatRules+'[END TVIJO OPTIONAL RULES]\n'});
     if (!selectionState) messages = fitContext(messages,freshAccount).messages;
     core.validateMessages(messages);
@@ -2158,7 +2159,7 @@ function activate(context) {
       if (reconciled) await local.savePending(auth.scope, undefined, idempotencyKey);
       const formatted = core.formatAnswer({ question: question.trim(), answer });
       const userDisplay = question.trim() + (sentAttachments.length ? '\n\nAttached: ' + sentAttachments.map((item) => `${item.name}${item.kind === 'image' ? ' (image text)' : ''}`).join(', ') : '');
-      const stored = [...history, { role: 'user', content, display: userDisplay, recoveryRunId:chatJournal.id }, { role: 'assistant', content: answer.content, display: formatted, taskId:answer.taskId, recoveryRunId:chatJournal.id }].slice(-40);
+      const stored = [...history, { role: 'user', content, display: userDisplay, recoveryRunId:chatJournal.id }, { role: 'assistant', content: answer.content, display: formatted, taskId:answer.taskId, recoveryRunId:chatJournal.id, agentRequest:!selectionState && require('./lib/chat-mode').offersAgent(answer.content)?question.trim():undefined }].slice(-40);
       if (selectionState) {
         const thread = await workspaceClient(api, auth.access_token).thread(selectionState.projectId, selectionState.threadId);
         shared.remember(auth.scope, selectionState, thread.messages || []);
@@ -2428,6 +2429,9 @@ function activate(context) {
             ensureIdle();const uri=vscode.window.activeTextEditor?.document?.uri;if(uri)await activeWorkspace.select(vscode.Uri.file(path.dirname(uri.fsPath)));await postChatState();await view.webview.postMessage({type:'folderSelected'});
           } else if (message?.type === 'recentFolder') {
             ensureIdle();await activeWorkspace.chooseRecent?.();await postChatState();
+          } else if (message?.type === 'makeAgent') {
+            ensureIdle();const auth=await requireAuth();if(message.scopeKey!==currentViewScope(auth.scope) || shared.selection(auth.scope))return;
+            const item=historyFor(auth.scope)[message.index];if(item?.role==='assistant' && typeof item.agentRequest==='string')await runAgentFlow(item.agentRequest);
           } else if (message?.type === 'reloadWindow') {
             await handlers.get('tvijo.reloadWindow')();
           } else if (message?.type === 'composerDraft') {

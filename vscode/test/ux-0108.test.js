@@ -55,3 +55,9 @@ test('0.10.8 optional rules are dropped after old conversation when a request ca
  const fit=fitContext([system,{role:'user',content:'old'.repeat(2000)},{role:'assistant',content:'earlier'},{role:'user',content:'do task'}],null,{maxBytes:1000});
  assert.equal(fit.rulesOmitted,true);assert.equal(fit.messages[0].content,'Policy');assert.equal(fit.messages.at(-1).content,'do task');
 });
+
+test('0.10.8 Chat explains Agent handoff in English and Russian',()=>{
+ const {CHAT_SYSTEM_PROMPT,offersAgent}=require('../lib/chat-mode');assert.match(CHAT_SYSTEM_PROMPT,/Chat mode/);assert.ok(offersAgent('I will do it in Agent mode.'));assert.ok(offersAgent('Сделаю это в режиме Агент.'));assert.equal(offersAgent('The function returns a number.'),false);
+ const view=require('./helpers/sidebar').sidebar({}, {messages:[{role:'assistant',content:'Agent mode',agentRequest:'Edit file'}]});
+ const button=view.created.find(b=>b.textContent==='Make it an agent');assert.ok(button);button.click();assert.equal(view.outgoing.at(-1).type,'makeAgent');
+});
