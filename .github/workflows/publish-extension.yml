@@ -1,0 +1,131 @@
+name: Verify and publish Tvijo extension
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_marketplace:
+        description: Publish the verified package to Marketplace
+        type: boolean
+        default: false
+  push:
+    tags: ['tvijo-v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tvijo-extension-publication
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'nikbibamon/dshrempub'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Verify source and package
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s scripts -p test_check_extension_release.py
+          npm test
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          from pathlib import Path
+          p = json.loads(Path('vscode/package.json').read_text())
+          version = p['version']
+          assert re.fullmatch(r'\d+\.\d+\.\d+', version), 'invalid version'
+          ref = os.environ['GITHUB_REF']
+          if ref.startswith('refs/tags/'):
+              assert ref == 'refs/tags/tvijo-v' + version, 'tag/version mismatch'
+          assert version in Path('vscode/CHANGELOG.md').read_text(), 'missing changelog'
+          assert not subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no']).strip()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write('version=' + version + '\n')
+          PY
+          version=$(node -p "require('./vscode/package.json').version")
+          python3 scripts/package_vsix.py --output "$RUNNER_TEMP/tvijo-dshrem-$version.vsix"
+          python3 - <<'PY'
+          import datetime, hashlib, importlib.util, json, os
+          from pathlib import Path
+          version = json.loads(Path('vscode/package.json').read_text())['version']
+          meta = json.loads(Path('vscode/package.json').read_text())
+          p = Path(os.environ['RUNNER_TEMP']) / ('tvijo-dshrem-' + version + '.vsix')
+          spec = importlib.util.spec_from_file_location('check_release', 'scripts/check_extension_release.py')
+          m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+          m.check_archive(p.read_bytes(), version, meta['engines']['vscode'])
+          receipt = {'schema': 'tvijo.release-obligation/v1', 'version': version,
+              'source_commit': os.environ['GITHUB_SHA'], 'sha256': hashlib.sha256(p.read_bytes()).hexdigest(),
+              'bytes': p.stat().st_size, 'tests': 'passed', 'publication': 'pending',
+              'observed_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'workflow_run': os.environ['GITHUB_SERVER_URL'] + '/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['GITHUB_RUN_ID']}
+          (p.parent / 'release-obligation.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          PY
+      - name: Check publication prerequisite
+        id: credential
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_marketplace }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$REQUESTED" = true ] && [ -n "$VSCE_PAT" ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            if [ "$REQUESTED" = true ]; then
+              echo 'Marketplace publication pending: publisher authentication is unavailable.' >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo 'Marketplace publication was not requested. The verified VSIX remains available as a build artifact.' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+      - name: Publish the exact verified package
+        if: steps.credential.outputs.ready == 'true'
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          VERSION: ${{ steps.package.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_url="https://tvijo.gallery.vsassets.io/_apis/public/gallery/publisher/tvijo/extension/tvijo-dshrem/$VERSION/assetbyname/Microsoft.VisualStudio.Services.VSIXPackage"
+          status=$(curl --silent --show-error --max-time 45 --output "$RUNNER_TEMP/marketplace-existing.vsix" --write-out '%{http_code}' "$package_url")
+          if [ "$status" = 200 ]; then
+            cp -- "$RUNNER_TEMP/marketplace-existing.vsix" "$RUNNER_TEMP/marketplace-returned.vsix"
+          elif [ "$status" = 404 ]; then
+            npm exec --yes --package @vscode/vsce@4.0.0 -- vsce publish --packagePath "$RUNNER_TEMP/tvijo-dshrem-$VERSION.vsix"
+            curl --fail --silent --show-error --max-time 45 --output "$RUNNER_TEMP/marketplace-returned.vsix" "$package_url"
+          else
+            echo "Marketplace preflight returned HTTP $status; preserve the publication obligation." >&2
+            exit 1
+          fi
+          python3 - <<'PY'
+          import datetime, hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']); p = root / 'release-obligation.json'
+          receipt = json.loads(p.read_text())
+          actual = hashlib.sha256((root / 'marketplace-returned.vsix').read_bytes()).hexdigest()
+          assert actual == receipt['sha256'], 'Marketplace package differs; publication requires reconciliation'
+          receipt.update(publication='verified', publication_url='https://marketplace.visualstudio.com/items?itemName=tvijo.tvijo-dshrem',
+              publication_observed_at=datetime.datetime.now(datetime.timezone.utc).isoformat())
+          p.write_text(json.dumps(receipt, indent=2) + '\n')
+          PY
+      - name: Preserve package and quality obligation
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: tvijo-extension-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/tvijo-dshrem-*.vsix
+            ${{ runner.temp }}/tvijo-dshrem-*.vsix.sha256.json
+            ${{ runner.temp }}/release-obligation.json
+          if-no-files-found: error
