@@ -404,4 +404,4 @@ function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite =
   };
 }
 
-module.exports = { createTools, inside, safePath, cleanEnv, autoCommand, analyzeCommand, assertWriteSnapshot, BLOCKED_COMMAND, SECRET_FILE, EXCLUDED_DIRS };
+module.exports = { createTools, inside, safePath, cleanEnv, autoCommand, analyzeCommand, writeSnapshot, assertWriteSnapshot, BLOCKED_COMMAND, SECRET_FILE, EXCLUDED_DIRS };

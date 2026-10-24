@@ -43,8 +43,8 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
 <div id="notice" role="alert"><p id="notice-text"></p><button id="notice-action" type="button">Resolve task</button></div>
 <script nonce="${nonce}">
   const COPY = ${JSON.stringify(COPY)};
-  Object.assign(COPY.en,{modeFull:'Full access',modeFullHint:'Automatically approves edits and commands; hard limits still apply.',fullAccessWarning:'Full access is active',fullAccessRevert:'Revert'});
-  Object.assign(COPY.ru,{modeFull:'Полный доступ',modeFullHint:'Автоматически подтверждать правки и команды; жёсткие ограничения сохраняются.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
+  Object.assign(COPY.en,{modeFull:'Full access',modeFullHint:'Saves agent edits for checks and approves commands; hard limits still apply.',agentSavedHelp:'Agent edits are saved before disk checks. Dirty user buffers are protected.',fullAccessWarning:'Full access is active',fullAccessRevert:'Revert'});
+  Object.assign(COPY.ru,{modeFull:'Полный доступ',modeFullHint:'Сохранять правки агента для проверок и одобрять команды; жёсткие ограничения сохраняются.',agentSavedHelp:'Правки агента сохраняются до проверок на диске. Пользовательские несохранённые буферы защищены.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
   const safeExternalUrl = ${safeExternalUrl.toString()};
   const renderMarkdown = ${renderMarkdown.toString()};
   const renderAgentMap = ${renderAgentMap.toString()};
@@ -352,7 +352,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     modeButton.setAttribute('aria-expanded', String(!modeMenu.hidden));
     renderModeMenu();
     question.placeholder = uiMode === 'chat' ? t('ask') : t('mentionHint');
-    document.getElementById('mode-help').textContent = t(uiMode === 'chat' ? 'modeChatHelp' : uiMode === 'agent' ? 'modeAgentHelp' : 'modePlanHelp') + (engineering ? ' ' + t('shellHelp') : '');
+    document.getElementById('mode-help').textContent = t(uiMode === 'chat' ? 'modeChatHelp' : uiMode === 'agent' ? 'modeAgentHelp' : 'modePlanHelp') + (uiMode === 'agent' && ['full','auto'].includes(preset) ? ' ' + t('agentSavedHelp') : '') + (engineering ? ' ' + t('shellHelp') : '');
     updateWorkflowLabel();
   }
   function renderModeMenu() {

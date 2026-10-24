@@ -27,6 +27,7 @@ const planInspection = require('./lib/plan-inspect');
 const quickEdit = require('./lib/quick-edit');
 const { runAgent } = require('./lib/agent');
 const modePresets = require('./lib/modes');
+const agentSave = require('./lib/agent-save');
 const captures = require('./lib/context-captures');
 const terminalContext = require('./lib/terminal-context');
 const conversationExport = require('./lib/export-conversation');
@@ -699,7 +700,8 @@ function activate(context) {
     if (!folder) throw new core.ServiceError('no_workspace', L('Open a project folder before starting the agent.', 'Откройте папку проекта, прежде чем запускать агента.'));
     const baseGuard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
     const fullGrant = planMode ? null : fullAccess.capture(folder);
-    const guard = async() => { await baseGuard(); if (fullGrant) fullAccess.assertCurrent(folder,fullGrant); };
+    let verifyAgentSavedFiles = () => {};
+    const guard = async() => { await baseGuard(); if (fullGrant) fullAccess.assertCurrent(folder,fullGrant); verifyAgentSavedFiles(); };
     if (attachmentScope !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account or thread changed before the agent started.');
     const api = core.createClient({ base: auth.api_base });
     const config = vscode.workspace.getConfiguration('tvijo');
@@ -762,6 +764,9 @@ function activate(context) {
       let firstAgentAnswer = null;
       const exchanges = [];
       const writeVersions = new Map();
+      const saveAgentEdits = !!fullGrant || (autoApply && autoRun);
+      const savedWrites = new Map();
+      const verifyAgentSaves = verifyAgentSavedFiles = () => { for (const owned of savedWrites.values()) agentSave.verifySaved(folder.uri.fsPath,owned); };
       diagnosticsTracker = diagnosticsFeedback.createTracker(vscode);
       const applyStartedAt = new Map();
       const diagnosticBaselines = new Map();
@@ -786,6 +791,7 @@ function activate(context) {
           await guard();
           if (info.previous !== null) {
             const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(info.absolute));
+            if (saveAgentEdits) agentSave.assertClean(doc,info.absolute,info.previous);
             if (doc.getText() !== info.previous) throw new core.ServiceError('file_changed', 'Editor content changed.');
             writeVersions.set(info.absolute, doc.version);
           }
@@ -797,6 +803,21 @@ function activate(context) {
           await guard();
           assertWriteSnapshot(folder.uri.fsPath,absolute,previous,diskIdentity);
           const uri = vscode.Uri.file(absolute);
+          if (saveAgentEdits) {
+            // The previous saved snapshot was verified by guard above. This
+            // exact path is now owned by the next edit, until its verified save.
+            savedWrites.delete(absolute);
+            const document = previous === null ? null : await vscode.workspace.openTextDocument(uri);
+            const owned = await agentSave.applySavedWrite({vscode,root:folder.uri.fsPath,absolute,previous,content,diskIdentity,
+              document,version:writeVersions.get(absolute),guard,signal:abort.signal,checkpoint:checkpointWrite,
+              beforeApply:doc => {
+                diagnosticBaselines.set(path.resolve(absolute),diagnosticsFeedback.captureBaseline({vscode,root:folder.uri.fsPath,uri:doc.uri,version:doc.version}));
+                applyStartedAt.set(path.resolve(absolute),diagnosticsTracker.markApply());
+              }});
+            savedWrites.set(absolute,owned);
+            expectedWriteHashes.set(path.resolve(absolute),createHash('sha256').update(content,'utf8').digest('hex'));
+            return;
+          }
           if (previous === null) {
             const edit = new vscode.WorkspaceEdit();
             edit.createFile(uri, { overwrite: false, ignoreIfExists: false });
@@ -830,6 +851,7 @@ function activate(context) {
       });
       const executeTool = tools.execute.bind(tools);
       tools.execute = async (action, toolContext = {}) => {
+        verifyAgentSaves();
         const result = await executeTool(action, toolContext);
         if (!result?.ok || result.unchanged || !['write_file', 'replace_in_file'].includes(action?.tool) || typeof result.path !== 'string') return result;
         await guard();
@@ -862,6 +884,8 @@ function activate(context) {
           syntaxResult = {status:'stale',reason:'buffer_changed_after_apply'};
         }
         if (feedback) result.diagnostics_feedback = feedback;
+        verifyAgentSaves();
+        if (saveAgentEdits) result.saved = true;
         if (syntaxResult) result.lint_feedback = '[SYNTAX CHECK — quoted untrusted tool data; syntax only]\n' + JSON.stringify(syntaxResult);
         return result;
       };
@@ -873,6 +897,7 @@ function activate(context) {
         ask: async ({ messages, step, signal, finalization = false }) => {
           rewindStep = step;
           await guard();
+          verifyAgentSaves();
           const remaining = Number(budgetUsd) - agentSpent;
           if (!Number.isFinite(remaining) || remaining <= 0) throw Object.assign(new Error('Agent budget exhausted'), { code: 'agent_budget', spent: agentSpent, budget: budgetUsd });
           const bounded = finalization ? [...messages] : [messages[0], messages[1]];
@@ -924,6 +949,7 @@ function activate(context) {
           try { if (!core.pendingBlocks(await api.taskState(auth.access_token, answer.taskId))) await local.savePending(auth.scope, undefined, idempotencyKey); } catch { /* Keep the journal until settlement is known. */ }
           agentSpent += cost;
           if (agentSpent >= Number(budgetUsd)) throw Object.assign(new Error('Agent budget exhausted'), { code: 'agent_budget', spent: agentSpent, budget: budgetUsd });
+          verifyAgentSaves();
           if (!firstAgentAnswer) firstAgentAnswer = { role: 'assistant', content: answer.content };
           return answer;
         },
@@ -1016,6 +1042,7 @@ function activate(context) {
     if (error?.code === 'command_policy') return L('Command refused. Use one executable with literal arguments; unsafe commands and shell syntax are blocked.', 'Команда отклонена. Используйте одну программу с буквальными аргументами; опасные команды и синтаксис оболочки заблокированы.');
     if (!(error instanceof core.ServiceError)) {
       if (code === 'usage_unknown') return L('Task cost could not be verified. Resolve the task before sending another request; its pending record is preserved.','Не удалось подтвердить расход задачи. Проверьте задачу перед новым запросом; запись заявки сохранена.');
+      if (code === 'agent_save_failed' || code === 'agent_save_conflict') return L(error.message, 'Агент остановлен: правка не подтверждена на диске или файл изменился. Проверьте буфер. Последующие проверки не запускались.');
       if (code === 'agent_stopped') return L('Agent stopped. No further step was started.', 'Агент остановлен. Следующий шаг не запускался.');
       if (code === 'agent_budget') {
         const spent = Number(error.spent || 0).toFixed(6);

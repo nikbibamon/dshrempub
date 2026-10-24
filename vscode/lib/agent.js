@@ -130,13 +130,15 @@ async function runAgent({ goal, tree, projectContext = '', history = [], planMod
       return { text, steps: step, spent, reason: 'finish' };
     }
     onEvent({ type: 'action', action, step, spent });
-    let result;
+    let result, fatalToolError;
     try {
       result = await tools.execute(action, { planMode, signal });
     } catch (error) {
       result = { ok: false, error: error instanceof Error ? error.message : String(error) };
+      if (error?.stopAgent === true) fatalToolError = error;
     }
     onEvent({ type: 'result', action, result, step, spent });
+    if (fatalToolError) throw fatalToolError;
     messages.push({ role: 'assistant', content: answer.content });
     messages.push({ role: 'user', content: 'TOOL_RESULT ' + JSON.stringify(result).slice(0, 24000) });
     // Keep the bounded transcript small enough for the service. The oldest

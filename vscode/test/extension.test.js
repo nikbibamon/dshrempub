@@ -1472,11 +1472,11 @@ test('Auto applies unique replacements but asks before replacing an existing fil
     const app=host({root,chatContent:JSON.stringify(action),applyEdit:async()=>{applies++;return true;}});
     try {
       app.settings.set('workspaceContext','off'); app.settings.set('agentAutoApply',true); app.settings.set('agentAutoRun',true); app.settings.set('agentMaxSteps',1);
-      app.editor({document:{uri:app.Uri.file(file),version:1,isClosed:false,getText:()=>before,positionAt:n=>n}});
+      attachSavedDocument(app,file,before);
       await app.commands.get('tvijo.agent')();
       if (tool==='replace_in_file') { assert.equal(applies,1); assert.equal(app.warnings.length,0); }
       else { assert.equal(applies,0); assert.equal(app.warnings.length,1); assert.match(app.warnings[0][0],/wants to write/); }
-      assert.equal(fs.readFileSync(file,'utf8'),before);
+      assert.equal(fs.readFileSync(file,'utf8'),tool==='replace_in_file'?'const next = 2;\n':before);
     } finally { app.close(); }
   }
 });
@@ -1839,7 +1839,7 @@ test('Auto cannot apply an EOL fallback without explicit diff approval',async()=
     app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);
     app.settings.set('agentAutoApply',true);app.settings.set('agentAutoRun',true);
     app.warning('Skip file');
-    app.editor({document:{uri:app.Uri.file(file),version:1,getText:()=>before,positionAt:n=>n}});
+    app.editor({document:{uri:app.Uri.file(file),version:1,isDirty:false,getText:()=>before,positionAt:n=>n}});
     await app.receive({type:'ask',question:'Change the two-line block',agent:true});
     assert.equal(applies,0);assert.equal(await fs.readFile(file,'utf8'),before);
     assert.ok(app.warnings.some(args=>String(args[0]).includes('wants to write')));
@@ -2190,7 +2190,7 @@ for(const [autoApply,autoRun] of [[false,false],[true,false],[true,true]]){
     try{
       app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);
       app.settings.set('agentAutoApply',autoApply);app.settings.set('agentAutoRun',autoRun);app.warning('Skip file');
-      app.editor({document:{uri:app.Uri.file(file),version:1,getText:()=>before,positionAt:n=>n}});
+      app.editor({document:{uri:app.Uri.file(file),version:1,isDirty:false,getText:()=>before,positionAt:n=>n}});
       await app.receive({type:'ask',question:'Change this block',agent:true});
       assert.equal(applies,0);assert.equal(await fs.readFile(file,'utf8'),before);
       assert.equal(app.warnings.length,1);assert.match(app.warnings[0][0],/wants to write/);assert.equal(app.feedback.length,0);
@@ -2204,9 +2204,9 @@ test('Auto trailing fallback applies only after explicit native approval and rec
   const app=host({root,chatSequence:[JSON.stringify({tool:'replace_in_file',path:'code.txt',old:'one\ntwo\n',new:'three\nfour\n'}),JSON.stringify({tool:'finish',answer:'Approved'})]});
   try{
     app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);app.settings.set('agentAutoApply',true);app.settings.set('agentAutoRun',true);
-    app.warning('Write file');app.editor({document:{uri:app.Uri.file(file),version:1,getText:()=>before,positionAt:n=>n}});
+    app.warning('Write file');attachSavedDocument(app,file,before);
     await app.receive({type:'ask',question:'Change this block',agent:true});
-    assert.equal(app.warnings.length,1);assert.equal(app.applied().text,'three\nfour\n');assert.equal(await fs.readFile(file,'utf8'),before);
+    assert.equal(app.warnings.length,1);assert.equal(app.applied().text,'three\nfour\n');assert.equal(await fs.readFile(file,'utf8'),'three\nfour\n');
     assert.ok((await fs.readdir(path.join(app.storage,'rewind-v1'),{recursive:true})).some(name=>name.endsWith('.json')));
     assert.equal(app.feedback.length,0);
   }finally{app.close();}
@@ -2219,13 +2219,13 @@ test('indentation hint reaches the next model turn and allows an exact retry wit
   const app=host({root,chatSequence:[JSON.stringify({tool:'replace_in_file',path:'code.py',old:'  if ready:\n    act()\n',new:after}),JSON.stringify({tool:'replace_in_file',path:'code.py',old:exact,new:after}),JSON.stringify({tool:'finish',answer:'Retried exactly'})]});
   try{
     app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',3);app.settings.set('agentAutoApply',true);app.settings.set('agentAutoRun',true);
-    app.editor({document:{uri:app.Uri.file(file),version:1,getText:()=>before,positionAt:n=>n}});
+    attachSavedDocument(app,file,before);
     await app.receive({type:'ask',question:'Change the nested action',agent:true});
     const chats=app.requests.filter(req=>req.url.endsWith('/chat'));
     const result=JSON.parse(chats[1].body.messages.find(message=>message.content.startsWith('TOOL_RESULT ')).content.slice(12));
     assert.equal(result.reason,'indentation_mismatch');assert.deepEqual(result.hint,{text:exact,startLine:2,endLine:3});
     assert.equal(app.warnings.length,0);assert.equal(app.applied().text,'def go():\n'+after);assert.equal(chats.length,3);
-    assert.equal(await fs.readFile(file,'utf8'),before);assert.equal(app.feedback.length,0);
+    assert.equal(await fs.readFile(file,'utf8'),'def go():\n'+after);assert.equal(app.feedback.length,0);
   }finally{app.close();}
 });
 
@@ -2324,7 +2324,7 @@ for(const match of ['whole','trailing','eol'])test(`Full access auto-approves ${
   const before=match==='eol'?'one\r\ntwo\r\n':match==='trailing'?'one \ntwo\t\n':'one\ntwo\n';await fs.writeFile(file,before);let applies=0;
   const action=match==='whole'?{tool:'write_file',path:'code.txt',content:'whole replacement\n'}:{tool:'replace_in_file',path:'code.txt',old:'one\ntwo\n',new:'new\nblock\n'};
   const app=host({root,chatSequence:[JSON.stringify(action),JSON.stringify({tool:'finish',answer:'Full edit complete'})],applyEdit:async()=>{applies++;assert.equal(require('../lib/checkpoints').createCheckpoints(app.storage).list(root).length,1);return true;}});
-  try{app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);app.editor({document:{uri:app.Uri.file(file),version:1,getText:()=>before,positionAt:n=>n}});await enableFullAccess(app);app.warning('Deny any unexpected prompt');await app.receive({type:'ask',question:'Perform a bounded full edit',agent:true});assert.equal(applies,1);assert.equal(app.warnings.length,1);assert.equal(await fs.readFile(file,'utf8'),before);assert.equal(app.feedback.length,0);}finally{app.close();}
+  try{app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);attachSavedDocument(app,file,before);await enableFullAccess(app);app.warning('Deny any unexpected prompt');await app.receive({type:'ask',question:'Perform a bounded full edit',agent:true});assert.equal(applies,1);assert.equal(app.warnings.length,1);assert.equal(await fs.readFile(file,'utf8'),match==='whole'?'whole replacement\n':'new\nblock\n');assert.equal(app.feedback.length,0);}finally{app.close();}
 });
 
 test('Full access auto-runs literal commands while hard command/path/secret denials stay mandatory',async()=>{
@@ -2346,7 +2346,7 @@ test('Full access Plan stays read-only and checkpoint failure prevents apply',as
   const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'full-checkpoint-')),file=path.join(root,'code.txt');await fs.writeFile(file,'original');let applies=0;
   for(const plan of [true,false]){
     const app=host({root,checkpointFailure:!plan,chatSequence:[JSON.stringify({tool:'write_file',path:'code.txt',content:'changed'}),JSON.stringify({tool:'finish',answer:'Refused'})],applyEdit:async()=>{applies++;return true;}});
-    try{app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);app.editor({document:{uri:app.Uri.file(file),version:1,getText:()=> 'original',positionAt:n=>n}});await enableFullAccess(app);await app.receive({type:'ask',question:'Keep hard write guards',agent:true,plan});assert.equal(applies,0);assert.equal(await fs.readFile(file,'utf8'),'original');const result=app.posts.find(p=>p.type==='agent'&&p.event?.type==='result').event.result;if(plan)assert.equal(result.reason,'plan_mode');else assert.match(result.error,/safely applied/);}finally{app.close();}
+    try{app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);attachSavedDocument(app,file,'original');await enableFullAccess(app);await app.receive({type:'ask',question:'Keep hard write guards',agent:true,plan});assert.equal(applies,0);assert.equal(await fs.readFile(file,'utf8'),'original');const result=app.posts.find(p=>p.type==='agent'&&p.event?.type==='result').event.result;if(plan)assert.equal(result.reason,'plan_mode');else assert.match(result.error,/safely applied/);}finally{app.close();}
   }
 });
 
@@ -2701,4 +2701,142 @@ test('0.10.7 production declined Full access leaves explicit Chat; forged send f
   assert.equal(app.posts.filter(p=>p.type==='state').at(-1).fullAccess.enabled,false);assert.ok(app.warnings.length>1,'unapproved command still asks');
   assert.doesNotMatch(JSON.stringify(app.posts.filter(p=>p.type==='agent'&&p.event?.type==='result')),/"stdout":"FORGED_SHOULD_NOT_RUN/);
  }finally{app.close();}
+});
+
+// Production extension host with real files and deliberately buffered WorkspaceEdit.
+// Disk changes only through document.save(), exactly the gap the parent reproduced.
+function attachSavedDocument(app,file,before) {
+ let text=before,version=1,dirty=false;
+ const document={uri:app.Uri.file(file),get version(){return version;},get isDirty(){return dirty;},getText:()=>text,positionAt:n=>n,async save(){await fs.writeFile(file,text);dirty=false;return true;}};
+ const apply=app.vscode.workspace.applyEdit;
+ app.vscode.workspace.applyEdit=async edit=>{const ok=await apply(edit);if(ok)for(const op of edit.operations)if(op.uri.fsPath===file && op.kind==='replace'){text=op.text;version++;dirty=true;}return ok;};
+ app.editor({document});return document;
+}
+
+async function savedAgentFixture(options={}) {
+ const sync=require('node:fs');
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'agent-save-host-'));
+ const relative=options.relative||'code.txt',file=path.join(root,relative),documents=new Map(),saves=[],applies=[];
+ if(!options.newFile)await fs.writeFile(file,options.before??'original');
+ await fs.writeFile(path.join(root,'unrelated.txt'),'unrelated disk');
+ let app;
+ function documentFor(uri){
+  if(!uri?.fsPath)return uri;
+  if(documents.has(uri.fsPath))return documents.get(uri.fsPath);
+  const doc={uri,version:1,isDirty:false,isClosed:false,text:sync.readFileSync(uri.fsPath,'utf8'),positionAt:n=>n,getText(){return this.text;},async save(){
+   saves.push(this.uri.fsPath);
+   if(options.saveHook){const result=await options.saveHook({app,doc:this,file,root});if(result!==undefined)return result;}
+   await fs.writeFile(this.uri.fsPath,this.text);this.isDirty=false;
+   await options.afterSave?.({app,doc:this,file,root});return true;
+  }};documents.set(uri.fsPath,doc);return doc;
+ }
+ const changed=options.content??'agent changed';
+ const actions=options.actions??[{tool:'write_file',path:relative,content:changed},{tool:'read_file',path:relative},{tool:'run_command',command:'cat '+relative},{tool:'finish',answer:'Disk verified'}];
+ app=host({root,checkpointFailure:options.checkpointFailure,chatSequence:actions.map(JSON.stringify),onRequest:options.onRequest,
+  onWarning:async(_message,_opts,button)=>{if(options.auto)app.warning(button);},
+  documentFor,syntaxHost:{newRun:()=>({}),check:async()=>null,dispose(){},invalidate(){},cancelActive(){}},
+  applyEdit:async edit=>{
+   for(const op of edit.operations){
+    applies.push(op.kind);
+    assert.ok(require('../lib/checkpoints').createCheckpoints(app.storage).list(root).length,'checkpoint exists before any editor mutation');
+    if(op.kind==='create'){await fs.mkdir(path.dirname(op.uri.fsPath),{recursive:true});await fs.writeFile(op.uri.fsPath,'',{flag:'wx'});}
+    else if(op.kind==='replace'||op.kind==='insert'){const doc=documentFor(op.uri);doc.text=op.kind==='insert'?op.text+doc.text:op.text;doc.version++;doc.isDirty=true;}
+    await options.afterApply?.({app,doc:documents.get(op.uri.fsPath),op,file,root});
+   }
+   return true;
+  }});
+ const unrelated=documentFor(app.Uri.file(path.join(root,'unrelated.txt')));unrelated.text='USER_UNRELATED_DIRTY';unrelated.isDirty=true;
+ Object.defineProperty(app.vscode.workspace,'textDocuments',{get:()=>[...documents.values()]});
+ const document=options.newFile?null:documentFor(app.Uri.file(file));
+ if(document){if(options.dirty){document.isDirty=true;document.text=options.dirtyText??document.text;}app.editor({document});}
+ app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',actions.length);
+ let grant;
+ if(options.auto){app.settings.set('agentAutoApply',true);app.settings.set('agentAutoRun',true);await app.receive({type:'ready'});app.warning('Write file');}
+ else grant=await enableFullAccess(app);
+ return {app,root,file,document,documents,saves,applies,unrelated,grant,
+  run:()=>app.receive({type:'ask',agent:true,question:'Edit and verify disk'}),
+  results:()=>app.posts.filter(p=>p.type==='agent'&&p.event?.type==='result').map(p=>p.event.result),
+  calls:()=>app.requests.filter(r=>r.url.endsWith('/chat')),
+  close:()=>app.close()};
+}
+
+for(const kind of ['existing','new','nested-new','auto'])test(`autosave production ${kind}: write -> read_file -> shell -> finish sees saved bytes and preserves unrelated dirty editor`,async()=>{
+ const x=await savedAgentFixture({newFile:kind.includes('new'),relative:kind==='nested-new'?'src/nested/code.txt':undefined,auto:kind==='auto'});
+ try{
+  await x.run();assert.equal(await fs.readFile(x.file,'utf8'),'agent changed');assert.deepEqual(x.saves,[x.file]);
+  const results=x.results();assert.equal(results[0].ok,true);assert.equal(results[0].saved,true);assert.equal(results[1].content,'agent changed');assert.equal(results[2].stdout,'agent changed');assert.equal(x.calls().length,4);
+  assert.equal(x.unrelated.text,'USER_UNRELATED_DIRTY');assert.equal(x.unrelated.isDirty,true);assert.equal(await fs.readFile(path.join(x.root,'unrelated.txt'),'utf8'),'unrelated disk');
+  assert.equal(x.app.feedback.length,0);assert.equal(x.documents.get(x.file).isDirty,false);
+ }finally{x.close();}
+});
+
+for(const dirtyText of ['USER_DIRTY','original'])test(`autosave production refuses preexisting dirty buffer (${dirtyText}) before apply`,async()=>{
+ const x=await savedAgentFixture({dirty:true,dirtyText});
+ try{await x.run();assert.equal(x.document.text,dirtyText);assert.equal(await fs.readFile(x.file,'utf8'),'original');assert.equal(x.applies.length,0);assert.equal(x.saves.length,0);assert.equal(x.calls().length,1);assert.equal(x.results()[0].ok,false);assert.match(x.results()[0].error,/unsaved/);assert.ok(x.app.feedback.length);}
+ finally{x.close();}
+});
+
+for(const scenario of ['apply-user-edit','apply-same-text-version','save-false','save-exception','save-true-no-disk','save-hook-edit','save-same-text-version','disk-identity-before-save','disk-change-before-save','symlink-before-save','checkpoint-failure'])test(`autosave production ${scenario} stops without a stale read/test or finish`,async()=>{
+ const x=await savedAgentFixture({checkpointFailure:scenario==='checkpoint-failure',
+  afterApply:async({doc,op,file,root})=>{
+   if(op.kind!=='replace')return;
+   if(scenario==='apply-user-edit'){doc.text='CONCURRENT_USER';doc.version++;}
+   if(scenario==='apply-same-text-version')doc.version+=2;
+   if(scenario==='disk-identity-before-save'){await fs.rename(file,file+'.preserved');await fs.writeFile(file,'original');}
+   if(scenario==='disk-change-before-save')await fs.writeFile(file,'CONCURRENT_DISK');
+   if(scenario==='symlink-before-save'){await fs.rename(file,file+'.preserved');await fs.symlink(path.join(root,'unrelated.txt'),file);}
+  },
+  saveHook:async({doc,file})=>{
+   if(scenario==='save-false')return false;
+   if(scenario==='save-true-no-disk'){doc.isDirty=false;return true;}
+   if(scenario==='save-same-text-version'){doc.version++;await fs.writeFile(file,doc.text);doc.isDirty=false;return true;}
+   if(scenario==='save-exception')throw Error('synthetic save failure');
+   if(scenario==='save-hook-edit'){doc.text='SAVE_PARTICIPANT_EDIT';doc.version++;await fs.writeFile(file,doc.text);doc.isDirty=false;return true;}
+  }});
+ try{
+  await x.run();assert.equal(x.calls().length,1);assert.equal(x.results()[0].ok,false);assert.equal(x.app.posts.some(p=>p.type==='agent'&&p.event?.type==='final'),false);assert.ok(x.app.feedback.length);
+  assert.ok(x.saves.length<=1,'never retry a conflicting/failed save');
+  if(scenario==='checkpoint-failure'){assert.equal(x.applies.length,0);assert.equal(x.saves.length,0);}
+  if(scenario==='apply-user-edit'){assert.equal(x.document.text,'CONCURRENT_USER');assert.equal(x.saves.length,0);}
+  if(scenario==='apply-same-text-version')assert.equal(x.saves.length,0);
+  if(scenario==='disk-identity-before-save'){assert.equal(await fs.readFile(x.file,'utf8'),'original');assert.equal(x.saves.length,0);}
+  if(scenario==='disk-change-before-save'){assert.equal(await fs.readFile(x.file,'utf8'),'CONCURRENT_DISK');assert.equal(x.saves.length,0);}
+  if(scenario==='symlink-before-save'){assert.equal(await fs.readFile(path.join(x.root,'unrelated.txt'),'utf8'),'unrelated disk');assert.equal(x.saves.length,0);}
+  if(scenario==='save-hook-edit')assert.equal(x.document.text,'SAVE_PARTICIPANT_EDIT');
+ }finally{x.close();}
+});
+
+for(const stage of ['after-apply','during-save'])for(const event of ['cancel','revoke','scope','account'])test(`autosave production ${event} ${stage} prevents subsequent disk tools`,async()=>{
+ async function change({app}){
+  const state=app.posts.filter(p=>p.type==='state').at(-1);
+  if(event==='cancel')await app.receive({type:'cancel',scopeKey:state.scopeKey});
+  if(event==='revoke')await app.receive({type:'fullAccessRevert',scopeKey:state.scopeKey,fullAccessScope:state.fullAccess.scopeKey});
+  if(event==='scope'){app.vscode.workspace.workspaceFolders=[];app.workspaceChanged();}
+  if(event==='account'){await app.context.secrets.store('tvijo.auth',JSON.stringify({access_token:'account-b',api_base:app.base}));await app.receive({type:'ready'});}
+ }
+ const x=await savedAgentFixture({afterApply:stage==='after-apply'?async info=>{if(info.op.kind==='replace')await change(info);}:undefined,afterSave:stage==='during-save'?change:undefined});
+ try{await x.run();assert.equal(x.calls().length,1);assert.equal(x.results()[0].ok,false);assert.equal(x.app.posts.some(p=>p.type==='agent'&&p.event?.type==='final'),false);assert.equal(x.saves.length,stage==='after-apply'?0:1);assert.equal(await fs.readFile(x.file,'utf8'),stage==='after-apply'?'original':'agent changed');}
+ finally{x.close();}
+});
+
+test('autosave production rechecks owned saved documents before the next model step',async()=>{
+ let x; x=await savedAgentFixture({onRequest:async({url})=>{
+  if(url.endsWith('/account')&&x?.saves.length){x.document.text='USER_AFTER_SAVE';x.document.version++;x.document.isDirty=true;}
+ }});
+ try{await x.run();assert.equal(x.saves.length,1);assert.equal(x.calls().length,1);assert.equal(x.document.text,'USER_AFTER_SAVE');assert.ok(x.app.feedback.length);}
+ finally{x.close();}
+});
+
+
+test('autosave production repeated edit of the same file saves each owned version before disk checks',async()=>{
+ const actions=[{tool:'write_file',path:'code.txt',content:'agent changed'},{tool:'replace_in_file',path:'code.txt',old:'changed',new:'verified twice'},{tool:'read_file',path:'code.txt'},{tool:'run_command',command:'cat code.txt'},{tool:'finish',answer:'Twice verified'}];
+ const x=await savedAgentFixture({actions});
+ try{await x.run();assert.equal(x.calls().length,5);assert.deepEqual(x.saves,[x.file,x.file]);assert.equal(x.document.version,3);assert.equal(await fs.readFile(x.file,'utf8'),'agent verified twice');assert.equal(x.results()[2].content,'agent verified twice');assert.equal(x.results()[3].stdout,'agent verified twice');assert.equal(x.app.feedback.length,0);}
+ finally{x.close();}
+});
+
+test('autosave production refuses an existing unsaved document at a missing new-file path',async()=>{
+ const x=await savedAgentFixture({newFile:true});
+ try{const doc={uri:x.app.Uri.file(x.file),text:'USER_NEW_FILE',version:1,isDirty:true};x.documents.set(x.file,doc);await x.run();assert.equal(x.applies.length,0);assert.equal(x.saves.length,0);assert.equal(x.calls().length,1);assert.equal(doc.text,'USER_NEW_FILE');await assert.rejects(fs.stat(x.file),{code:'ENOENT'});assert.equal(x.results()[0].ok,false);}
+ finally{x.close();}
 });

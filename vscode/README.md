@@ -70,8 +70,27 @@ another Agent preset also revokes Full access for the current folder.
 
 Hard command denials, file-tool workspace/symlink/secret guards, task budget
 ceilings and reservations remain mandatory. Edits still require Rewind checkpoints
-and leave editor buffers unsaved. Commands use local host permissions; this preset
+before applying edits. In Full access and Auto, Agent edits are saved to disk
+before later reads or tests. Quick Edit and review modes retain buffer review
+semantics. Commands use local host permissions; this preset
 does not provide an operating-system sandbox. Restricted Mode cannot enable it.
+
+## Agent saves before disk checks
+
+Full access and Auto save only the exact document changed by an approved Agent
+write. They refuse pre-existing dirty user buffers, including dirty buffers whose
+text happens to match disk. Other open documents are never saved. New files are
+checkpointed before creation, then edited and saved through the editor.
+
+The host checks the selected account/folder/grant, cancellation, document version
+and exact content, disk identity and path boundaries before applying and saving.
+It verifies the resulting clean buffer and disk bytes, then rechecks ownership
+before later model steps and tools. A failed save, save participant edit or
+concurrent change stops the run with an error; it cannot proceed to disk tests
+or report an Agent completion. There is no automatic save retry or rollback of
+unknown edits. A save already handed to VS Code cannot be cancelled: if a user,
+save participant or revocation intervenes, the host detects it afterward and
+stops further work. Review the preserved buffer and disk in that case.
 
 ## Diagnostics after Agent edits
 
@@ -140,7 +159,8 @@ After a successful Agent write or replacement, the next Agent step receives the 
 file's current Error and Warning diagnostics, limited to 20 per file and 8 KiB serialized.
 Feedback includes the actual document version and whether a diagnostics update was observed
 after the edit. It is untrusted tool data; an empty snapshot does not mean compilation passed.
-Agent edits remain unsaved buffers.
+Agent edits in Full access and Auto are saved for subsequent disk checks;
+Manual/Edit review and Quick Edit changes remain buffers for review.
 
 Markdown export includes conversation display text only and redacts known auth
 tokens and common credential patterns. Credential detection is best effort; review

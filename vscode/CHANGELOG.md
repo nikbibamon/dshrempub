@@ -1,5 +1,7 @@
 ## 0.10.7 — 2026-10-24
 
+- Save exact Agent-owned edits in Full access and Auto before disk reads/tests. Preserve dirty and concurrent user buffers, require checkpoints, verify saved bytes and stop the run on save failure, conflict or revoked authority. Quick Edit/review buffer semantics remain separate.
+
 - Add Explorer **Work in Tvijo**: select the clicked folder canonically and focus chat without a picker, path input, sign-in prerequisite or implicit permission grant.
 - Add an English/Russian folder browser directly in chat. Expand open roots and subdirectories lazily; select a row to use that exact folder. Bound each listing, skip generated/cache folders and refuse forged paths and symlink escapes using host workspace ownership checks.
 - Default new simple sessions to Agent with confirmations. Persist explicit Chat/Agent/Plan intent per account and canonical folder, separate from legacy fallback drafts. Successful Full access approval activates Agent dispatch; failed or cancelled presets keep the prior mode.
