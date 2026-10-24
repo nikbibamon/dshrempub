@@ -239,7 +239,7 @@ function activate(context) {
   const syntaxChecks = createSyntaxHost({vscode,state:context.globalState,storageRoot:context.globalStorageUri?.fsPath,chooseFolder:()=>projectRulesHost.chooseFolder(),scope:folder=>projectRulesHost.scope(folder),L});
   const fullAccess = createFullAccess({vscode,state:context.globalState,scope:folder=>{ const key=projectRulesHost.scope(folder); return key && identity?.scope ? createHash('sha256').update(JSON.stringify([identity.scope,key])).digest('hex') : null; },L,
     onRevoke:() => { agentAbort?.abort(); activeAbort?.abort(); }});
-  const activeWorkspace = createActiveWorkspace({vscode,state:context.workspaceState || context.globalState,L,onChange:() => {
+  const activeWorkspace = createActiveWorkspace({vscode,state:context.workspaceState || context.globalState,L,isBusy:()=>busy || attaching,onChange:() => {
     flushDrafts(); workspaceEpoch++; fullAccess.invalidate(); syntaxChecks.invalidate(); terminalCaptures.invalidate();
     lastContextSummary = null; codingReview = null; attachments = [];
   }});
@@ -592,6 +592,8 @@ function activate(context) {
     if (!view) return;
     const auth = await readAuth();
     if(view!==chatView || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
+    const guessedFolder=permissionFolder();const scopeRefusal=activeWorkspace.refusal();
+    if(scopeRefusal && !lastError)lastError={text:localizedMessage(scopeRefusal),action:errorAction(scopeRefusal)};
     const signedIn = !!(auth?.access_token && auth.api_base === client().base && !(auth.expires_at && Date.now() >= Date.parse(auth.expires_at)) && identity?.token === auth.access_token && identity.base === auth.api_base);
     const scope = signedIn ? identity.scope : null;
     const history = scope ? historyFor(scope) : [];
@@ -689,6 +691,7 @@ function activate(context) {
   async function runAgentFlow(goal, { planMode = false } = {}) {
     ensureIdle();
     if (!goal?.trim()) return;
+    await requireWorkspace();
     const auth = await requireAuth();
     const attachmentScope = currentViewScope(auth.scope);
     const agentAttachments = attachments.slice();
@@ -1926,6 +1929,7 @@ function activate(context) {
     await local.saveHistory(localScope(auth.scope), []);
     agentMaps.delete(currentViewScope(auth.scope));
     attachments = [];
+    await activeWorkspace.resetGuess();
     draftSequence++;
     const draftKey = recoveryScope(auth);
     clearTimeout(draftTimers.get(draftKey)?.timer); draftTimers.delete(draftKey);

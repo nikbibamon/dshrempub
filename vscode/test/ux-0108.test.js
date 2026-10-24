@@ -33,3 +33,14 @@ test('0.10.8 every scope refusal has localized text and a resolving action',()=>
  for(const code of Object.keys(NOTICES))for(const lang of ['en','ru']){const n=notice(code,lang);assert.ok(n.text.length>20);assert.ok(['chooseFolder','addWorkspaceFolder'].includes(n.action),code);}
  assert.equal(notice('scope_outside').action,'addWorkspaceFolder');
 });
+
+test('0.10.8 default folder is nearest repository, sticky, persisted on send without picker',async()=>{
+ const os=require('node:os');const root=fs.mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS||os.tmpdir(),'scope108-'));
+ const project=path.join(root,'repo');fs.mkdirSync(path.join(project,'src'),{recursive:true});fs.mkdirSync(path.join(project,'.git'));const file=path.join(project,'src','x.js');fs.writeFileSync(file,'x');
+ const uri=p=>({scheme:'file',fsPath:p});let editor={document:{uri:uri(file)}},picks=0,busy=false;
+ const values=new Map();const vscode={Uri:{file:uri,from:v=>uri(v.path)},workspace:{workspaceFolders:[{uri:uri(root)}]},window:{get activeTextEditor(){return editor;},showQuickPick:()=>{picks++;}}};
+ const {createActiveWorkspace,KEY}=require('../lib/active-workspace');const active=createActiveWorkspace({vscode,state:{get:k=>values.get(k),update:async(k,v)=>values.set(k,v)},isBusy:()=>busy});
+ assert.equal(active.current().uri.fsPath,project);editor=null;busy=true;assert.equal(active.current().uri.fsPath,project);busy=false;
+ await active.ensure();assert.equal(values.get(KEY).canonicalRoot,project);assert.equal(picks,0);
+ await active.resetGuess();assert.equal(active.current().uri.fsPath,root);
+});
