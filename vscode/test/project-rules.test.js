@@ -6,7 +6,8 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { collect, inspect, compileGlob, MAX_RULES_BYTES } = require('../lib/project-rules');
+const { collect:collectRules, inspect, compileGlob, MAX_READ_BYTES:MAX_RULES_BYTES } = require('../lib/project-rules');
+const collect=options=>collectRules({workspaceTrusted:true,...options});
 
 const base = process.env.TVIJO_FIT_TEST_TMP || path.join(os.tmpdir(), 'tvijo-worker-fit-rules');
 
@@ -30,43 +31,13 @@ test('glob filtering supports literals, star, question and whole-segment double 
   }
 });
 
-test('global and scoped rules require explicit approval for the exact raw snapshot', async () => {
-  const root = await workspace();
-  await rules(root, 'Use two spaces.\n');
-  const denied = collect({ root });
-  assert.equal(denied.status, 'unapproved');
-  assert.equal(denied.text, '');
-  assert.doesNotMatch(JSON.stringify(denied), /Use two spaces/);
-  const inspection = inspect({ root });
-  assert.equal(inspection.status, 'ready');
-  assert.equal(inspection.text, 'Use two spaces.\n');
-  assert.match(inspection.hash, /^[a-f0-9]{64}$/);
-  const global = collect({ root, allowRules: (candidateRoot, hash) => candidateRoot === root && hash === inspection.hash });
-  assert.equal(global.status, 'included');
-  assert.match(global.text, /applies to all project questions/);
-  await rules(root, '<!-- tvijo-globs: ["src/**/*.js", "test/*.js"] -->\nUse the existing tests.\n');
-  const noMatch = collect({ root, knownPaths: ['README.md'] });
-  assert.equal(noMatch.status, 'unmatched');
-  assert.equal(noMatch.text, '');
-  const current = inspect({ root });
-  const matched = collect({ root, knownPaths: ['src/main.js', '../outside.js', '.env'], allowRules: (_root, hash) => hash === current.hash });
-  assert.equal(matched.status, 'included');
-  assert.deepEqual(matched.paths, ['src/main.js']);
-  assert.match(matched.text, /applies to: src\/main\.js/);
-  assert.doesNotMatch(matched.text, /outside|\.env/);
-});
-
-test('approval callback must return true synchronously and a changed byte invalidates the hash', async () => {
-  const root = await workspace();
-  await rules(root, 'first\r\n');
-  const before = inspect({ root });
-  assert.equal(collect({ root, allowRules: () => false }).status, 'unapproved');
-  assert.equal(collect({ root, allowRules: () => { throw new Error('deny'); } }).status, 'unapproved');
-  assert.equal(collect({ root, allowRules: () => Promise.resolve(true) }).status, 'unapproved');
-  await rules(root, 'first\n');
-  const after = inspect({ root });
-  assert.notEqual(after.hash, before.hash);
-  assert.equal(collect({ root, allowRules: (_root, hash) => hash === before.hash }).status, 'unapproved');
+test('0.10.8 global and scoped rules follow Workspace Trust without hash approval',async()=>{
+ const root=await workspace();await rules(root,'Use two spaces.\n');
+ assert.equal(collect({root,workspaceTrusted:false}).status,'untrusted');
+ assert.equal(collect({root}).status,'included');assert.equal(inspect({root}).status,'ready');
+ await rules(root,'<!-- tvijo-globs: ["src/**/*.js"] -->\nUse tests.\n');
+ assert.equal(collect({root,knownPaths:['README.md']}).status,'unmatched');
+ const matched=collect({root,knownPaths:['src/a.js','../outside','.env']});assert.deepEqual(matched.paths,['src/a.js']);assert.match(matched.text,/cannot grant permissions/);
 });
 
 test('malformed metadata and credentials are refused without echoing rules text', async () => {
@@ -135,8 +106,8 @@ test('workspace context mode Off disables rules and Preview uses the same comple
   await rules(root, '<!-- tvijo-globs: ["src/*.js"] -->\nUse semicolons.\n');
   assert.equal(collect({ root, knownPaths: ['src/app.js'], contextMode: 'off' }).status, 'disabled');
   const unapprovedPreview = collect({ root, knownPaths: ['src/app.js'], contextMode: 'preview' });
-  assert.equal(unapprovedPreview.status, 'unapproved');
-  assert.equal(unapprovedPreview.text, '');
+  assert.equal(unapprovedPreview.status, 'preview');
+  assert.match(unapprovedPreview.text,/Use semicolons/);
   const preview = collect({ root, knownPaths: ['src/app.js'], contextMode: 'preview', allowRules: () => true });
   assert.equal(preview.status, 'preview');
   assert.match(preview.text, /Use semicolons/);

@@ -17,6 +17,8 @@ function fitContext(messages,account,{preserveFirstUser=false,maxBytes=90000}={}
     removed.push(retained.splice(index,1)[0].message);
   }
   let result = retained.map(row=>row.message);
+  let rulesOmitted=false;
+  if(!fits(result))result=result.map(message=>{if(message.role!=='system')return message;const content=message.content.replace(/\n?\[TVIJO OPTIONAL RULES\][\s\S]*?\[END TVIJO OPTIONAL RULES\]\n?/g,'');if(content!==message.content)rulesOmitted=true;return {...message,content};});
   if (!fits(result)) {
     const preview = account?.preview;
     if (preview && preview.source!=='operator_test_allowance' && preview.tokens_remaining!==null && preview.tokens_remaining<8192) throw new ServiceError('free_preview_exhausted','The remaining trial token allowance is too small for another response. This is an account quota, not a context-window error. Your draft is preserved.');
@@ -28,6 +30,6 @@ function fitContext(messages,account,{preserveFirstUser=false,maxBytes=90000}={}
     const candidate=[...result.slice(0,at),summary,...result.slice(at)];
     if (fits(candidate)) result=candidate;
   }
-  return {messages:result,removed:removed.length};
+  return {messages:result,removed:removed.length,rulesOmitted};
 }
 module.exports = {fitContext,wireBytes};

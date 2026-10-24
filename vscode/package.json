@@ -310,16 +310,6 @@
         "category": "Tvijo"
       },
       {
-        "command": "tvijo.trustProjectRules",
-        "title": "Review and trust folder rules",
-        "category": "Tvijo"
-      },
-      {
-        "command": "tvijo.revokeProjectRules",
-        "title": "Revoke folder rules trust",
-        "category": "Tvijo"
-      },
-      {
         "command": "tvijo.configureAutoLint",
         "title": "Approve automatic syntax checks",
         "category": "Tvijo"

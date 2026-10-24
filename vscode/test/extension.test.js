@@ -1875,29 +1875,15 @@ test('an approved explicit local command updates observed session and map withou
   }finally{app.close();}
 });
 
-test('native rule consent is independent from context consent and revoke prevents hidden history replay',async()=>{
-  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'host-rules-approval-'));
-  await fs.mkdir(path.join(root,'.tvijo'));await fs.writeFile(path.join(root,'.tvijo','rules.md'),'HOST_RULE_TRUST_CANARY\n');
-  const app=host({root});
-  try{
-    app.settings.set('workspaceContext','on');
-    await app.receive({type:'ask',question:'First question'});
-    assert.ok(!JSON.stringify(app.requests.filter(x=>x.url.endsWith('/chat'))).includes('HOST_RULE_TRUST_CANARY'));
-    await app.commands.get('tvijo.trustProjectRules')({approved:true});
-    assert.ok(app.warnings.some(args=>String(args[0]).includes('exact folder rules')));
-    await app.receive({type:'ask',question:'Still unapproved'});
-    assert.ok(!JSON.stringify(app.requests.filter(x=>x.url.endsWith('/chat'))).includes('HOST_RULE_TRUST_CANARY'));
-    app.warning('Trust these rules');await app.commands.get('tvijo.trustProjectRules')();
-    await app.receive({type:'ask',question:'Now approved'});
-    let last=app.requests.filter(x=>x.url.endsWith('/chat')).at(-1);
-    assert.match(JSON.stringify(last.body.messages),/HOST_RULE_TRUST_CANARY/);
-    assert.ok(!last.body.messages.some(m=>m.role==='system'&&m.content.includes('HOST_RULE_TRUST_CANARY')));
-    await app.commands.get('tvijo.revokeProjectRules')();
-    await app.receive({type:'ask',question:'After revoke'});
-    last=app.requests.filter(x=>x.url.endsWith('/chat')).at(-1);
-    assert.ok(!JSON.stringify(last.body.messages).includes('HOST_RULE_TRUST_CANARY'));
-    assert.equal(app.feedback.length,0);
-  }finally{app.close();}
+test('0.10.8 host loads trusted rules without approval and keeps them out of history',async()=>{
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'host-rules108-'));await fs.mkdir(path.join(root,'.tvijo'));await fs.writeFile(path.join(root,'.tvijo','rules.md'),'HOST_RULE_TRUST_CANARY\n');
+ const app=host({root});try{
+ app.settings.set('workspaceContext','on');await app.receive({type:'ask',question:'First question'});
+ const last=app.requests.filter(x=>x.url.endsWith('/chat')).at(-1);assert.match(JSON.stringify(last.body.messages),/HOST_RULE_TRUST_CANARY/);
+ assert.equal(app.commands.has('tvijo.trustProjectRules'),false);assert.equal(app.commands.has('tvijo.revokeProjectRules'),false);
+ assert.doesNotMatch(JSON.stringify(app.local.history(app.scope('tenant-a'))),/HOST_RULE_TRUST_CANARY/);
+ assert.equal(app.feedback.length,0);
+ }finally{app.close();}
 });
 
 test('unapproved rules cannot bypass consent through active selection or workspace attachment',async()=>{

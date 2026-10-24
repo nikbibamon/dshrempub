@@ -28,7 +28,7 @@ const EXCLUDED_DIRS = new Set([
 const EXCLUDED_FILE = /^(?:\.env(?:\.|$)|\.npmrc$|\.netrc$|secrets?\.|credentials?\.|auth\.json$|id_rsa|id_ed25519|.*\.(?:db|sqlite|sqlite3|log|vsix|zip|tar|gz|tgz|png|jpe?g|gif|webp|ico|pdf|pem|key|p12|pfx|crt|der|bin|exe|dll|so|dylib|woff2?|ttf|mp4|mov|webm)$)/i;
 
 const PRIORITY = [
-  'README.md', 'README_RU.md', 'readme.md', 'AGENTS.md', 'CLAUDE.md',
+  'README.md', 'README_RU.md', 'readme.md',
   'package.json', 'pyproject.toml', 'go.mod', 'Cargo.toml', 'requirements.txt',
   'Makefile', 'docker-compose.yml', 'compose.yml'
 ];
@@ -157,7 +157,7 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
     } catch { /* A missing manifest is normal. */ }
   }
 
-  if (document && activePath && included(activePath) && activePath !== '.tvijo' && !activePath.startsWith('.tvijo/') && !seen.has(activePath) && !EXCLUDED_FILE.test(path.basename(activePath)) && !activePath.split('/').some((part) => EXCLUDED_DIRS.has(part) || part.startsWith('.'))) {
+  if (document && activePath && !projectRules.isRulesPath(activePath) && included(activePath) && activePath !== '.tvijo' && !activePath.startsWith('.tvijo/') && !seen.has(activePath) && !EXCLUDED_FILE.test(path.basename(activePath)) && !activePath.split('/').some((part) => EXCLUDED_DIRS.has(part) || part.startsWith('.'))) {
     seen.add(activePath);
     const body = selectionText && !document.isDirty ? selectionText : document.getText();
     const clipped = body.slice(0, MAX_FILE_BYTES);
@@ -167,29 +167,7 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
     else push('\n--- ' + label + ': ' + activePath + (selectionText ? ' (lines ' + start + '-' + (document.selection.end.line + 1) + ')' : '') + ' ---\n' + clipped + '\n');
   }
 
-  const supportedRoot = root.scheme === 'file' && (root.authority || '') === '';
-  const rules = selected !== null || contextMode === 'off'
-    ? { text: '', status: 'disabled', paths: [] }
-    : !supportedRoot
-      ? { text: '', status: 'unsupported', paths: [] }
-      : projectRules.collect({
-        root: folder.uri.fsPath,
-        knownPaths: [...(Array.isArray(knownPaths) ? knownPaths : []), (activePath && activePath !== '.tvijo' && !activePath.startsWith('.tvijo/')) ? activePath : ''].filter(Boolean),
-        knownSecrets,
-        contextMode,
-        allowRules: (rulesRoot, hash) => vscode.workspace.isTrusted === true && typeof allowRules === 'function' && allowRules(rulesRoot, hash) === true
-      });
-  let rulesStatus = { status: rules.status, paths: rules.paths || [] };
-  if (rules.text) {
-    const end = '[END WORKSPACE CONTEXT]\n';
-    const rulesBytes = Buffer.byteLength('\n' + rules.text, 'utf8');
-    if (used + rulesBytes + Buffer.byteLength(end, 'utf8') <= limit) {
-      parts.push('\n' + rules.text); used += rulesBytes;
-    } else {
-      truncated = true;
-      rulesStatus = { status: 'omitted-limit', paths: rules.paths || [] };
-    }
-  }
+  const rulesStatus={status:'separate'};
   push('[END WORKSPACE CONTEXT]\n');
   const text = parts.join('');
   return { text, summary: { root: rootName, files: tree.length, bytes: Buffer.byteLength(text, 'utf8'), truncated, skippedLarge, skippedSensitive, skippedUnsupported, activePath, rules: rulesStatus } };

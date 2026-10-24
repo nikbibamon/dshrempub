@@ -592,7 +592,9 @@ function activate(context) {
     if (!view) return;
     const auth = await readAuth();
     if(view!==chatView || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
-    const guessedFolder=permissionFolder();const scopeRefusal=activeWorkspace.refusal();
+    const guessedFolder=permissionFolder();
+    if(!busy){const mode=vscode.workspace.getConfiguration('tvijo').get('workspaceContext','ask');projectRulesHost.snapshot({folder:guessedFolder,contextMode:mode==='off' || mode==='ask' && context.globalState.get(CONTEXT_CONSENT)!=='on'?'off':'on',knownSecrets:[auth?.access_token,auth?.refresh_token].filter(Boolean)});}
+    const scopeRefusal=activeWorkspace.refusal();
     if(scopeRefusal && !lastError)lastError={text:localizedMessage(scopeRefusal),action:errorAction(scopeRefusal)};
     const signedIn = !!(auth?.access_token && auth.api_base === client().base && !(auth.expires_at && Date.now() >= Date.parse(auth.expires_at)) && identity?.token === auth.access_token && identity.base === auth.api_base);
     const scope = signedIn ? identity.scope : null;
@@ -737,7 +739,7 @@ function activate(context) {
       const agentModel = packs.packModel(config, 'agentModel', 'ds41f', pack);
       const contextMode = config.get('workspaceContext', 'ask');
       let tree = '';
-      let agentRuleGrants = [];
+      let agentRuleGrants = [], agentRules = '', rulesSnapshotTaken=false;
       if (contextMode !== 'off') {
         let enabled = contextMode === 'on' || !!fullGrant;
         if (contextMode === 'ask' && !fullGrant) {
@@ -756,14 +758,15 @@ function activate(context) {
         const contextBytes = core.previewContextBytes(Math.min(16000, config.get('workspaceContextMaxBytes',48000)),freshAccount);
         if (enabled && contextBytes > 0) {
           const collected = await projectRulesHost.collect({ folder:permissionFolder(), selectionForFolder:contextSelection.selected, knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: contextBytes });
-          tree = collected.text;
+          tree = collected.text;agentRules=collected.rulesText;rulesSnapshotTaken=true;
           agentRuleGrants = collected.ruleGrants;
           lastContextSummary = collected.summary;
         } else if (enabled) {
           lastContextSummary = null;
           await postActivity('context', L('Automatic context omitted to fit the service request limits.','Автоконтекст пропущен, чтобы уложиться в ограничения запроса сервиса.'));
         }
-      } else lastContextSummary = null;
+      } else {lastContextSummary = null;projectRulesHost.snapshot({folder,contextMode:'off'});}
+      if(contextMode !== 'off' && !rulesSnapshotTaken && (contextMode==='on' || fullGrant || context.globalState.get(CONTEXT_CONSENT)==='on')){const r=projectRulesHost.snapshot({folder,knownSecrets:[auth.access_token,auth.refresh_token].filter(Boolean)});agentRules=r.text;agentRuleGrants=agentRules?[{}]:[];}
       await postAgentEvent(auth, { type: 'start', goal: goal.trim(), planMode, maxSteps, budgetUsd });
       await guard();
       let agentSpent = 0;
@@ -802,7 +805,8 @@ function activate(context) {
             writeVersions.set(info.absolute, doc.version);
           }
           const autoSafe = autoApply && autoRun && modePresets.autoWritePolicy(info.operation, info.previous, info.matchKind);
-          const approved = fullGrant ? true : info.matchKind && info.matchKind !== 'exact' ? await confirmAgentWrite(info) : autoSafe ? true : autoRun ? await confirmAgentWrite(info) : autoApply ? (await showProposedWrite(info.path, info.previous, info.content), true) : await confirmAgentWrite(info);
+          const rulesWrite = require('./lib/project-rules').isRulesPath(info.path);
+          const approved = rulesWrite ? await confirmAgentWrite(info) : fullGrant ? true : info.matchKind && info.matchKind !== 'exact' ? await confirmAgentWrite(info) : autoSafe ? true : autoRun ? await confirmAgentWrite(info) : autoApply ? (await showProposedWrite(info.path, info.previous, info.content), true) : await confirmAgentWrite(info);
           await guard(); return approved;
         },
         applyWrite: async ({ absolute, previous, content, diskIdentity }) => {
@@ -899,7 +903,7 @@ function activate(context) {
       let automaticContextOmitted = false;
       const omitAgentContext = messages => { if (agentContextSuffix && messages[1]?.content?.endsWith(agentContextSuffix)) messages[1] = {...messages[1],content:messages[1].content.slice(0,-agentContextSuffix.length)}; };
       const result = await runAgent({
-        goal: modelGoal, tree, history: agentHistory, planMode, maxSteps, budgetUsd, signal: abort.signal, tools,
+        goal: modelGoal, tree, rules:agentRules, history: agentHistory, planMode, maxSteps, budgetUsd, signal: abort.signal, tools,
         ask: async ({ messages, step, signal, finalization = false }) => {
           rewindStep = step;
           await guard();
@@ -1348,18 +1352,6 @@ function activate(context) {
   });
   command('tvijo.configureAutoLint', async () => { ensureIdle(); if(await syntaxChecks.configure()) void vscode.window.showInformationMessage(L('Automatic syntax checks enabled for the selected folder.','Автоматическая проверка синтаксиса включена для выбранной папки.')); });
   command('tvijo.disableAutoLint', async () => { if(await syntaxChecks.disable()) void vscode.window.showInformationMessage(L('Automatic syntax checks disabled for the selected folder.','Автоматическая проверка синтаксиса отключена для выбранной папки.')); });
-  command('tvijo.trustProjectRules', async () => {
-    ensureIdle();
-    const auth = await readAuth(); rulesPreviewSecrets = [auth?.access_token, auth?.refresh_token].filter(Boolean);
-    const folder = await projectRulesHost.chooseFolder();
-    if (folder && await projectRulesHost.approve(folder)) void vscode.window.showInformationMessage(L('These folder rules are approved. Changed rules need new approval.', 'Правила этой папки одобрены. Изменённые правила потребуют нового одобрения.'));
-    await postChatState();
-  });
-  command('tvijo.revokeProjectRules', async () => {
-    const folder = await projectRulesHost.chooseFolder();
-    if (folder) { await projectRulesHost.revoke(folder); void vscode.window.showInformationMessage(L('Folder rules trust revoked. Previously sent messages remain in the conversation.', 'Доверие правилам папки отозвано. Ранее отправленные сообщения остаются в разговоре.')); }
-    await postChatState();
-  });
   command('tvijo.contextSelect', async () => {
     ensureIdle();
     const folder = await requireWorkspace();
@@ -1382,7 +1374,7 @@ function activate(context) {
     const collected = await projectRulesHost.collect({ selectionForFolder:contextSelection.selected,folder, knownSecrets:[auth?.access_token, auth?.refresh_token].filter(Boolean), knownPaths:knownAttachmentPaths(editor?.document), contextMode:'preview', document:localPreviewDocuments.has(editor?.document) ? null : editor?.document || null, maxBytes:vscode.workspace.getConfiguration('tvijo').get('workspaceContextMaxBytes',48000)});
     lastContextSummary = collected.summary;
     const summary = collected.summary;
-    const content = '# ' + L('Project context preview','Предпросмотр контекста проекта') + '\n\n' + L('Project: ','Проект: ') + summary.root + '\n' + summary.files + L(' tree entries',' элементов дерева') + ' · ' + summary.bytes + L(' bytes',' байт') + ' · ~' + Math.ceil(summary.bytes / 4) + L(' tokens (local estimate, not a quota quote)',' токенов (локальная оценка, не расчёт квоты)') + '\n' + L('Rules: ','Правила: ') + (summary.rules?.status || 'unknown') + (contextSelection.selected(folder) !== null ? '\n' + L('Folder rules are omitted when a custom file selection is active. Selection does not grant tool permissions.','При выборочном контексте правила папки не включаются. Выбор контекста не даёт прав инструментам.') : '') + '\n' + (summary.skippedLarge || 0) + L(' files omitted for size or unknown size; ',' файлов пропущено из-за размера или неизвестного размера; ') + (summary.skippedSensitive || 0) + L(' files omitted for sensitive content.',' файлов пропущено из-за конфиденциального содержимого.') + '\n' + (summary.skippedUnsupported || 0) + L(' selected files omitted: this provider has no bounded local file read.',' выбранных файлов пропущено: провайдер не поддерживает ограниченное локальное чтение.') + '\n\n' + collected.text;
+    const content = '# ' + L('Project context preview','Предпросмотр контекста проекта') + '\n\n' + L('Project: ','Проект: ') + summary.root + '\n' + summary.files + L(' tree entries',' элементов дерева') + ' · ' + summary.bytes + L(' bytes',' байт') + ' · ~' + Math.ceil(summary.bytes / 4) + L(' tokens (local estimate, not a quota quote)',' токенов (локальная оценка, не расчёт квоты)') + '\n' + L('Rules: ','Правила: ') + (summary.rules?.status || 'unknown') + '' + '\n' + (summary.skippedLarge || 0) + L(' files omitted for size or unknown size; ',' файлов пропущено из-за размера или неизвестного размера; ') + (summary.skippedSensitive || 0) + L(' files omitted for sensitive content.',' файлов пропущено из-за конфиденциального содержимого.') + '\n' + (summary.skippedUnsupported || 0) + L(' selected files omitted: this provider has no bounded local file read.',' выбранных файлов пропущено: провайдер не поддерживает ограниченное локальное чтение.') + '\n\n' + collected.text + '\n' + (collected.rulesText || '');
     const doc = await vscode.workspace.openTextDocument({language:'plaintext', content}); localPreviewDocuments.add(doc); await vscode.window.showTextDocument(doc,{preview:false});
     await postChatState();
   });
@@ -1479,7 +1471,7 @@ function activate(context) {
       activeJournals.add(idempotencyKey);
       await postActivity('model', L('Model is editing ' + relative + '…', 'Модель правит ' + relative + '…'));
       let projectBlock = '';
-      let editRuleGrants = [];
+      let editRuleGrants = [], editRules='';
       let contextEnabled = config.get('workspaceContext', 'ask') === 'on';
       if (config.get('workspaceContext', 'ask') === 'ask') {
         const saved = context.globalState.get(CONTEXT_CONSENT);
@@ -1487,8 +1479,9 @@ function activate(context) {
         else { const send = L('Send context', 'Отправить контекст'); contextEnabled = await vscode.window.showWarningMessage(L('Send project context with this edit?', 'Отправить контекст проекта с правкой?'), { modal: true }, send, L('No context', 'Без контекста')) === send; }
       }
       await editGuard();
-      if (contextEnabled) { const collected = await projectRulesHost.collect({ folder:permissionFolder(), selectionForFolder:contextSelection.selected, knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), document: null, folder, knownPaths: [...knownAttachmentPaths(document), relative], maxBytes: 16000 }); editRuleGrants = collected.ruleGrants; if (collected.text) projectBlock = collected.text + '\n\n'; }
+      if (contextEnabled) { const collected = await projectRulesHost.collect({ folder:permissionFolder(), selectionForFolder:contextSelection.selected, knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), document: null, folder, knownPaths: [...knownAttachmentPaths(document), relative], maxBytes: 16000 }); editRuleGrants = collected.ruleGrants;editRules=collected.rulesText; if (collected.text) projectBlock = collected.text + '\n\n'; }
       const messages = [{ role: 'user', content: projectBlock + quickEdit.instruction(relative, document.languageId) + '\n\n--- FILE ---\n' + original + '\n--- END FILE ---\n\nInstruction: ' + instruction.trim() }];
+      if(editRules)messages.unshift({role:'system',content:'[TVIJO OPTIONAL RULES]\n'+editRules+'[END TVIJO OPTIONAL RULES]\n'});
       await local.savePending(auth.scope, { idempotencyKey, apiBase: auth.api_base, tenantId: auth.tenant_id, createdAt: new Date().toISOString() });
       const answer = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: L('Tvijo is editing the file…', 'Tvijo правит файл…'), cancellable: true },
@@ -2068,7 +2061,7 @@ function activate(context) {
     // allowed it. It is never written to conversation history; the display
     // text stays exactly the question the user typed.
     let contextBlock = '';
-    let chatRuleGrants = [];
+    let chatRuleGrants = [], chatRules='';
     let contextSummary = null;
     const contextMode = config.get('workspaceContext', 'ask');
     const contextGrant = fullAccess.capture(permissionFolder());
@@ -2092,7 +2085,7 @@ function activate(context) {
       try {
         const collected = await projectRulesHost.collect({ folder:permissionFolder(), selectionForFolder:contextSelection.selected, knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: contextBytes });
         contextSummary = collected.summary;
-        chatRuleGrants = collected.ruleGrants;
+        chatRuleGrants = collected.ruleGrants;chatRules=collected.rulesText;
         if (collected.text) contextBlock = collected.text + '\n\n';
         lastContextSummary = contextSummary;
         await postActivity('context', contextSummary.root + ' · ' + contextSummary.files + L(' files', ' файлов') + ' · ' + Math.ceil(contextSummary.bytes / 1024) + ' KiB' + (contextSummary.truncated ? L(' · bounded', ' · ограничено') : ''));
@@ -2117,6 +2110,8 @@ function activate(context) {
       lastContextSummary = null; chatRuleGrants = [];
       await postActivity('context', L('Automatic context omitted to fit the service request limits.', 'Автоконтекст пропущен, чтобы уложиться в ограничения запроса сервиса.'));
     }
+    if(contextEnabled && contextMode!=='off' && !contextSummary){const r=projectRulesHost.snapshot({folder:permissionFolder(),knownSecrets:[auth.access_token,auth.refresh_token].filter(Boolean)});chatRules=r.text;chatRuleGrants=chatRules?[{}]:[];}
+    if(chatRules)messages.unshift({role:'system',content:'[TVIJO OPTIONAL RULES]\n'+chatRules+'[END TVIJO OPTIONAL RULES]\n'});
     if (!selectionState) messages = fitContext(messages,freshAccount).messages;
     core.validateMessages(messages);
     const payer = selectionState ? byokSelection.get(auth,selectionState.projectId) : null;
@@ -2425,6 +2420,8 @@ function activate(context) {
             if(vscode.workspace.workspaceFolders.some(f=>f.uri.fsPath===canonical)){await activeWorkspace.select(uri);pendingScopeUri=null;lastError=null;await postChatState();}
           } else if (message?.type === 'signout') {
             await handlers.get('tvijo.signOut')();
+          } else if (message?.type === 'toggleRule') {
+            ensureIdle();await projectRulesHost.toggle(message.id);projectRulesHost.snapshot({folder:permissionFolder(),contextMode:vscode.workspace.getConfiguration('tvijo').get('workspaceContext','ask')});await postChatState();
           } else if (message?.type === 'toggleAutoCommit') {
             ensureIdle();const config=vscode.workspace.getConfiguration('tvijo');await config.update('autoCommit',config.get('autoCommit','afterTask')==='off'?'afterTask':'off',vscode.ConfigurationTarget.Global);await postChatState();
           } else if (message?.type === 'activeFileFolder') {

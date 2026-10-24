@@ -44,3 +44,14 @@ test('0.10.8 default folder is nearest repository, sticky, persisted on send wit
  await active.ensure();assert.equal(values.get(KEY).canonicalRoot,project);assert.equal(picks,0);
  await active.resetGuess();assert.equal(active.current().uri.fsPath,root);
 });
+
+test('0.10.8 rule writes always require approval, including Full access',()=>{
+ const {isRulesPath}=require('../lib/project-rules');for(const file of ['AGENTS.md','CLAUDE.md','.clinerules','a/.clinerules/style.md','.cursorrules','.windsurfrules','.github/copilot-instructions.md','.tvijo/rules.md'])assert.equal(isRulesPath(file),true,file);
+ assert.equal(isRulesPath('src/app.js'),false);
+ const source=fs.readFileSync(path.join(__dirname,'../extension.js'),'utf8');assert.match(source,/rulesWrite \? await confirmAgentWrite\(info\) : fullGrant/);
+});
+test('0.10.8 optional rules are dropped after old conversation when a request cannot fit',()=>{
+ const {fitContext}=require('../lib/context-budget');const system={role:'system',content:'Policy\n[TVIJO OPTIONAL RULES]\n'+'rules '.repeat(1000)+'[END TVIJO OPTIONAL RULES]\n'};
+ const fit=fitContext([system,{role:'user',content:'old'.repeat(2000)},{role:'assistant',content:'earlier'},{role:'user',content:'do task'}],null,{maxBytes:1000});
+ assert.equal(fit.rulesOmitted,true);assert.equal(fit.messages[0].content,'Policy');assert.equal(fit.messages.at(-1).content,'do task');
+});

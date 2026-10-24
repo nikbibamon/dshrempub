@@ -148,7 +148,7 @@ test('project context includes a bounded tree, README and active file', async ()
   assert.match(value.text, /\[WORKSPACE CONTEXT\]/);
   assert.match(value.text, /README\.md/);
   assert.match(value.text, /Project README/);
-  assert.match(value.text, /--- AGENTS\.md ---\nKeep existing agent notes/);
+  assert.doesNotMatch(value.text, /--- AGENTS\.md ---\nKeep existing agent notes/);
   assert.match(value.text, /active file: src\/index\.js/);
   assert.match(value.text, /console\.log/);
   assert.equal(value.summary.root, 'repo');
@@ -202,14 +202,14 @@ test('scoped rules use active and explicit known paths; Off and Preview correspo
     }
   };
   const off = await collect(vscode, { maxBytes: 4096, contextMode: 'off', knownPaths: ['src/a.js'] });
-  assert.equal(off.summary.rules.status, 'disabled');
+  assert.equal(off.summary.rules.status, 'separate');
   assert.doesNotMatch(off.text, /Use the project formatter/);
   const unmatched = await collect(vscode, { maxBytes: 4096, knownPaths: ['README.md'] });
-  assert.equal(unmatched.summary.rules.status, 'unmatched');
+  assert.equal(unmatched.summary.rules.status, 'separate');
   const preview = await collect(vscode, { maxBytes: 4096, contextMode: 'preview', knownPaths: ['src/a.js'], allowRules: () => true });
-  assert.equal(preview.summary.rules.status, 'preview');
-  assert.match(preview.text, /applies to: src\/a\.js/);
-  assert.match(preview.text, /Use the project formatter/);
+  assert.equal(preview.summary.rules.status, 'separate');
+  assert.doesNotMatch(preview.text, /applies to: src\/a\.js/);
+  assert.doesNotMatch(preview.text, /Use the project formatter/);
 });
 
 test('rules are omitted whole when wrapper plus metadata cannot fit the aggregate limit', async () => {
@@ -221,7 +221,7 @@ test('rules are omitted whole when wrapper plus metadata cannot fit the aggregat
   const uri = { fsPath: root, path: root, scheme: 'file', authority: '' };
   const vscode = { Uri: { joinPath: (baseUri, ...parts) => ({ fsPath: path.join(baseUri.fsPath, ...parts), path: path.join(baseUri.fsPath, ...parts), scheme: baseUri.scheme, authority: baseUri.authority || '' }) }, FileType: { File: 1, Directory: 2 }, workspace: { isTrusted: true, workspaceFolders: [{ uri }], getWorkspaceFolder: () => undefined, fs: { readDirectory: async () => [], stat: async target => ({ type: (await fs.stat(target.fsPath)).isDirectory() ? 2 : 1 }), readFile: target => fs.readFile(target.fsPath) } } };
   const result = await collect(vscode, { maxBytes: 4096, allowRules: () => true });
-  assert.equal(result.summary.rules.status, 'omitted-limit');
+  assert.equal(result.summary.rules.status, 'separate');
   assert.doesNotMatch(result.text, /PROJECT RULES|x{20}/);
   assert.ok(Buffer.byteLength(result.text, 'utf8') <= 4096);
 });
@@ -242,16 +242,16 @@ test('rules default deny and fail closed in Restricted Mode and when approval th
     }
   };
   const denied = await collect(vscode, { maxBytes: 4096 });
-  assert.equal(denied.summary.rules.status, 'unapproved');
+  assert.equal(denied.summary.rules.status, 'separate');
   assert.doesNotMatch(denied.text, /RULES_CANARY/);
   const thrown = await collect(vscode, { maxBytes: 4096, allowRules: () => { throw new Error('no'); } });
-  assert.equal(thrown.summary.rules.status, 'unapproved');
+  assert.equal(thrown.summary.rules.status, 'separate');
   vscode.workspace.isTrusted = false;
   const restricted = await collect(vscode, { maxBytes: 4096, allowRules: () => true });
-  assert.equal(restricted.summary.rules.status, 'unapproved');
+  assert.equal(restricted.summary.rules.status, 'separate');
   vscode.workspace.isTrusted = undefined;
   const missingTrust = await collect(vscode, { maxBytes: 4096, allowRules: () => true });
-  assert.equal(missingTrust.summary.rules.status, 'unapproved');
+  assert.equal(missingTrust.summary.rules.status, 'separate');
 });
 
 test('explicit listed folder wins over active folder and unlisted folder is refused', async () => {
@@ -277,8 +277,8 @@ test('non-file roots and local URIs with an authority cannot send rules', async 
   const { vscode } = host();
   vscode.workspace.workspaceFolders[0].uri = { fsPath: '/repo', path: '/repo', scheme: 'vscode-remote', authority: 'ssh-host' };
   const value = await collect(vscode, { maxBytes: 4096, allowRules: () => true });
-  assert.equal(value.summary.rules.status, 'unsupported');
+  assert.equal(value.summary.rules.status, 'separate');
   vscode.workspace.workspaceFolders[0].uri = { fsPath: '/repo', path: '/repo', scheme: 'file', authority: 'server' };
   const remoteAuthority = await collect(vscode, { maxBytes: 4096, allowRules: () => true });
-  assert.equal(remoteAuthority.summary.rules.status, 'unsupported');
+  assert.equal(remoteAuthority.summary.rules.status, 'separate');
 });
