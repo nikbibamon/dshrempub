@@ -9,31 +9,55 @@
       "ru": "Помощь с кодом: выбранный контекст, проверяемые правки и задачи с лимитом."
     }
   },
-  "latest_version": "0.10.7",
+  "latest_version": "0.10.9",
   "channel": "preview",
   "publication": {
-    "status": "published",
-    "published_at": "2026-10-24",
+    "status": "prepared",
+    "published_at": null,
     "note": {
-      "en": "Direct VSIX release. Reload Window after installation. Marketplace publication was not performed.",
-      "ru": "Прямой выпуск VSIX. После установки выполните Reload Window. Публикации в Marketplace не было."
+      "en": "Prepared direct VSIX and GitHub release. Marketplace is deferred by the operator. Reload Window after installation.",
+      "ru": "Подготовлен прямой выпуск VSIX и GitHub. Marketplace отложен оператором. После установки выполните Reload Window."
     }
   },
   "package": {
-    "filename": "tvijo-dshrem-0.10.7.vsix",
-    "sha256": "8a4a5155de28455f39f3bff7c958b70a92ed497c28c72254bada17ef0a9a027e",
-    "bytes": 826915,
+    "filename": "tvijo-dshrem-0.10.9.vsix",
+    "sha256": "6425ab5f18761a0c46c6715c4d5ce5e819ad562fb5130101494854cc6355e370",
+    "bytes": 922450,
     "editor_requirement": "^1.90.0",
-    "source_commit": "933392d7308fafc59aa04befe2296c06b685ffb5",
-    "verified_environment": "675 deterministic extension checks; synthetic EN/RU desktop/mobile Chromium flows; production extension-handler and tool-loop filesystem/command checks. No new paid model calls. Native Windows unavailable."
+    "source_commit": "bd343712da96c745a359360c536d008a5180b1bb",
+    "verified_environment": "Deterministic editor/CLI and release checks; EN/RU desktop/mobile Chromium; real native Sol, Astra and Opus subscription receipts on configured Linux host. Interactive installed editor and native Windows were not observed."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
-    "source": "https://github.com/nikbibamon/dshrempub/tree/933392d7308fafc59aa04befe2296c06b685ffb5",
-    "changelog": "https://github.com/nikbibamon/dshrempub/blob/933392d7308fafc59aa04befe2296c06b685ffb5/vscode/CHANGELOG.md",
+    "source": "https://github.com/nikbibamon/dshrempub/tree/bd343712da96c745a359360c536d008a5180b1bb",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/bd343712da96c745a359360c536d008a5180b1bb/vscode/CHANGELOG.md",
     "issues": "https://github.com/nikbibamon/dshrempub/issues"
   },
   "features": [
+    {
+      "id": "dsh-harness-orchestration",
+      "since": "0.10.9",
+      "title": {
+        "en": "Durable DSH Harness engine",
+        "ru": "Устойчивый движок DSH Harness"
+      },
+      "description": {
+        "en": "Optional DSH Harness engine: ds41f coordinates native subscription Codex Sol, Astra/high advice and optional Claude Opus5.5 on a configured Linux editor host. Settings discovers the owner manifest without path entry.",
+        "ru": "Дополнительный движок DSH Harness: ds41f координирует Codex Sol по подписке, совет Astra/high и дополнительный Claude Opus5.5 на настроенном Linux-хосте редактора. Настройки находят манифест владельца без ввода путей."
+      }
+    },
+    {
+      "id": "compact-auto-project-rules",
+      "since": "0.10.9",
+      "title": {
+        "en": "Compact Auto agent and project rules",
+        "ru": "Компактный агент «Авто» и правила проекта"
+      },
+      "description": {
+        "en": "The compact Auto workflow keeps account/version, project rules and advanced controls in Settings. Visual folder selection stays with the project; native edits are saved and verified before safe local auto-commit.",
+        "ru": "Компактный режим «Авто» держит аккаунт, версию, правила проекта и дополнительные действия в настройках. Папка выбирается визуально и сохраняется; нативные правки записываются и проверяются до безопасного локального автокоммита."
+      }
+    },
     {
       "id": "rewind",
       "since": "0.7.0",
@@ -108,6 +132,54 @@
     }
   ],
   "releases": [
+    {
+      "version": "0.10.9",
+      "date": "2026-10-24",
+      "title": {
+        "en": "Connected knowledge and durable terminal orchestration",
+        "ru": "Связанные знания и устойчивая оркестрация в терминале"
+      },
+      "changes": [
+        {
+          "en": "Optional DSH Harness engine: ds41f coordinates native subscription Codex Sol, Astra/high advice and optional Claude Opus5.5 on a configured Linux editor host. Settings discovers the owner manifest without path entry.",
+          "ru": "Дополнительный движок DSH Harness: ds41f координирует Codex Sol по подписке, совет Astra/high и дополнительный Claude Opus5.5 на настроенном Linux-хосте редактора. Настройки находят манифест владельца без ввода путей."
+        },
+        {
+          "en": "Detached tmux tasks preserve goal, original authority, limits and jobs across reconnects. Unknown outcomes are retained; Resume does not repeat a completed provider call or refill a budget.",
+          "ru": "Задачи в tmux сохраняют цель, исходные полномочия, лимиты и очередь при переподключении. Неизвестные исходы сохраняются; Resume не повторяет завершённый вызов и не пополняет лимит."
+        },
+        {
+          "en": "The compact Auto workflow keeps account/version, project rules and advanced controls in Settings. Visual folder selection stays with the project; native edits are saved and verified before safe local auto-commit.",
+          "ru": "Компактный режим «Авто» держит аккаунт, версию, правила проекта и дополнительные действия в настройках. Папка выбирается визуально и сохраняется; нативные правки записываются и проверяются до безопасного локального автокоммита."
+        },
+        {
+          "en": "Quality checks hold the host-wide project lease through process-tree termination. The editor waits for checks before auto-commit. Undo requires the original nonce and exactly one update in both reflogs; changed history is preserved with localized hash guidance.",
+          "ru": "Проверки качества удерживают общую блокировку проекта до остановки дерева процессов. Редактор ждёт проверки до автокоммита. Undo требует исходный nonce и ровно одно обновление обоих reflog; изменённая история сохраняется с понятной подсказкой и хешами."
+        },
+        {
+          "en": "Connected Neovim, Harness, composable-data and quality guides share clickable 3D article graphs across tvijo.com, dsh.tvijo.com and platform.tvijo.com. The product and changelog read the same release metadata.",
+          "ru": "Связанные статьи о Neovim, Harness, компонуемых данных и качестве получили кликабельные 3D-графы на tvijo.com, dsh.tvijo.com и platform.tvijo.com. Страница продукта и changelog читают одни метаданные выпуска."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "DSH execution requires a configured Linux local or Remote SSH extension host. Other users must use their own host subscriptions; browser metadata events cannot run the operator shell.",
+          "ru": "Для DSH нужен настроенный Linux-хост расширения, локальный или Remote SSH. Другие пользователи используют свои подписки на хосте; события браузера не запускают оболочку оператора."
+        },
+        {
+          "en": "Model finish is quality_pending until task-specific checks, commit and required publications have receipts. External completion hooks are explicit opt-ins. No unattended paid repair loop is enabled.",
+          "ru": "Ответ модели остаётся quality_pending, пока нет квитанций проверок, коммита и нужных публикаций задачи. Внешние hooks включаются явно. Фоновый платный цикл исправлений не включён."
+        },
+        {
+          "en": "Full access runs commands with the user rights and is not an operating-system sandbox. Inherited environment controls and rules quarantine have the boundaries documented in README.",
+          "ru": "Полный доступ запускает команды с правами пользователя и не создаёт изоляцию ОС. Границы контроля окружения и карантина правил описаны в README."
+        },
+        {
+          "en": "Direct VSIX and GitHub are this release channel. Marketplace is deferred by the operator. Reload Window activates the installed extension; native Windows and an interactive installed editor session were not observed.",
+          "ru": "Каналы этого выпуска — прямой VSIX и GitHub. Marketplace отложен оператором. Reload Window активирует установленное расширение; нативный Windows и интерактивная сессия установленного редактора не наблюдались."
+        }
+      ]
+    },
     {
       "version": "0.10.7",
       "date": "2026-10-24",
@@ -493,6 +565,22 @@
   ],
   "limits": [
     {
+      "en": "DSH execution requires a configured Linux local or Remote SSH extension host. Other users must use their own host subscriptions; browser metadata events cannot run the operator shell.",
+      "ru": "Для DSH нужен настроенный Linux-хост расширения, локальный или Remote SSH. Другие пользователи используют свои подписки на хосте; события браузера не запускают оболочку оператора."
+    },
+    {
+      "en": "Model finish is quality_pending until task-specific checks, commit and required publications have receipts. External completion hooks are explicit opt-ins. No unattended paid repair loop is enabled.",
+      "ru": "Ответ модели остаётся quality_pending, пока нет квитанций проверок, коммита и нужных публикаций задачи. Внешние hooks включаются явно. Фоновый платный цикл исправлений не включён."
+    },
+    {
+      "en": "Full access runs commands with the user rights and is not an operating-system sandbox. Inherited environment controls and rules quarantine have the boundaries documented in README.",
+      "ru": "Полный доступ запускает команды с правами пользователя и не создаёт изоляцию ОС. Границы контроля окружения и карантина правил описаны в README."
+    },
+    {
+      "en": "Direct VSIX and GitHub are this release channel. Marketplace is deferred by the operator. Reload Window activates the installed extension; native Windows and an interactive installed editor session were not observed.",
+      "ru": "Каналы этого выпуска — прямой VSIX и GitHub. Marketplace отложен оператором. Reload Window активирует установленное расширение; нативный Windows и интерактивная сессия установленного редактора не наблюдались."
+    },
+    {
       "en": "Python/Node syntax checks need separate approval and a Linux extension host; they are off by default.",
       "ru": "Проверки синтаксиса Python/Node требуют отдельного согласия и Linux-хоста расширения; по умолчанию выключены."
     },
@@ -511,10 +599,10 @@
   ],
   "verification": {
     "date": "2026-10-24",
-    "extension_tests": 675,
+    "extension_tests": 821,
     "native_gui": {
-      "en": "Not tested; synthetic Chromium EN/RU desktop/mobile plus production host integration.",
-      "ru": "Не проверен; синтетический Chromium EN/RU desktop/mobile и интеграционные проверки рабочих обработчиков."
+      "en": "Interactive installed editor not observed. Production host integration, real native subscription receipts and synthetic EN/RU desktop/mobile Chromium are separate evidence layers.",
+      "ru": "Интерактивная сессия установленного редактора не наблюдалась. Рабочие обработчики, реальные квитанции нативных подписок и синтетический Chromium EN/RU desktop/mobile — отдельные уровни доказательств."
     }
   }
 }

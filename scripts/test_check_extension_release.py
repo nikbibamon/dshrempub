@@ -40,7 +40,7 @@ class ReleaseCheckTests(unittest.TestCase):
         payload = self.vsix.read_bytes()
         self.data['package']['sha256'] = hashlib.sha256(payload).hexdigest()
         self.data['package']['bytes'] = len(payload)
-        self.catalog.write_text(json.dumps(self.data))
+        self.catalog.write_text(json.dumps(self.data, ensure_ascii=False), encoding='utf-8')
 
     def prepare(self, extras=(), omit=(), runtime=b"'use strict';\n", replacements=None):
         files = {'extension/package.json': json.dumps(self.meta).encode(),
@@ -215,7 +215,7 @@ class ReleaseCheckTests(unittest.TestCase):
     def test_digest_check_still_precedes_archive_validation(self):
         self.prepare()
         self.data['package']['sha256'] = '0' * 64
-        self.catalog.write_text(json.dumps(self.data))
+        self.catalog.write_text(json.dumps(self.data, ensure_ascii=False), encoding='utf-8')
         self.assert_rejected('digest or size')
 
     def test_published_catalog_cannot_bypass_preparation_check(self):
