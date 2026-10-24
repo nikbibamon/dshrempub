@@ -115,7 +115,8 @@ function analyzeCommand(raw) {
   if (!parsed.ok) return immutableDecision({ ok:false, denied:false, reason:parsed.reason, raw:command });
   if (tokenDenied(parsed.executable, parsed.args)) return immutableDecision({ ok:false, denied:true, reason:'This command is blocked by the local safety rules.', raw:command });
   const auto = AUTO_RAW.has(command) && !parsed.executable.includes('/') && !parsed.executable.includes('\\') && AUTO.some(vector => vector.length === parsed.args.length + 1 && vector[0] === parsed.executable && vector.slice(1).every((x,i) => x === parsed.args[i]));
-  return immutableDecision({ ok:true, raw:command, executable:parsed.executable, args:Object.freeze(parsed.args.slice()), auto });
+  const requiresApproval = basename(parsed.executable)==='git' && (parsed.args[0]?.startsWith('-') || !['status','diff','log','show','ls-files','ls-tree','rev-parse','grep','blame','describe','shortlog'].includes(parsed.args[0]));
+  return immutableDecision({ ok:true, raw:command, executable:parsed.executable, args:Object.freeze(parsed.args.slice()), auto, requiresApproval });
 }
 
 module.exports = { parseCommand, analyzeCommand, isCommandDecision, tokenDenied, BLOCKED_COMMAND };

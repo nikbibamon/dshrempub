@@ -578,6 +578,15 @@
           "default": [],
           "scope": "machine",
           "markdownDescription": "Allows exact systemd .service names for owner inspection/restart. Use only for explicitly selected services on the connector host. Empty disables service control; restart requires a fresh 60-second Telegram confirmation."
+        },
+        "tvijo.autoCommit": {
+          "type": "string",
+          "default": "afterTask",
+          "enum": [
+            "afterTask",
+            "off"
+          ],
+          "markdownDescription": "Commit only Tvijo-owned saved edits after an Agent task finishes successfully, on the current local branch. Hooks run; user-staged and mixed-authorship files are skipped. Never pushes. Turn off here or in chat Settings."
         }
       }
     }

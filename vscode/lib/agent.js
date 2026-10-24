@@ -14,7 +14,7 @@ const TOOL_HELP = [
   '{"tool":"replace_in_file","path":"src/app.js","old":"exact existing text","new":"replacement text"}',
   '{"tool":"write_file","path":"src/app.js","content":"complete new file"}',
   '{"tool":"run_command","command":"npm test","cwd":".","timeout_ms":60000}',
-  '{"tool":"finish","answer":"what was done, what was checked, what remains"}'
+  '{"tool":"finish","status":"done|blocked","answer":"what was done, what was checked, what remains"}'
 ].join('\n');
 
 function systemPrompt({ tree = '', planMode = false, step = 1, maxSteps = 30, budgetUsd = 2 }) {
@@ -34,7 +34,8 @@ function systemPrompt({ tree = '', planMode = false, step = 1, maxSteps = 30, bu
     '- Search reads disk files. plan_inspect describes current editor buffers; disk results may differ from unsaved text.',
     '- Never claim a command or test passed unless the tool result says so.',
     '- Answer in the user\'s language. For a question rather than a request to change code, gather the minimum context and finish by half the step limit (step ' + Math.max(1, Math.floor(maxSteps / 2)) + ').',
-    '- Finish only with {"tool":"finish","answer":"..."} and include changed paths, checks, and remaining risks.',
+    '- Finish only with {"tool":"finish","status":"done|blocked","answer":"..."}. Use done only when the requested work and checks succeeded; otherwise blocked. Include changed paths, checks, and remaining risks.',
+    '- Do not commit; the editor commits your saved changes after the task.',
     planMode ? 'MODE: PLAN ONLY — no writes, no commands.' : 'MODE: ACT — writes and commands need user approval unless explicitly auto-approved.',
     'Step ' + step + ' of at most ' + maxSteps + '. Local session budget: $' + budgetUsd + '.'
   ].filter(Boolean).join('\n');
@@ -127,7 +128,7 @@ async function runAgent({ goal, tree, projectContext = '', rules = '', history =
     if (action.tool === 'finish') {
       const text = safeAnswer(action.answer);
       onEvent({ type: 'final', text, steps: step, spent });
-      return { text, steps: step, spent, reason: 'finish' };
+      return { text, steps: step, spent, reason: 'finish', status:action.status === 'done' ? 'done' : 'blocked' };
     }
     onEvent({ type: 'action', action, step, spent });
     let result, fatalToolError;
@@ -149,7 +150,7 @@ async function runAgent({ goal, tree, projectContext = '', rules = '', history =
   // No tools are offered or executed, even if the model returns an action.
   if (signal?.aborted) throw Object.assign(new Error('Agent stopped by the user.'), { code: 'agent_stopped' });
   if (spent >= budget) throw Object.assign(new Error('Local agent budget exhausted. No final call was started.'), { code: 'agent_budget', spent, budget });
-  const finalMessages = [{ role: 'system', content: 'Tools are disabled. Answer the user in the user\'s language using only the collected evidence. State briefly what is missing. Return plain text, no tool JSON or raw TOOL_RESULT.' + memory }, ...messages.slice(1)];
+  const finalMessages = [{ role: 'system', content: 'Tools are disabled. Answer the user in the user\'s language using only the collected evidence. State briefly what is missing. Return plain text, no tool JSON or raw TOOL_RESULT.' + memory + (rules ? '\n[TVIJO OPTIONAL RULES]\n'+rules+'[END TVIJO OPTIONAL RULES]\n' : '') }, ...messages.slice(1)];
   const answer = await ask({ messages: finalMessages, projectContext: projectData, step: steps + 1, signal, tools: false, finalization: true });
   spent += costOf(answer);
   if (spent > budget) throw Object.assign(new Error('Local agent budget exhausted.'), { code: 'agent_budget', spent, budget });

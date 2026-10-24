@@ -14,8 +14,6 @@ body #workspace-choice{flex:0 1 28%;min-width:36px;max-width:130px;font-size:11p
 /* The transcript owns the available height. Secondary tools live in a drawer. */
 body[data-theme="system"]{--surface:var(--vscode-sideBar-background,#202020);--raised:var(--vscode-input-background,#292929);--border:var(--vscode-panel-border,#393939);--input:var(--vscode-input-background,#292929);--hover:var(--vscode-list-hoverBackground,#333);--text:var(--vscode-foreground,#e4e4e4);--muted:var(--vscode-descriptionForeground,#a8a8a8)}
 html{height:100%;overflow:hidden}body{overflow:hidden;background:var(--surface);color:var(--text);font-size:13px}
-body header{height:40px;min-height:40px;box-sizing:border-box;padding:4px 12px;flex-wrap:nowrap;gap:6px;background:transparent}
-body #brand{min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:13px;letter-spacing:0;font-weight:600}
 body #messages{flex:1 1 0;min-height:0;padding:16px 12px 8px;scrollbar-gutter:stable}
 body .message{margin-bottom:22px;font-size:14px;line-height:1.6}body .assistant{border:0;padding:0}body .role{color:var(--text);font-size:12px;margin-bottom:6px}
 body .user{background:var(--vscode-input-background,var(--raised));border:1px solid var(--border);padding:10px 12px;border-radius:8px}
@@ -31,7 +29,6 @@ body #settings{flex:0 0 27px;font-size:16px}body #plus{flex:0 0 26px}
 body #state{min-height:0;flex:0 0 auto;font-size:11px;padding:0 12px;max-height:36px;overflow:auto}body #state:empty{display:none}
 body #activity{flex:0 0 auto;border:0;background:transparent;padding:2px 4px;margin:0 12px 3px}
 body #notice{order:9;flex:0 0 auto;margin:0 12px 8px;padding:6px 8px;max-height:120px;overflow:auto;border-color:var(--border);border-left:2px solid var(--bad);font-size:11px}body #notice.visible{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 8px}body #notice p{margin:0;flex:1 1 180px;min-width:0;overflow-wrap:break-word}body #notice button{flex:0 1 auto;max-width:100%;white-space:normal;overflow-wrap:break-word;text-align:left}
-body #full-access-warning{margin:3px 12px;padding:4px 7px;max-width:none;max-height:70px;font-size:11px;display:flex;flex-wrap:wrap;align-items:center;gap:3px 8px}body .full-access-row{margin:0;align-items:center;gap:4px;flex:1;min-width:0}body .full-access-folder{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}body .full-access-row button{padding:2px 5px}
 body #settings-drawer{position:absolute;top:10px;bottom:152px;right:10px;left:10px;z-index:5;overflow:auto;padding:10px;background:var(--vscode-sideBar-background,var(--surface));border:1px solid var(--border);border-radius:9px;box-shadow:0 8px 24px #0005;min-height:120px}
 .drawer-heading,.drawer-tools{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.drawer-heading{justify-content:space-between;margin-bottom:5px}.drawer-tools{padding:7px 0;border-bottom:1px solid var(--border)}
 body #settings-drawer nav{padding:0;gap:2px}body #settings-drawer nav button{padding:6px;font-size:11px}body #settings-drawer .product-links{display:flex;padding:7px 0;border:0;gap:4px}body #settings-drawer .product-links button{width:auto;font-size:11px}

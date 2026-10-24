@@ -44,45 +44,4 @@ test('rules hashes use exact bytes, including newline convention', () => {
   assert.throws(() => rulesHash({ 0: 1, length: 1 }), TypeError);
 });
 
-test('record factory and decision require exact, matching values', () => {
-  const key = scopeKey({ scheme: 'file', authority: '', canonicalRoot: '/work/alpha' });
-  const contentHash = rulesHash(Buffer.from('rules\n'));
-  const record = makeRecord({ scopeKey: key, hash: contentHash, approvedAt: 1234567890 });
-  assert.deepEqual(record, { v: 1, scopeKey: key, hash: contentHash, approvedAt: 1234567890 });
-  assert.deepEqual(decide({ workspaceTrusted: true, scopeKey: key, hash: contentHash, record }), { allowed: true, status: 'trusted' });
-  assert.deepEqual(decide({ workspaceTrusted: true, scopeKey: key, hash: rulesHash(Buffer.from('changed')), record }), { allowed: false, status: 'changed' });
-  assert.deepEqual(decide({ workspaceTrusted: true, scopeKey: '0'.repeat(64), hash: contentHash, record }), { allowed: false, status: 'unapproved' });
-  assert.throws(() => makeRecord({ scopeKey: key, hash: contentHash, approvedAt: '1234567890' }), TypeError);
-  assert.throws(() => makeRecord({ scopeKey: key, hash: contentHash, approvedAt: true }), TypeError);
-  assert.throws(() => makeRecord({ scopeKey: key, hash: contentHash.toUpperCase(), approvedAt: 1 }), TypeError);
-  assert.throws(() => makeRecord({ scopeKey: key, hash: contentHash, approvedAt: 1, forged: true }), TypeError);
-});
-
-test('malformed or extended records fail closed without coercion', () => {
-  const key = scopeKey({ scheme: 'file', authority: '', canonicalRoot: '/work/alpha' });
-  const contentHash = rulesHash(Buffer.from('rules'));
-  const valid = makeRecord({ scopeKey: key, hash: contentHash, approvedAt: 1 });
-  const decideWith = record => decide({ workspaceTrusted: true, scopeKey: key, hash: contentHash, record });
-  for (const record of [
-    null,
-    { ...valid, v: '1' },
-    { ...valid, hash: contentHash.toUpperCase() },
-    { ...valid, approvedAt: '1' },
-    { ...valid, forged: true },
-    { ...valid, scopeKey: 'bad' },
-    Object.assign({ ...valid }, { [Symbol('extra')]: true }),
-    Object.assign(Object.create({ forged: true }), valid)
-  ]) {
-    assert.deepEqual(decideWith(record), { allowed: false, status: 'unapproved' });
-  }
-  assert.deepEqual(decide({ workspaceTrusted: 'true', scopeKey: key, hash: contentHash, record: valid }), { allowed: false, status: 'workspace-untrusted' });
-  assert.deepEqual(decide({ workspaceTrusted: true, scopeKey: key, hash: { toString: () => contentHash }, record: valid }), { allowed: false, status: 'unsupported' });
-});
-
-test('Restricted Mode always prevents rules trust', () => {
-  const key = scopeKey({ scheme: 'file', authority: '', canonicalRoot: '/work/alpha' });
-  const contentHash = rulesHash(Buffer.from('rules'));
-  const record = makeRecord({ scopeKey: key, hash: contentHash, approvedAt: 1 });
-  assert.deepEqual(decide({ workspaceTrusted: false, scopeKey: key, hash: contentHash, record }), { allowed: false, status: 'workspace-untrusted' });
-  assert.deepEqual(decide({ workspaceTrusted: false, scopeKey: null, hash: null, record }), { allowed: false, status: 'workspace-untrusted' });
-});
+test('0.10.8 rules trust exposes no hash approval or decision API',()=>{const api=require('../lib/rules-trust');assert.equal(api.makeRecord,undefined);assert.equal(api.decide,undefined);});

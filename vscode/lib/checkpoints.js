@@ -70,7 +70,7 @@ function createCheckpoints(storagePath, { now = Date.now, maxBytes = MAX_BYTES, 
     const time = Math.max(now(), lastCaptureTime + 0.001);
     lastCaptureTime = time;
     const record = { schema: 1, root, runId, step, model, title: title.slice(0, 120), time, files: files.map(file => {
-      const target = safePath(root, file.absolute);
+      const target = safePath(root, file.absolute,true);
       if (target === root) throw new Error('Rewind requires a workspace file.');
       const before = readBytes(target);
       const buffer = file.document ? file.document.getText() : null;
@@ -129,7 +129,7 @@ function createCheckpoints(storagePath, { now = Date.now, maxBytes = MAX_BYTES, 
       }
       for (const file of targets.values()) {
         await guard();
-        const target = safePath(root, file.path);
+        const target = safePath(root, file.path,true);
         const before = file.before === null ? null : Buffer.from(file.before, 'base64');
         if (fingerprint(before) !== file.beforeHash) throw new Error('Rewind snapshot checksum mismatch.');
         const current = readSnapshot(target), document = await inspect(target);
@@ -142,14 +142,14 @@ function createCheckpoints(storagePath, { now = Date.now, maxBytes = MAX_BYTES, 
         }
         await guard();
         const latestDocument = await inspect(target);
-        safePath(root, file.path);
+        safePath(root, file.path,true);
         const latest = readSnapshot(target);
         if (latestDocument !== document || fingerprint(latest.bytes) !== diskHash || (document && (document.getText() !== text || document.version !== version))) throw new Error('File changed during Rewind confirmation. Try again.');
         // Update open buffers first, with VS Code document version checks. Then
         // restore original disk bytes (including BOM, CRLF and non-UTF8 bytes).
         if (document && before !== null && file.buffer === null && !Buffer.from(before.toString('utf8')).equals(before)) throw new Error('Close the binary file editor before Rewind.');
         await applyBuffer(target, before === null ? null : (file.buffer ?? before.toString('utf8')), document, {text,version});
-        await guard(); safePath(root, file.path);
+        await guard(); safePath(root, file.path,true);
         const afterBuffer = fingerprint(readBytes(target));
         if (afterBuffer !== diskHash && !(before === null && afterBuffer === null)) throw new Error('File changed during Rewind.');
         if (before === null) { if (readBytes(target) !== null) fs.unlinkSync(target); }
@@ -157,9 +157,9 @@ function createCheckpoints(storagePath, { now = Date.now, maxBytes = MAX_BYTES, 
           // Never recreate an existing-at-check target. Open without create or
           // truncate, then bind the write to the identity and bytes we checked.
           await beforeRestoreOpen(target);
-          safePath(root, file.path);
+          safePath(root, file.path,true);
           const recreating = latest.stat === null;
-          if (recreating) { noLinks(path.dirname(target)); fs.mkdirSync(path.dirname(target), { recursive:true }); safePath(root,file.path); }
+          if (recreating) { noLinks(path.dirname(target)); fs.mkdirSync(path.dirname(target), { recursive:true }); safePath(root,file.path,true); }
           const flags = fs.constants.O_RDWR | fs.constants.O_NOFOLLOW | (recreating ? fs.constants.O_CREAT | fs.constants.O_EXCL : 0);
           const fd = fs.openSync(target, flags, file.mode ?? 0o600);
           try {

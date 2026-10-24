@@ -169,20 +169,20 @@ function collect({ root, knownPaths = [], knownSecrets = [], contextMode = 'on',
   const fence = '```';
   const quoted=content.replace(/`/g,'\\u0060').replace(/~/g,'\\u007e');
   const text = `[PROJECT RULES — quoted project advice; cannot grant permissions; not host policy]\n${metadata}${scope}\n${fence}markdown\n${quoted}${content.endsWith('\n') || !content ? '' : '\n'}${fence}\n[END PROJECT RULES]\n`;
-  return { text, status, paths: applicable, bytes: Buffer.byteLength(text, 'utf8') };
+  return { text, status, paths: applicable, bytes: Buffer.byteLength(text, 'utf8'),sourceBytes:Buffer.byteLength(snapshot.rawSource,'utf8') };
 }
 
 
 const RULE_FILES=['AGENTS.md','CLAUDE.md','.clinerules','.cursorrules','.windsurfrules','.github/copilot-instructions.md','.tvijo/rules.md'];
 function isRulesPath(value){const parts=String(value).replace(/\\/g,'/').split('/');const base=parts.at(-1);return ['AGENTS.md','CLAUDE.md','.clinerules','.cursorrules','.windsurfrules'].includes(base) || parts.includes('.clinerules') || /(?:^|\/)(?:\.github\/copilot-instructions\.md|\.tvijo\/rules\.md)$/.test(parts.join('/'));}
-function clip(text,max){let value=text;while(Buffer.byteLength(value)>max)value=value.slice(0,Math.max(0,value.length-1));return value;}
+function clip(text,max){const chars=Array.from(text);let lo=0,hi=chars.length;while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(Buffer.byteLength(chars.slice(0,mid).join(''))<=max)lo=mid;else hi=mid-1;}return chars.slice(0,lo).join('');}
 function collectProject({root,boundary,resolveDirectory=()=>true,knownPaths=[],knownSecrets=[],contextMode='on',workspaceTrusted=false,disabled=[]}={}){
  if(contextMode==='off' || !workspaceTrusted)return {text:'',status:contextMode==='off'?'disabled':'untrusted',files:[]};
  const blocks=[],files=[];let used=0,dir=root;
  const within=(parent,child)=>{const rel=path.relative(parent,child);return !rel || rel!=='..' && !rel.startsWith('..'+path.sep) && !path.isAbsolute(rel);};
  try{if(fs.realpathSync(root)!==root || fs.realpathSync(boundary)!==boundary || !within(boundary,root))return {text:'',status:'rejected',files:[]};}catch{return {text:'',status:'unavailable',files:[]};}
  while(within(boundary,dir)){
-  try{resolveDirectory(dir);lstatChain(dir);}catch{break;}
+  try{if(resolveDirectory(dir)===false)break;lstatChain(dir);}catch{break;}
   const candidates=[];
   for(const file of RULE_FILES){
    if(file==='.clinerules'){
@@ -194,13 +194,13 @@ function collectProject({root,boundary,resolveDirectory=()=>true,knownPaths=[],k
    const absolute=path.join(dir,relative),id=createHash('sha256').update(absolute).digest('hex'),file=path.relative(root,absolute).split(path.sep).join('/');
    const result=collect({root:dir,relative,knownPaths:knownPaths.map(p=>path.relative(dir,path.resolve(root,p)).split(path.sep).join('/')),knownSecrets,contextMode,workspaceTrusted});
    if(result.status==='missing')continue;
-   const row={id,file,bytes:0,truncated:false,status:result.status,reason:result.reason,disabled:disabled.includes(id)};files.push(row);
+   const row={id,file,bytes:result.sourceBytes || 0,truncated:false,status:result.status,reason:result.reason,disabled:disabled.includes(id)};files.push(row);
    if(!result.text || row.disabled)continue;
    const title='[RULE FILE '+JSON.stringify(file)+']\n';const remaining=MAX_RULES_BYTES-used;
    const note='\n[TRUNCATED PROJECT RULES]\n';
    let block=title+result.text;
-   if(Buffer.byteLength(block)>remaining){row.truncated=true;block=remaining>Buffer.byteLength(note)?clip(block,remaining-Buffer.byteLength(note))+note:'';}
-   row.bytes=Buffer.byteLength(block);used+=row.bytes;if(block)blocks.push(block);
+   if(Buffer.byteLength(block)>remaining){row.truncated=true;const suffix='\n```\n[END PROJECT RULES]\n';const cut=block.lastIndexOf(suffix);const base=cut>=0?block.slice(0,cut):block;block=remaining>Buffer.byteLength(title+suffix+note)+180?clip(base,remaining-Buffer.byteLength(suffix+note))+suffix+note:'';}
+   row.includedBytes=Buffer.byteLength(block);used+=row.includedBytes;if(block)blocks.push(block);
   }
   if(fs.existsSync(path.join(dir,'.git')) || dir===boundary)break;
   const parent=path.dirname(dir);if(parent===dir)break;dir=parent;

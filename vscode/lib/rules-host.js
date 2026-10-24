@@ -1,7 +1,7 @@
 'use strict';
 
-// Only the extension host can approve a rules snapshot. No model, project
-// configuration or webview value is accepted as a trust record.
+// Workspace Trust authorizes project advice. Host-local folder identities also
+// bind tool permissions; project files and webview values cannot grant them.
 const fs = require('node:fs');
 const path = require('node:path');
 const {createHash, randomBytes} = require('node:crypto');
@@ -9,10 +9,8 @@ const os = require('node:os');
 const rules = require('./project-rules');
 const trust = require('./rules-trust');
 const {safePath} = require('./local-tools');
-const PREFIX = 'tvijo.rulesTrust.v1.';
 
 function createRulesHost({vscode, state, storageRoot, L = en => en, showPreview, knownSecrets = () => [], selectedFolder = () => null, onRevoke = () => {}}) {
-  let epoch = 0;
   function hostIdentity() {
     if (typeof storageRoot !== 'string' || !path.isAbsolute(storageRoot)) throw Error('Host storage is unavailable.');
     const root = fs.realpathSync(storageRoot);
@@ -84,4 +82,4 @@ function createRulesHost({vscode, state, storageRoot, L = en => en, showPreview,
   async function toggle(id){if(!lastLoaded.some(row=>row.id===id))return;const disabled=state.get('tvijo.disabledRules.v1') || [];await state.update('tvijo.disabledRules.v1',disabled.includes(id)?disabled.filter(x=>x!==id):[...disabled,id]);}
   return {scope,chooseFolder,inspect,collect,assertCurrent,snapshot,toggle,loaded:()=>lastLoaded};
 }
-module.exports={createRulesHost,PREFIX};
+module.exports={createRulesHost};

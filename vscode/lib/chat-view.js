@@ -18,8 +18,7 @@ ${THEME_CSS}
 ${CHAT_CSS}
 ${REWIND_CSS}
 #recovery{flex-shrink:0;max-height:260px;overflow:auto;padding:8px 12px;border-top:1px solid var(--border)}#recovery summary{font-size:12px;cursor:pointer;padding:4px 0}.recovery-card{padding:8px;margin:6px 0;border:1px solid var(--border);border-radius:6px}.recovery-card p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 6px}.recovery-actions{display:flex;flex-wrap:wrap;gap:6px}.recovery-actions button{font-size:11px}#recovery-notes{font-size:11px;overflow-wrap:anywhere}
-header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(--vscode-contrastBorder,var(--border));border-radius:999px;background:var(--surface);color:var(--text)}#elapsed-chip{white-space:nowrap}#agent-map-button{white-space:nowrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
-#workspace-choice,#identity-button{min-width:0;max-width:100%;overflow-wrap:anywhere;white-space:normal;text-align:left}#identity-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:5px 12px;border-bottom:1px solid var(--border);flex-shrink:0}#identity-button{font-size:12px}#identity-state{font-size:11px;overflow-wrap:anywhere}
+nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(--vscode-contrastBorder,var(--border));border-radius:999px;background:var(--surface);color:var(--text)}#elapsed-chip{white-space:nowrap}#agent-map-button{white-space:nowrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
 </style></head><body>
 <section id="folder-browser" aria-labelledby="folder-title" hidden><div class="drawer-heading"><strong id="folder-title"></strong><button id="folder-close" type="button">×</button></div><div class="drawer-tools"><button id="folder-active" type="button"></button><button id="folder-recent" type="button"></button></div><p id="folder-hint"></p><div id="folder-rows"></div></section>
 <aside id="settings-drawer" aria-label="Chat settings" hidden><div class="drawer-heading"><strong id="drawer-title">Chat settings</strong><button id="drawer-close" class="icon" type="button" aria-label="Close settings">×</button></div>
@@ -370,7 +369,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       button.addEventListener('click', () => chooseMode(row.mode)); modeMenu.append(button);
     }
     if(fullAccess?.enabled){const cancel=document.createElement('button');cancel.type='button';cancel.textContent=t('fullAccessRevert');cancel.setAttribute('data-mode','revoke');cancel.addEventListener('click',()=>{closeModeMenu();post({type:'fullAccessRevert',fullAccessScope:fullAccess.scopeKey});});modeMenu.append(cancel);}
-    modeButton.disabled = running || submitting || preparing || !!pendingModeRequestId;
+    modeButton.disabled = !!pendingModeRequestId || (!fullAccess?.enabled && (running || submitting || preparing));
   }
   function openModeMenu() {
     if (modeButton.disabled) return;
@@ -647,6 +646,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
           const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
           button.addEventListener('click', () => post({type,index})); actions.append(button);
         }
+        if(item.autoCommit?.hash){const undo=document.createElement('button');undo.type='button';undo.textContent=locale==='ru'?'Отменить коммит':'Undo commit';undo.disabled=running || submitting;undo.addEventListener('click',()=>post({type:'undoCommit',index}));actions.append(undo);}
         if(item.agentRequest){const agent=document.createElement('button');agent.type='button';agent.textContent=locale==='ru'?'Сделать агентом':'Make it an agent';agent.disabled=running || submitting;agent.addEventListener('click',()=>post({type:'makeAgent',index}));actions.append(agent);}
         block.append(actions);
       }

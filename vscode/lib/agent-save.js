@@ -47,7 +47,7 @@ async function applySavedWrite({vscode,root,absolute,previous,content,diskIdenti
   };
   try {
     await check();
-    safePath(root,absolute);
+    safePath(root,absolute,true);
     assertWriteSnapshot(root,absolute,previous,diskIdentity);
     if (previous === null) {
       // A missing disk file can still have an existing dirty editor. Do not

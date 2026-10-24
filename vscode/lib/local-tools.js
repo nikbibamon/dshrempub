@@ -27,12 +27,12 @@ function inside(root, target) {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
-function safePath(root, value) {
+function safePath(root, value, allowRulesFile = false) {
   if (typeof value !== 'string' || !value.trim() || value.includes('\u0000')) throw new Error('A file path is required.');
   const target = path.resolve(root, value);
   if (!inside(root, target)) throw new Error('Path escapes the workspace: ' + value);
   const parts = path.relative(root, target).split(path.sep);
-  if (parts.some((part) => EXCLUDED_DIRS.has(part))) throw new Error('Path is in an excluded directory: ' + value);
+  if (parts.some((part) => EXCLUDED_DIRS.has(part) && !(allowRulesFile && part==='.tvijo' && parts.length===2 && parts[0]==='.tvijo' && parts[1]==='rules.md'))) throw new Error('Path is in an excluded directory: ' + value);
   if (SECRET_FILE.test(path.basename(target))) throw new Error('Secret-like files are not available to tools: ' + value);
   const absoluteRoot = path.resolve(root);
   const rootParts = absoluteRoot.split(path.sep).filter(Boolean);
@@ -237,8 +237,10 @@ function snapshotIdentity(stat) {
   return Object.freeze(Object.fromEntries(['dev','ino','size','mode','nlink','mtimeNs','ctimeNs'].map(key=>[key,String(stat[key])])));
 }
 
+const safeWritePath=(root,value)=>safePath(root,value,true);
+
 function writeSnapshot(root, target, allowMissing = false) {
-  safePath(root,target);
+  safeWritePath(root,target);
   let fd;
   try { fd = fssync.openSync(target, fssync.constants.O_RDONLY | (fssync.constants.O_NOFOLLOW || 0)); }
   catch(error) { if(allowMissing && error.code==='ENOENT') return {content:null,identity:null}; throw error; }
@@ -248,7 +250,7 @@ function writeSnapshot(root, target, allowMissing = false) {
     const bytes=Buffer.alloc(MAX_READ*2+1);let length=0;
     while(length<bytes.length){const read=fssync.readSync(fd,bytes,length,bytes.length-length,length);if(!read)break;length+=read;}
     const identity=snapshotIdentity(before);
-    safePath(root,target);
+    safeWritePath(root,target);
     if(BigInt(length)!==before.size || JSON.stringify(identity)!==JSON.stringify(snapshotIdentity(fssync.fstatSync(fd,{bigint:true}))) || JSON.stringify(identity)!==JSON.stringify(snapshotIdentity(fssync.lstatSync(target,{bigint:true})))) throw new Error('File changed while reading the write target.');
     const raw=bytes.subarray(0,length),content=raw.toString('utf8');
     if(!Buffer.from(content,'utf8').equals(raw) || content.includes('\0')) throw new Error('Refusing to edit binary or invalid UTF-8 content.');
@@ -262,14 +264,14 @@ function assertWriteSnapshot(root,target,previous,identity) {
 }
 
 async function writeFile(root, action, confirm, applyWrite, beforeWrite, operation = 'write_file') {
-  const target = safePath(root, action.path);
+  const target = safeWritePath(root, action.path);
   const content = typeof action.content === 'string' ? action.content : '';
   if (Buffer.byteLength(content, 'utf8') > MAX_READ * 2) throw new Error('Refusing to write more than 128 KiB in one step.');
   const {content:previous,identity:diskIdentity}=writeSnapshot(root,target,true);
   if (previous === content) return { ok: true, unchanged: true, path: action.path };
   const approved = await confirm({ path: action.path, absolute: target, previous, content, operation });
   if (!approved) return { ok: false, refused: true, path: action.path };
-  safePath(root, action.path);
+  safeWritePath(root, action.path);
   assertWriteSnapshot(root,target,previous,diskIdentity);
   if (applyWrite) await applyWrite({ absolute: target, previous, content, diskIdentity });
   else {
@@ -277,14 +279,14 @@ async function writeFile(root, action, confirm, applyWrite, beforeWrite, operati
     try { current = await fs.readFile(target, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     if (current !== previous) throw new Error('File changed during confirmation.');
     await fs.mkdir(path.dirname(target), { recursive: true });
-    safePath(root, action.path);
+    safeWritePath(root, action.path);
     const checkpoint = beforeWrite({ absolute: target, content });
     if (checkpoint && typeof checkpoint.then === 'function') await checkpoint;
-    safePath(root, action.path);
+    safeWritePath(root, action.path);
     let latest = null;
     try { latest = await fs.readFile(target, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     if (latest !== previous) throw new Error('File changed before write.');
-    safePath(root, action.path);
+    safeWritePath(root, action.path);
     assertWriteSnapshot(root,target,previous,diskIdentity);
     await fs.writeFile(target, content, {encoding:'utf8',flag:previous===null?'wx':'w'});
   }
@@ -329,7 +331,7 @@ function findEolMatch(previous, old) {
 }
 
 async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
-  const target = safePath(root, action.path);
+  const target = safeWritePath(root, action.path);
   if (typeof action.old !== 'string' || !action.old) throw new Error('The old text is required.');
   if (typeof action.new !== 'string') throw new Error('The replacement text is required.');
   const {content:previous,identity:diskIdentity}=writeSnapshot(root,target);
@@ -359,18 +361,18 @@ async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
   if (Buffer.byteLength(content, 'utf8') > MAX_READ * 2) throw new Error('Refusing to write more than 128 KiB in one step.');
   const approved = await confirm({ path: action.path, absolute: target, previous, content, operation: 'replace_in_file', matchKind });
   if (!approved) return { ok: false, refused: true, path: action.path };
-  safePath(root, action.path);
+  safeWritePath(root, action.path);
   assertWriteSnapshot(root,target,previous,diskIdentity);
   if (applyWrite) await applyWrite({ absolute: target, previous, content, diskIdentity });
   else {
     if (await fs.readFile(target, 'utf8') !== previous) throw new Error('File changed during confirmation.');
     const checkpoint = beforeWrite({ absolute: target, content });
     if (checkpoint && typeof checkpoint.then === 'function') await checkpoint;
-    safePath(root, action.path);
+    safeWritePath(root, action.path);
     let latest = null;
     try { latest = await fs.readFile(target, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     if (latest !== previous) throw new Error('File changed before write.');
-    safePath(root, action.path);
+    safeWritePath(root, action.path);
     assertWriteSnapshot(root,target,previous,diskIdentity);
     await fs.writeFile(target, content, 'utf8');
   }

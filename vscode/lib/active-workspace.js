@@ -18,7 +18,7 @@ function resolveFolder(vscode, folder, savedOwner = null) {
   if (!folder?.uri || folder.uri.scheme !== 'file' || folder.uri.authority) throw scopeError('scope_uri',folder?.uri);
   let canonical;try{canonical=fs.realpathSync(folder.uri.fsPath);}catch{throw scopeError('scope_missing',folder.uri);}
   if ([path.parse(canonical).root,require('node:os').homedir(),'/root','/home','/etc','/usr','/var'].includes(canonical)) throw scopeError('scope_system',folder?.uri);
-  if (!fs.statSync(canonical).isDirectory()) throw scopeError('scope_directory',folder?.uri);
+  try{if(!fs.statSync(canonical).isDirectory())throw scopeError('scope_directory',folder.uri);}catch(error){throw error.code?.startsWith('scope_')?error:scopeError('scope_missing',folder.uri);}
   const roots=(vscode.workspace.workspaceFolders || []).filter(root=>root.uri.scheme===folder.uri.scheme && (root.uri.authority || '')===(folder.uri.authority || ''));
   const candidates=roots.map(root=>{try{return {root,canonical:fs.realpathSync(root.uri.fsPath)}}catch{return null}}).filter(Boolean);
   const within=(root,target)=>{const rel=path.relative(root,target);return !rel || rel!=='..' && !rel.startsWith('..'+path.sep) && !path.isAbsolute(rel)};
@@ -39,12 +39,12 @@ function validFolder(vscode,folder) {
 }
 function createActiveWorkspace({vscode,state,L = en => en,onChange = () => {}, isBusy = () => false}) {
   const folders = () => vscode.workspace.workspaceFolders || [];
-  let guessed, refusal = null;
+  let guessed, refusal = null, attempted = null;
   function guess() {
-    if(guessed!==undefined)return guessed;
+    if(guessed!==undefined){if(guessed && !validFolder(vscode,guessed)){refusal=scopeError('scope_owner',guessed.sourceUri);return null;}return guessed;}
     if(isBusy())return null;
     const all=folders();if(!all.length)return null;
-    const editor=vscode.window.activeTextEditor?.document?.uri;
+    const editor=vscode.window?.activeTextEditor?.document?.uri;
     let candidate=all[0];
     if(editor?.scheme==='file'){
       const owner=all.filter(root=>identity(root)===identity({uri:editor}) || contains(root,{uri:editor})).sort((a,b)=>b.uri.fsPath.length-a.uri.fsPath.length)[0];
@@ -53,6 +53,7 @@ function createActiveWorkspace({vscode,state,L = en => en,onChange = () => {}, i
         while(true){if(fs.existsSync(path.join(dir,'.git'))){candidate={uri:vscode.Uri.file(dir),name:path.basename(dir)};break;}if(dir===owner.uri.fsPath || path.dirname(dir)===dir)break;dir=path.dirname(dir);}
       }
     }
+    attempted=candidate.uri;
     try{guessed=resolveFolder(vscode,candidate);refusal=null;}catch(error){guessed=null;refusal=error;}
     return guessed;
   }
@@ -89,7 +90,7 @@ function createActiveWorkspace({vscode,state,L = en => en,onChange = () => {}, i
   async function select(uri) {
     const next=resolveFolder(vscode,{uri,name:path.basename(uri.fsPath)}),previous=current();
     await state.update(KEY,{schema:2,sourceUri:{scheme:next.sourceUri.scheme,authority:next.sourceUri.authority || '',path:next.sourceUri.path || next.sourceUri.fsPath},canonicalRoot:next.canonicalRoot,owner:next.owner,name:next.name});
-    refusal=null;guessed=next;
+    refusal=null;attempted=null;guessed=next;
     const recent=state.get(KEY+'.recent') || [];await state.update(KEY+'.recent',[next.sourceUri.fsPath,...recent.filter(p=>p!==next.sourceUri.fsPath)].slice(0,12));
     if(identity(previous)!==identity(next))onChange(previous,next);
     return current();
@@ -98,6 +99,6 @@ function createActiveWorkspace({vscode,state,L = en => en,onChange = () => {}, i
   async function resetGuess(){if(isBusy())return;const previous=current();await state.update(KEY,undefined);guessed=undefined;refusal=null;const next=current();if(identity(previous)!==identity(next))onChange(previous,next);}
   async function ensure(){const folder=current();if(!folder)throw refusal || scopeError('no_workspace');if(!state.get(KEY) || typeof state.get(KEY)==='string')return select(folder.sourceUri || folder.uri);return folder;}
   async function chooseRecent(){const items=(state.get(KEY+'.recent') || []).map(p=>({label:path.basename(p),description:p}));const pick=await vscode.window.showQuickPick(items,{title:L('Recent folders','Недавние папки')});if(pick)return select(vscode.Uri.file(pick.description));return null;}
-  return {current,choose,select,hasNested,identity,ensure,resetGuess,chooseRecent,refusal:()=>refusal};
+  return {current,choose,select,hasNested,identity,ensure,resetGuess,chooseRecent,refusal:()=>refusal,refusedCandidate:()=>refusal?attempted || refusal.scopeUri:null};
 }
 module.exports = {createActiveWorkspace,identity,contains,resolveFolder,validFolder,KEY};
