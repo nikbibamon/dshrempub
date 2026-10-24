@@ -242,8 +242,8 @@ function describe(reason,locale='en'){return REASONS[reason]?.[locale==='ru'?1:0
 function undoMessage(result,hash,locale='en'){
  const ru=locale==='ru',short=String(hash||'').slice(0,12);
  if(result?.ok)return result.method==='soft_reset'
-  ? (ru?'Коммит '+short+' снят с ветки; правки остались на диске и в индексе.':'Commit '+short+' removed from the branch; edits stay on disk and staged.')
-  : (ru?'Коммит '+short+' уже нельзя снять с ветки, поэтому создан коммит отмены (revert).':'Commit '+short+' could not be removed from the branch, so a revert commit was created.');
+  ? (ru?'Коммит отменён: '+short+' снят с ветки; правки остались на диске и в индексе.':'Commit undone: '+short+' removed from the branch; edits stay on disk and staged.')
+  : (ru?'Коммит отменён: '+short+' уже нельзя было снять с ветки, поэтому создан коммит отмены (revert).':'Commit undone: '+short+' could not be removed from the branch, so a revert commit was created.');
  if(result?.reason==='commit_identity_unproven')return ru
   ? 'Отмена не выполнена: Tvijo не может доказать, что коммит '+short+' создан им, поэтому ничего не менял. Проверьте историю: git log и git reflog.'
   : 'Undo refused: Tvijo cannot prove it created commit '+short+', so nothing was changed. Check the history with git log and git reflog.';
