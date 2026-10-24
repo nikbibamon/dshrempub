@@ -74,7 +74,7 @@ function createOrchestrator({state,configuration,invokeController=invoke,pollMs=
   const previous=state.get(key);
   if(previous&&['queued','running','launching','reconcile_required','reconnect_required'].includes(previous.status))throw Error('This project has a durable orchestration task. Use Status, Resume or Stop before a new task.');
   const doctor=await call(config,'doctor',{},canonical);await guard();
-  if(doctor.setup_required)throw Error('DSH Harness needs setup on this project host. Run Orchestration doctor and follow https://dsh.tvijo.com/orchestration/setup');
+  if(doctor.setup_required)throw Error('DSH Harness needs setup on a Linux local or Remote SSH project host. Run Orchestration doctor and follow https://dsh.tvijo.com/orchestration/setup');
   if(config.policy==='sol-astra-claude'&&!doctor.native_claude_verified)throw Error('Claude native provider, exact model and subscription quota are not verified on this host. Select Sol or Sol + Astra.');
   const workspace=createHash('sha256').update(canonical).digest('hex');
   const binding={tenant,workspace,account,project:canonical};

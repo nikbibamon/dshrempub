@@ -766,7 +766,8 @@ write and replace tools remain disabled. No new setting or model call is added.
 
 ## Optional DSH Harness orchestration
 
-After explicit setup on the selected local/SSH host, enable **Orchestration:
+This release requires Linux process-tree supervision; use a Linux local or
+Remote SSH host. The ordinary engine remains portable. After explicit setup, enable **Orchestration:
 Enabled** and choose Sol, Sol + Astra, or Sol + Astra + Claude in Settings.
 The private host manifest is discovered automatically; no path entry is needed.
 The ordinary engine remains the default. The DSH composer shows its actual

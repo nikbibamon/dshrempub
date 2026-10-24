@@ -626,7 +626,7 @@
         "tvijo.orchestration.enabled": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "Opt in to DSH Harness on the selected local/SSH project host. Existing engine remains the default. Requires explicit host setup; never installs packages or shares the operator subscription with website accounts.",
+          "markdownDescription": "Opt in to DSH Harness on the selected Linux local/Remote SSH project host. Existing engine remains the default. Requires explicit host setup; never installs packages or shares the operator subscription with website accounts.",
           "scope": "machine"
         },
         "tvijo.orchestration.profile": {
