@@ -1,3 +1,17 @@
+# Tvijo DSHREM
+
+Build with a clear task, visible limits and evidence you can review. Tvijo connects a browser workspace, VS Code and terminal workflows; each tool keeps its own execution permissions and account requirements.
+
+[Open DSHREM](https://dsh.tvijo.com/) · [Open Builder](https://dsh.tvijo.com/builder/) · [Extension & terminal](https://dsh.tvijo.com/download) · [Settings explained](https://dsh.tvijo.com/knowledge/settings-explained) · [Agent teams & costs](https://dsh.tvijo.com/knowledge/agentroy-teams-and-costs) · [Recovery](https://dsh.tvijo.com/knowledge/durable-work-and-recovery)
+
+## Read the introductory guide in your language
+
+[English](docs/translations/README.en.md) · [Русский](docs/translations/README.ru.md) · [العربية](docs/translations/README.ar.md) · [Հայերեն](docs/translations/README.hy.md) · [বাংলা](docs/translations/README.bn.md) · [中文](docs/translations/README.zh.md) · [Dansk](docs/translations/README.da.md) · [فارسی](docs/translations/README.fa.md) · [Suomi](docs/translations/README.fi.md) · [Français](docs/translations/README.fr.md) · [Deutsch](docs/translations/README.de.md) · [עברית](docs/translations/README.he.md) · [हिंदी](docs/translations/README.hi.md) · [Magyar](docs/translations/README.hu.md) · [Bahasa Indonesia](docs/translations/README.id.md) · [Italiano](docs/translations/README.it.md) · [日本語](docs/translations/README.ja.md) · [한국어](docs/translations/README.ko.md) · [Bahasa Malaysia](docs/translations/README.ms.md) · [മലയാളം](docs/translations/README.ml.md) · [Nederlands](docs/translations/README.nl.md) · [Polski](docs/translations/README.pl.md) · [ଓଡ଼ିଆ](docs/translations/README.or.md) · [Português](docs/translations/README.pt.md) · [ਪੰਜਾਬੀ](docs/translations/README.pa.md) · [Română](docs/translations/README.ro.md) · [Español](docs/translations/README.es.md) · [Svenska](docs/translations/README.sv.md) · [தமிழ்](docs/translations/README.ta.md) · [తెలుగు](docs/translations/README.te.md) · [ไทย](docs/translations/README.th.md) · [Türkçe](docs/translations/README.tr.md) · [Українська](docs/translations/README.uk.md) · [اردو](docs/translations/README.ur.md) · [Tiếng Việt](docs/translations/README.vi.md)
+
+These complete introductory guides cover setup, settings, agent teams, recovery, costs and privacy. They were translated through the metered DSHREM ds41f route and checked for preserved commands, links and structure. English is the reference; the Russian guide also received an editorial readability pass. The technical CLI reference below is preserved in English. Translation does not establish provider availability or change the package license.
+
+---
+
 # dshrempub
 
 `dshrempub` is a Node.js command-line client for remote DSHREM research and chat. It uses Node 22 or newer and the built-in `fetch`; it has no runtime dependencies.
