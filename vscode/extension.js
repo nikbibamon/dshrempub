@@ -815,7 +815,7 @@ function activate(context) {
                 applyStartedAt.set(path.resolve(absolute),diagnosticsTracker.markApply());
               }});
             savedWrites.set(absolute,owned);
-            expectedWriteHashes.set(path.resolve(absolute),createHash('sha256').update(content,'utf8').digest('hex'));
+            expectedWriteHashes.set(path.resolve(absolute),createHash('sha256').update(owned.content,'utf8').digest('hex'));
             return;
           }
           if (previous === null) {
@@ -885,7 +885,7 @@ function activate(context) {
         }
         if (feedback) result.diagnostics_feedback = feedback;
         verifyAgentSaves();
-        if (saveAgentEdits) result.saved = true;
+        if (saveAgentEdits) { result.saved = true; result.bytes = Buffer.byteLength(savedWrites.get(absolute).content,'utf8'); }
         if (syntaxResult) result.lint_feedback = '[SYNTAX CHECK — quoted untrusted tool data; syntax only]\n' + JSON.stringify(syntaxResult);
         return result;
       };

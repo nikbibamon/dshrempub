@@ -19,6 +19,15 @@ function assertDocument(document, absolute, content, version, clean = false) {
 function assertClean(document, absolute, previous) {
   assertDocument(document,absolute,previous,document?.version,true);
 }
+function normalizeEditorText(content, eol) {
+  return content.replace(/\r\n|\r|\n/g,eol);
+}
+function editorEol(vscode, document, absolute) {
+  if (document?.eol === 1) return '\n';
+  if (document?.eol === 2) return '\r\n';
+  const configured = vscode.workspace.getConfiguration('files',vscode.Uri.file(absolute)).get('eol','auto');
+  return configured === '\n' || configured === '\r\n' ? configured : require('node:os').EOL;
+}
 function directoryIdentity(directory) {
   const stat = fs.statSync(directory,{bigint:true});
   return String(stat.dev) + ':' + String(stat.ino);
@@ -44,6 +53,8 @@ async function applySavedWrite({vscode,root,absolute,previous,content,diskIdenti
       // A missing disk file can still have an existing dirty editor. Do not
       // mistake that editor for a newly-created agent-owned document.
       if ((vscode.workspace.textDocuments || []).some(doc=>doc.uri?.scheme==='file' && path.resolve(doc.uri.fsPath)===absolute)) throw conflict('Agent stopped: an editor already owns the new file path. Save or close it before trying again.');
+      // Predict the empty document's configured EOL before recording its expected after-hash.
+      content = normalizeEditorText(content,editorEol(vscode,null,absolute));
       checkpoint({absolute,content});
       await check();
       assertWriteSnapshot(root,absolute,null,null);
@@ -61,6 +72,9 @@ async function applySavedWrite({vscode,root,absolute,previous,content,diskIdenti
     await check();
     assertDocument(document,absolute,previous,version,true);
     assertWriteSnapshot(root,absolute,previous,diskIdentity);
+    const editorContent = normalizeEditorText(content,editorEol(vscode,document,absolute));
+    if (creating && editorContent !== content) throw conflict('Agent stopped: the new document line-ending configuration changed during creation.');
+    content = editorContent;
     const parentIdentity = directoryIdentity(path.dirname(absolute));
     beforeApply(document);
     if (content !== previous) {

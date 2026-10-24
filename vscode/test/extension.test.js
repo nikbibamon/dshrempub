@@ -2324,7 +2324,7 @@ for(const match of ['whole','trailing','eol'])test(`Full access auto-approves ${
   const before=match==='eol'?'one\r\ntwo\r\n':match==='trailing'?'one \ntwo\t\n':'one\ntwo\n';await fs.writeFile(file,before);let applies=0;
   const action=match==='whole'?{tool:'write_file',path:'code.txt',content:'whole replacement\n'}:{tool:'replace_in_file',path:'code.txt',old:'one\ntwo\n',new:'new\nblock\n'};
   const app=host({root,chatSequence:[JSON.stringify(action),JSON.stringify({tool:'finish',answer:'Full edit complete'})],applyEdit:async()=>{applies++;assert.equal(require('../lib/checkpoints').createCheckpoints(app.storage).list(root).length,1);return true;}});
-  try{app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);attachSavedDocument(app,file,before);await enableFullAccess(app);app.warning('Deny any unexpected prompt');await app.receive({type:'ask',question:'Perform a bounded full edit',agent:true});assert.equal(applies,1);assert.equal(app.warnings.length,1);assert.equal(await fs.readFile(file,'utf8'),match==='whole'?'whole replacement\n':'new\nblock\n');assert.equal(app.feedback.length,0);}finally{app.close();}
+  try{app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);attachSavedDocument(app,file,before);await enableFullAccess(app);app.warning('Deny any unexpected prompt');await app.receive({type:'ask',question:'Perform a bounded full edit',agent:true});assert.equal(applies,1);assert.equal(app.warnings.length,1);assert.equal(await fs.readFile(file,'utf8'),match==='whole'?'whole replacement\n':match==='eol'?'new\r\nblock\r\n':'new\nblock\n');assert.equal(app.feedback.length,0);}finally{app.close();}
 });
 
 test('Full access auto-runs literal commands while hard command/path/secret denials stay mandatory',async()=>{
@@ -2707,9 +2707,9 @@ test('0.10.7 production declined Full access leaves explicit Chat; forged send f
 // Disk changes only through document.save(), exactly the gap the parent reproduced.
 function attachSavedDocument(app,file,before) {
  let text=before,version=1,dirty=false;
- const document={uri:app.Uri.file(file),get version(){return version;},get isDirty(){return dirty;},getText:()=>text,positionAt:n=>n,async save(){await fs.writeFile(file,text);dirty=false;return true;}};
+ const document={eol:before.includes('\r\n')?2:1,uri:app.Uri.file(file),get version(){return version;},get isDirty(){return dirty;},getText:()=>text,positionAt:n=>n,async save(){await fs.writeFile(file,text);dirty=false;return true;}};
  const apply=app.vscode.workspace.applyEdit;
- app.vscode.workspace.applyEdit=async edit=>{const ok=await apply(edit);if(ok)for(const op of edit.operations)if(op.uri.fsPath===file && op.kind==='replace'){text=op.text;version++;dirty=true;}return ok;};
+ app.vscode.workspace.applyEdit=async edit=>{const ok=await apply(edit);if(ok)for(const op of edit.operations)if(op.uri.fsPath===file && op.kind==='replace'){text=op.text.replace(/\r\n|\r|\n/g,document.eol===2?'\r\n':'\n');version++;dirty=true;}return ok;};
  app.editor({document});return document;
 }
 
@@ -2723,7 +2723,7 @@ async function savedAgentFixture(options={}) {
  function documentFor(uri){
   if(!uri?.fsPath)return uri;
   if(documents.has(uri.fsPath))return documents.get(uri.fsPath);
-  const doc={uri,version:1,isDirty:false,isClosed:false,text:sync.readFileSync(uri.fsPath,'utf8'),positionAt:n=>n,getText(){return this.text;},async save(){
+  const doc={uri,eol:options.eol,version:1,isDirty:false,isClosed:false,text:sync.readFileSync(uri.fsPath,'utf8'),positionAt:n=>n,getText(){return this.text;},async save(){
    saves.push(this.uri.fsPath);
    if(options.saveHook){const result=await options.saveHook({app,doc:this,file,root});if(result!==undefined)return result;}
    await fs.writeFile(this.uri.fsPath,this.text);this.isDirty=false;
@@ -2749,7 +2749,7 @@ async function savedAgentFixture(options={}) {
  Object.defineProperty(app.vscode.workspace,'textDocuments',{get:()=>[...documents.values()]});
  const document=options.newFile?null:documentFor(app.Uri.file(file));
  if(document){if(options.dirty){document.isDirty=true;document.text=options.dirtyText??document.text;}app.editor({document});}
- app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',actions.length);
+ app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',actions.length);if(options.eol)app.settings.set('eol',options.eol===2?'\r\n':'\n');
  let grant;
  if(options.auto){app.settings.set('agentAutoApply',true);app.settings.set('agentAutoRun',true);await app.receive({type:'ready'});app.warning('Write file');}
  else grant=await enableFullAccess(app);
@@ -2839,4 +2839,16 @@ test('autosave production refuses an existing unsaved document at a missing new-
  const x=await savedAgentFixture({newFile:true});
  try{const doc={uri:x.app.Uri.file(x.file),text:'USER_NEW_FILE',version:1,isDirty:true};x.documents.set(x.file,doc);await x.run();assert.equal(x.applies.length,0);assert.equal(x.saves.length,0);assert.equal(x.calls().length,1);assert.equal(doc.text,'USER_NEW_FILE');await assert.rejects(fs.stat(x.file),{code:'ENOENT'});assert.equal(x.results()[0].ok,false);}
  finally{x.close();}
+});
+
+
+for(const kind of ['existing','new','repeat'])test(`autosave production CRLF ${kind}: editor normalization preserves disk checks and Rewind hashes`,async()=>{
+ const actions=[{tool:'write_file',path:'code.txt',content:'first\nvalue\n'},...(kind==='repeat'?[{tool:'replace_in_file',path:'code.txt',old:'value',new:'verified'}]:[]),{tool:'read_file',path:'code.txt'},{tool:'run_command',command:'cat code.txt'},{tool:'finish',answer:'CRLF checked'}];
+ const x=await savedAgentFixture({before:'original\r\n',newFile:kind==='new',eol:2,actions,afterApply:({doc,op})=>{if(doc && ['replace','insert'].includes(op.kind))doc.text=doc.text.replace(/\r\n|\r|\n/g,'\r\n');}});
+ const expected=kind==='repeat'?'first\r\nverified\r\n':'first\r\nvalue\r\n';
+ try{
+  await x.run();assert.equal(x.calls().length,actions.length,JSON.stringify(x.results()));assert.equal(await fs.readFile(x.file,'utf8'),expected);assert.equal(x.documents.get(x.file).text,expected);assert.equal(x.results().at(-1).stdout,expected);assert.equal(x.results().at(-2).content,expected);assert.equal(x.results()[0].bytes,Buffer.byteLength('first\r\nvalue\r\n'));assert.equal(x.app.feedback.length,0);assert.ok(x.results()[0].saved);
+  const records=require('../lib/checkpoints').createCheckpoints(x.app.storage).list(x.root);assert.equal(records.length,1);assert.equal(records[0].steps.length,kind==='repeat'?2:1);
+  const dir=path.join(x.app.storage,'rewind-v1');const captures=await Promise.all((await fs.readdir(dir)).filter(n=>n.endsWith('.json')).map(async n=>JSON.parse(await fs.readFile(path.join(dir,n),'utf8'))));captures.sort((a,b)=>a.step-b.step);assert.equal(captures.at(-1).files[0].afterHash,require('node:crypto').createHash('sha256').update(expected).digest('hex'));if(kind==='new')assert.equal(captures[0].files[0].before,null);
+ }finally{x.close();}
 });

@@ -1,5 +1,7 @@
 ## 0.10.7 — 2026-10-24
 
+- Preserve the editor line endings when saving Agent changes, including CRLF files and repeated edits; disk checks and checkpoints use the actual saved bytes.
+
 - Save exact Agent-owned edits in Full access and Auto before disk reads/tests. Preserve dirty and concurrent user buffers, require checkpoints, verify saved bytes and stop the run on save failure, conflict or revoked authority. Quick Edit/review buffer semantics remain separate.
 
 - Add Explorer **Work in Tvijo**: select the clicked folder canonically and focus chat without a picker, path input, sign-in prerequisite or implicit permission grant.
