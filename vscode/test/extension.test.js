@@ -2999,3 +2999,27 @@ test('judgefix2 production scan truncation stops Full access command auto-approv
   const state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.rulesScanTruncated,true);assert.match(state.error.text,/scan truncated/);const {sidebar}=require('./helpers/sidebar');for(const locale of ['en','ru']){const view=sidebar({}, {...state,locale});view.element('notice-action').click();assert.equal(view.element('settings-drawer').hidden,false);assert.equal(view.element('rules-scan-note').hidden,false);assert.match(view.element('rules-scan-note').textContent,/truncated|усечено/);}
  }finally{x.close();}
 });
+
+test('DSH production host cancels a live Git hook before native auto-commit can create HEAD',async()=>{
+ const {execFileSync}=require('node:child_process'),{createHash}=require('node:crypto');
+ const base=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'orchestration-commit-cancel-'));
+ const root=path.join(base,'project'),storage=path.join(base,'storage');await fs.mkdir(root);await fs.mkdir(storage);
+ const git=(...args)=>execFileSync('git',args,{cwd:root,env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'},encoding:'utf8',stdio:'pipe'}).trim();
+ git('init','-b','main');git('config','user.name','Fixture');git('config','user.email','fixture@example.test');await fs.writeFile(path.join(root,'code.txt'),'before\n');git('add','--','code.txt');git('commit','-m','Base');const head=git('rev-parse','HEAD');
+ const marker=path.join(storage,'hook-started'),quote=s=>"'"+s.replace(/'/g,"'\\''")+"'";
+ await fs.writeFile(path.join(root,'.git/hooks/pre-commit'),'#!/bin/sh\nprintf started > '+quote(marker)+'\nsleep 20\n',{mode:0o700});
+ const content='native edit\n',sha256=createHash('sha256').update(content).digest('hex'),controller=path.join(base,'controller.cjs');
+ const report={text:'Native fixture finished.',coordinator_alias:'ds41f',completed_native_models:{'gpt-6.1-sol':{verified:true,receipt:'fixture-native.jsonl'}},edit_receipts:{writes:[{path:'code.txt',sha256}],events:[]}};
+ await fs.writeFile(controller,`const fs=require('node:fs');let input='';process.stdin.on('data',b=>input+=b);process.stdin.on('end',()=>{const command=process.argv[4];if(command==='status')fs.writeFileSync(${JSON.stringify(path.join(root,'code.txt'))},${JSON.stringify(content)});const values={doctor:{setup_required:false},authorize:{id:'fixture-root'},submit:{root_id:'fixture-root',job_id:'fixture-job',status:'queued'},status:{jobs:[{id:'fixture-job',status:'quality_pending',report:${JSON.stringify(JSON.stringify(report))}}]}};process.stdout.write(JSON.stringify(values[command]||{}));});`);
+ const app=host({root,storage,defaultAuto:true});
+ try{
+  for(const [key,value] of Object.entries({'workspaceContext':'off','orchestration.enabled':true,'orchestration.controllerPath':controller,'orchestration.pythonPath':process.execPath,'orchestration.statePath':path.join(base,'state')}))app.settings.set(key,value);
+  await app.receive({type:'ready'});const scopeKey=app.posts.filter(p=>p.type==='state').at(-1).scopeKey;
+  const running=app.receive({type:'ask',scopeKey,question:'Make one native edit',agent:true});
+  for(let i=0;i<500&&!require('node:fs').existsSync(marker);i++)await new Promise(r=>setTimeout(r,10));
+  assert.ok(require('node:fs').existsSync(marker),'native auto-commit reached actual pre-commit hook');
+  await app.commands.get('tvijo.cancelPending')();await running;
+  assert.equal(git('rev-parse','HEAD'),head);assert.equal(await fs.readFile(path.join(root,'code.txt'),'utf8'),content);
+  assert.equal(git('diff','--cached','--name-only'),'');assert.equal(app.errors.length,0);
+ }finally{app.close();}
+});
