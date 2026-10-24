@@ -188,33 +188,68 @@ function ruleDirectories({root,boundary,resolveDirectory=()=>true}={}){
  return result;
 }
 function ruleCandidates(dir){
+ const names=base=>{try{return fs.readdirSync(base).sort();}catch{return [];}};
+ const matching=(base,wanted)=>names(base).filter(name=>name.toLowerCase()===wanted.toLowerCase());
  const candidates=[];
  for(const file of RULE_FILES){
-  if(file==='.clinerules')try{const stat=fs.lstatSync(path.join(dir,file));if(stat.isDirectory()&&!stat.isSymbolicLink()){for(const entry of fs.readdirSync(path.join(dir,file)).sort())if(entry.endsWith('.md'))candidates.push(file+'/'+entry);continue;}}catch{}
-  candidates.push(file);
+  const parts=file.split('/');
+  if(parts.length===2){for(const parent of matching(dir,parts[0])){const base=path.join(dir,parent);try{const st=fs.lstatSync(base);if(!st.isDirectory()||st.isSymbolicLink())continue;}catch{continue;}for(const name of matching(base,parts[1]))candidates.push(parent+'/'+name);}continue;}
+  for(const name of matching(dir,file)){
+   if(file==='.clinerules')try{const stat=fs.lstatSync(path.join(dir,name));if(stat.isDirectory()&&!stat.isSymbolicLink()){for(const entry of names(path.join(dir,name)))if(entry.toLowerCase().endsWith('.md'))candidates.push(name+'/'+entry);continue;}}catch{}
+   candidates.push(name);
+  }
  }
  return candidates;
 }
-const ruleId=absolute=>createHash('sha256').update(absolute).digest('hex');
+// Folder paths entering this module have already been canonicalized and checked
+// without following child symlinks. Case-fold the identity, not the disk access.
+const normalizedRulePath=absolute=>path.resolve(absolute).normalize('NFC').toLowerCase();
+const ruleId=absolute=>createHash('sha256').update(normalizedRulePath(absolute)).digest('hex');
+function quarantinePath(absolute){const parts=path.resolve(absolute).split(path.sep),at=parts.findIndex(part=>part.toLowerCase()==='.clinerules');return at<0?path.resolve(absolute):parts.slice(0,at+1).join(path.sep);}
+function quarantineMatch(absolute,quarantined=[]){const name=normalizedRulePath(absolute);return quarantined.some(value=>{const target=normalizedRulePath(value);return name===target || name.startsWith(target+path.sep);});}
+const SCAN_MAX_DIRECTORIES=1024,SCAN_MAX_ENTRIES=20000;
+const SCAN_SKIP=new Set(['.git','node_modules','venv','.venv','env','.env','dist','build','out','target','coverage','vendor','generated','.generated','gen','__generated__','.next','.nuxt','.svelte-kit','.cache','cache','caches','.npm','npm-cache','.yarn','.pnpm-store','.angular','.expo','__pycache__','.pytest_cache','.mypy_cache','.ruff_cache','.tox','.nox','.gradle','.turbo','.parcel-cache','.vscode-test','bower_components']);
 function fingerprintProject(options){
- const result=new Map();
- for(const dir of ruleDirectories(options)){
-  for(const relative of new Set([...ruleCandidates(dir),'.clinerules'])){
-   const absolute=path.join(dir,relative);let fingerprint,bytes=0;
-   try{
-    const stat=fs.lstatSync(absolute,{bigint:true});bytes=Number(stat.size);
-    if(relative==='.clinerules'&&stat.isDirectory()&&!stat.isSymbolicLink())fingerprint='directory';
-    else {const read=readRules(dir,relative);fingerprint=read.missing?'missing':createHash('sha256').update(read.bytes).update(JSON.stringify([String(stat.dev),String(stat.ino),String(stat.mtimeNs),String(stat.ctimeNs)])).digest('hex');}
-   }catch(error){
-    if(error.code==='ENOENT'||error.code==='ENOTDIR')fingerprint='missing';
-    else {let metadata='';try{const st=fs.lstatSync(absolute,{bigint:true});metadata=[st.dev,st.ino,st.size,st.mtimeNs,st.ctimeNs].map(String).join(':');}catch{}fingerprint='rejected:'+error.message+':'+metadata;}
+ const result=new Map();result.truncated=false;result.scannedDirectories=0;result.scannedEntries=0;
+ const maxDirectories=options.maxDirectories??SCAN_MAX_DIRECTORIES,maxEntries=options.maxEntries??SCAN_MAX_ENTRIES;
+ const ancestors=ruleDirectories(options);if(!ancestors.length)return result;
+ const queue=ancestors.map((dir,index)=>({dir,whole:index===0,clinerules:false}));
+ const seen=new Set();
+ function fingerprint(absolute,stat){
+  let value,bytes=Number(stat.size);
+  try{
+   if(stat.isDirectory()&&!stat.isSymbolicLink())value='directory';
+   else{const read=readRules(path.dirname(absolute),path.basename(absolute));value=read.missing?'missing':createHash('sha256').update(read.bytes).update([stat.dev,stat.ino,stat.mtimeNs,stat.ctimeNs].map(String).join(':')).digest('hex');}
+  }catch(error){value='rejected:'+error.message+':'+[stat.dev,stat.ino,stat.size,stat.mtimeNs,stat.ctimeNs].map(String).join(':');}
+  result.set(absolute,{absolute,id:ruleId(absolute),file:path.relative(options.root,absolute).split(path.sep).join('/'),bytes,fingerprint:value});
+ }
+ for(let index=0;index<queue.length;index++){
+  const {dir,whole,clinerules}=queue[index];if(seen.has(dir))continue;seen.add(dir);
+  if(result.scannedDirectories>=maxDirectories){result.truncated=true;break;}
+  try{if(options.resolveDirectory?.(dir)===false)continue;lstatChain(dir);}catch{continue;}
+  result.scannedDirectories++;
+  let handle;
+  try{
+   handle=fs.opendirSync(dir);let entry;
+   while((entry=handle.readSync())){
+    if(result.scannedEntries>=maxEntries){result.truncated=true;break;}result.scannedEntries++;
+    const absolute=path.join(dir,entry.name),lower=entry.name.toLowerCase();let stat;
+    try{stat=fs.lstatSync(absolute,{bigint:true});}catch{result.truncated=true;continue;}
+    const insideRules=clinerules || lower==='.clinerules';
+    if(insideRules || isRulesPath(absolute))fingerprint(absolute,stat);
+    if(!stat.isDirectory() || stat.isSymbolicLink())continue;
+    if(!clinerules && SCAN_SKIP.has(lower))continue;
+    if(whole || insideRules || ['.github','.tvijo'].includes(lower)){
+     if(queue.length>=maxDirectories+ancestors.length){result.truncated=true;continue;}
+     queue.push({dir:absolute,whole:whole || insideRules,clinerules:insideRules});
+    }
    }
-   result.set(absolute,{absolute,id:ruleId(absolute),file:path.relative(options.root,absolute).split(path.sep).join('/'),bytes,fingerprint});
-  }
+  }catch{result.truncated=true;}finally{handle?.closeSync();}
+  if(result.scannedEntries>=maxEntries && result.truncated)break;
  }
  return result;
 }
-function collectProject({root,boundary,resolveDirectory=()=>true,knownPaths=[],knownSecrets=[],contextMode='on',workspaceTrusted=false,disabled=[],quarantined=[]}={}){
+function collectProject({root,boundary,resolveDirectory=()=>true,knownPaths=[],knownSecrets=[],contextMode='on',workspaceTrusted=false,disabled=[],quarantined=[],quarantinedPaths=[]}={}){
  if(contextMode==='off' || !workspaceTrusted)return {text:'',status:contextMode==='off'?'disabled':'untrusted',files:[]};
  const blocks=[],files=[];let used=0;
  const within=(parent,child)=>{const rel=path.relative(parent,child);return !rel || rel!=='..' && !rel.startsWith('..'+path.sep) && !path.isAbsolute(rel);};
@@ -222,10 +257,11 @@ function collectProject({root,boundary,resolveDirectory=()=>true,knownPaths=[],k
  for(const dir of ruleDirectories({root,boundary,resolveDirectory})){
   const candidates=ruleCandidates(dir);
   for(const relative of candidates){
-   const absolute=path.join(dir,relative),id=createHash('sha256').update(absolute).digest('hex'),file=path.relative(root,absolute).split(path.sep).join('/');
+   const absolute=path.join(dir,relative),id=ruleId(absolute),file=path.relative(root,absolute).split(path.sep).join('/');
    const result=collect({root:dir,relative,knownPaths:knownPaths.map(p=>path.relative(dir,path.resolve(root,p)).split(path.sep).join('/')),knownSecrets,contextMode,workspaceTrusted});
    if(result.status==='missing')continue;
-   const row={id,file,bytes:result.sourceBytes || 0,truncated:false,status:quarantined.includes(id)?'quarantined':result.status,reason:result.reason,disabled:disabled.includes(id),quarantined:quarantined.includes(id)};files.push(row);
+   const isQuarantined=quarantined.includes(id)||quarantineMatch(absolute,quarantinedPaths);
+   const row={id,file,bytes:result.sourceBytes || 0,truncated:false,status:isQuarantined?'quarantined':result.status,reason:result.reason,disabled:disabled.includes(id),quarantined:isQuarantined};files.push(row);
    if(!result.text || row.disabled || row.quarantined)continue;
    const title='[RULE FILE '+JSON.stringify(file)+']\n';const remaining=MAX_RULES_BYTES-used;
    const note='\n[TRUNCATED PROJECT RULES]\n';
@@ -236,5 +272,5 @@ function collectProject({root,boundary,resolveDirectory=()=>true,knownPaths=[],k
  }
  return {text:blocks.join(''),status:blocks.length?'included':'empty',files,bytes:used,truncated:files.some(f=>f.truncated)};
 }
-module.exports = { collect, collectProject, inspect, compileGlob, MAX_RULES_BYTES, MAX_READ_BYTES, RULES_RELATIVE, RULE_FILES, isRulesPath, ruleDirectories, ruleCandidates, fingerprintProject, ruleId };
+module.exports = { collect, collectProject, inspect, compileGlob, MAX_RULES_BYTES, MAX_READ_BYTES, RULES_RELATIVE, RULE_FILES, isRulesPath, ruleDirectories, ruleCandidates, fingerprintProject, ruleId, normalizedRulePath, quarantinePath, quarantineMatch, SCAN_MAX_DIRECTORIES, SCAN_MAX_ENTRIES };
 

@@ -2901,7 +2901,7 @@ test('0.10.8 approved rules-file write saves only after its native confirmation'
  finally{x.close();}
 });
 
-for(const method of ['literal-copy','npm-directory'])test('judgefix Full access command rules quarantine and explicit settings re-enable: '+method,async()=>{
+for(const method of ['literal-copy','npm-directory'])test('limitation: Full access commands write before quarantine and explicit settings re-enable: '+method,async()=>{
  const command=method==='literal-copy'?'cp advice.txt AGENTS.md':'npm run change-rules';
  const target=method==='literal-copy'?'AGENTS.md':'.clinerules/a.md';
  const x=await savedAgentFixture({contextMode:'on',actions:[{tool:'run_command',command},{tool:'run_command',command:'printf checked'},{tool:'finish',status:'done',answer:'Commands completed'},{tool:'finish',status:'done',answer:'Second task'},{tool:'finish',status:'done',answer:'Third task'}]});
@@ -2918,7 +2918,7 @@ for(const method of ['literal-copy','npm-directory'])test('judgefix Full access 
  }finally{x.close();}
 });
 
-test('judgefix indirect Python commit is reported in the final answer and blocks host auto-commit',async()=>{
+test('limitation: Full access permits indirect Python commits; report them and block host auto-commit',async()=>{
  const {execFileSync}=require('node:child_process');
  const x=await savedAgentFixture({actions:[{tool:'write_file',path:'code.txt',content:'agent changed'},{tool:'run_command',command:'python3 -c "import subprocess,sys; sys.exit(subprocess.run([\'git\',\'commit\',\'-am\',\'Indirect command commit\']).returncode)"'},{tool:'finish',status:'done',answer:'Finished'}]});
  const git=(...args)=>execFileSync('git',args,{cwd:x.root,env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'},encoding:'utf8',stdio:'pipe'}).trim();
@@ -2928,7 +2928,7 @@ test('judgefix indirect Python commit is reported in the final answer and blocks
  }finally{x.close();}
 });
 
-test('judgefix Full access Python and npm pushes fail at Git layer, direct push still asks, bare remote unchanged',async()=>{
+test('limitation: inherited-environment Python and npm pushes fail; direct push asks; replacement environments are not constrained',async()=>{
  const {execFileSync}=require('node:child_process');
  const x=await savedAgentFixture({actions:[{tool:'run_command',command:'python3 -c "import subprocess,sys; sys.exit(subprocess.run([\'git\',\'push\',\'origin\',\'HEAD\']).returncode)"'},{tool:'run_command',command:'npm test'},{tool:'run_command',command:'git push origin HEAD'},{tool:'finish',status:'blocked',answer:'Push refused'}]});
  const env={...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'},git=(...args)=>execFileSync('git',args,{cwd:x.root,env,encoding:'utf8',stdio:'pipe'}).trim();
@@ -2958,4 +2958,44 @@ test('orchestration enabled setting drives real host message dispatch and contro
   assert.match(state.messages.at(-1).content,/Controller dispatch reached selected host/);
   assert.match(state.messages.at(-1).content,/quality_pending/);assert.equal(app.errors.length,0);
  }finally{app.close();}
+});
+
+for(const relative of ['sub/AGENTS.md','sub/Agents.MD','sub/.clinerules/new.md'])test('judgefix2 production Full access quarantines subtree rules before later folder selection: '+relative,async()=>{
+ const command='python3 -c "from pathlib import Path; p=Path(\''+relative+'\'); p.parent.mkdir(parents=True,exist_ok=True); p.write_text(\'SUBTREE_CANARY\')"';
+ const x=await savedAgentFixture({contextMode:'on',actions:[{tool:'run_command',command},{tool:'finish',status:'done',answer:'Command completed'},{tool:'finish',status:'done',answer:'Second task'},{tool:'finish',status:'done',answer:'Third task'}]});
+ try{
+  const n=x.app.warnings.length;await x.run();assert.equal(x.results()[0].ok,true);assert.equal(x.app.warnings.length,n,'limitation: mutation happens before quarantine');let state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.ok(state.loadedRules.some(row=>row.quarantined&&row.file.startsWith('sub/')));
+  await x.app.commands.get('tvijo.workInFolder')(x.app.Uri.file(path.join(x.root,'sub')));const count=x.calls().length;await x.run();assert.doesNotMatch(JSON.stringify(x.calls().slice(count)),/SUBTREE_CANARY/);
+  state=x.app.posts.filter(p=>p.type==='state').at(-1);const row=state.loadedRules.find(row=>row.file===relative.slice(4));assert.equal(row.quarantined,true);await x.app.receive({type:'reenableRule',id:row.quarantineId || row.id,scopeKey:state.scopeKey});
+  const after=x.calls().length;await x.run();assert.match(JSON.stringify(x.calls().slice(after)),/SUBTREE_CANARY/);assert.equal(x.app.errors.length,0);
+ }finally{x.close();}
+});
+
+async function judgefix2GitHost(hookName,hookText){
+ const {execFileSync}=require('node:child_process');const x=await savedAgentFixture({auto:true,defaultAuto:true,actions:[{tool:'write_file',path:'code.txt',content:'agent changed'},{tool:'finish',status:'done',answer:'Finished'}]});
+ const git=(...args)=>execFileSync('git',args,{cwd:x.root,env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'},encoding:'utf8',stdio:'pipe'}).trim();
+ git('init','-b','work');git('config','user.name','Judge Host');git('config','user.email','judge@example.test');git('add','--','code.txt');git('commit','-m','Base');const before=git('rev-parse','HEAD'),index=git('write-tree');await fs.writeFile(path.join(x.root,'.git/hooks',hookName),hookText,{mode:0o755});return {...x,git,before,index};
+}
+for(const hook of ['pre-commit','post-commit'])test('judgefix2 production Cancel observes live auto-commit signal during '+hook,async()=>{
+ const x=await judgefix2GitHost(hook,'#!/bin/sh\nprintf ready > hook-started\nsleep 2\n');
+ try{
+  const pending=x.run();for(let i=0;i<200;i++){try{await fs.stat(path.join(x.root,'hook-started'));break;}catch{}await new Promise(resolve=>setTimeout(resolve,20));if(i===199)assert.fail('hook not started');}
+  const busyState=x.app.posts.filter(p=>p.type==='state').at(-1);await x.app.receive({type:'cancel',scopeKey:busyState.scopeKey});await pending;
+  const state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.busy,false);
+  if(hook==='pre-commit'){assert.equal(x.git('rev-parse','HEAD'),x.before);assert.equal(x.git('write-tree'),x.index);assert.equal(state.messages.at(-1).autoCommit,undefined);assert.match(state.messages.at(-1).content,/cancelled before a commit/);}
+  else{assert.ok(state.messages.at(-1).autoCommit?.hash);assert.match(state.messages.at(-1).content,/Cancel arrived after the commit/);assert.match(state.messages.at(-1).content,/Undo commit/);}
+ }finally{x.close();}
+});
+test('judgefix2 production final answer explicitly reports hook commit withdrawal and leaves edits on disk',async()=>{
+ const x=await judgefix2GitHost('pre-commit','#!/bin/sh\nprintf rule > AGENTS.md\ngit add -- AGENTS.md\n');
+ try{await x.app.context.globalState.update('tvijo.uiLocale','ru');await x.run();assert.equal(x.git('rev-parse','HEAD'),x.before);assert.equal(x.git('write-tree'),x.index);assert.equal(await fs.readFile(x.file,'utf8'),'agent changed');assert.equal(await fs.readFile(path.join(x.root,'AGENTS.md'),'utf8'),'rule');const state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.match(state.messages.at(-1).content,/Хук добавил файлы AGENTS.md — коммит отозван, изменения остались на диске/);assert.equal(state.messages.at(-1).autoCommit,undefined);}
+ finally{x.close();}
+});
+
+test('judgefix2 production scan truncation stops Full access command auto-approval and is visible EN/RU',async()=>{
+ const x=await savedAgentFixture({actions:[{tool:'run_command',command:'printf unapproved'},{tool:'finish',status:'blocked',answer:'Scan limit'}]});
+ try{
+  await Promise.all(Array.from({length:1030},(_,i)=>fs.mkdir(path.join(x.root,'scan-dir-'+i))));x.app.warning('Cancel');const n=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,n+1);assert.equal(x.results()[0].refused,true);
+  const state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.rulesScanTruncated,true);assert.match(state.error.text,/scan truncated/);const {sidebar}=require('./helpers/sidebar');for(const locale of ['en','ru']){const view=sidebar({}, {...state,locale});view.element('notice-action').click();assert.equal(view.element('settings-drawer').hidden,false);assert.equal(view.element('rules-scan-note').hidden,false);assert.match(view.element('rules-scan-note').textContent,/truncated|усечено/);}
+ }finally{x.close();}
 });

@@ -99,7 +99,7 @@ test('0.10.8 undo uses soft reset locally and revert after remote tracking or HE
 test('0.10.8 Git environment strips inherited Git overrides and keeps HOME',()=>{
  const env=api().gitEnvironment({HOME:'/safe/home',PATH:'/bin',GIT_DIR:'/evil',GIT_INDEX_FILE:'/evil/index',GIT_CONFIG_COUNT:'1',GIT_AUTHOR_NAME:'forged'},'/work/root');assert.equal(env.HOME,'/safe/home');assert.equal(env.GIT_DIR,undefined);assert.equal(env.GIT_CONFIG_COUNT,undefined);assert.equal(env.GIT_AUTHOR_NAME,undefined);assert.equal(env.GIT_TERMINAL_PROMPT,'0');assert.equal(env.GIT_EDITOR,'true');assert.equal(env.GIT_CEILING_DIRECTORIES,'/work');
 });
-test('0.10.8 agent Git state commands always require confirmation',()=>{
+test('0.10.8 literal agent Git state commands require confirmation',()=>{
  const {analyzeCommand}=require('../lib/command-policy');for(const command of ['git commit -m hello','git push','git tag v1','git merge work','git rebase work','git reset --soft HEAD~1','git checkout work','git switch work','git branch -d old','git branch -D old','git stash','git -C . commit -m hi','/usr/bin/git commit -m hi']){const d=analyzeCommand(command);assert.equal(d.ok,true,command);assert.equal(d.requiresApproval,true,command);}
 });
 
@@ -125,10 +125,10 @@ test('judgefix hook formatting reconciles the actual committed blob without phan
  const f=await fixture();fs.writeFileSync(path.join(f.root,'.git/hooks/pre-commit'),'#!/bin/sh\nprintf "50 formatted\\n" > x.txt\ngit add -- x.txt\n',{mode:0o755});
  const r=await f.run();assert.equal(r.ok,true,JSON.stringify(r));assert.equal(f.git('show','HEAD:x.txt'),'50 formatted');assert.equal(fs.readFileSync(f.file,'utf8'),'50 formatted\n');assert.equal(f.git('diff','--cached','--','x.txt'),'');assert.equal(f.git('diff','--','x.txt'),'');
 });
-test('judgefix hook-added paths are explicitly reported and their real index entries are untouched',async()=>{
+test('judgefix2 hook-added paths withdraw the commit and preserve real index and disk',async()=>{
  const f=await fixture();const before=f.git('ls-files','--stage','--','user.txt');
  fs.writeFileSync(path.join(f.root,'.git/hooks/pre-commit'),'#!/bin/sh\nprintf "hook extra\\n" > user.txt\ngit add -- user.txt\n',{mode:0o755});
- const r=await f.run();assert.equal(r.ok,true,JSON.stringify(r));assert.deepEqual(r.hookAddedPaths,['user.txt']);assert.deepEqual(r.paths,['user.txt','x.txt']);assert.equal(f.git('ls-files','--stage','--','user.txt'),before);assert.equal(f.git('diff','--cached','--','x.txt'),'');assert.equal(f.git('show','HEAD:user.txt'),'hook extra');
+ const r=await f.run();assert.equal(r.ok,false,JSON.stringify(r));assert.equal(r.withdrawn,true);assert.deepEqual(r.hookAddedPaths,['user.txt']);assert.deepEqual(r.paths,['user.txt','x.txt']);assert.equal(f.git('ls-files','--stage','--','user.txt'),before);assert.equal(f.git('rev-parse','HEAD'),f.start.head);assert.equal(fs.readFileSync(f.file,'utf8'),'50\n');assert.equal(fs.readFileSync(path.join(f.root,'user.txt'),'utf8'),'hook extra\n');assert.equal(f.git('diff','--cached'),'');
 });
 test('judgefix any Git ref change refuses auto-commit even if HEAD stayed put',async()=>{
  const f=await fixture();f.git('tag','created-through-command');assert.equal(await api().refsChanged(f.start),true);assert.equal((await f.run()).reason,'refs_changed');assert.equal(f.git('rev-list','--count','HEAD'),'1');
@@ -136,4 +136,36 @@ test('judgefix any Git ref change refuses auto-commit even if HEAD stayed put',a
 });
 test('judgefix quarantined rules are never selected for auto-commit',async()=>{
  const f=await fixture();const r=await f.run({excludedPaths:[f.file]});assert.equal(r.ok,false);assert.equal(r.skipped[0].reason,'rules_quarantined');assert.equal(f.git('rev-list','--count','HEAD'),'1');
+});
+
+async function waitForHook(file){for(let i=0;i<150;i++){if(fs.existsSync(file))return;await new Promise(resolve=>setTimeout(resolve,20));}assert.fail('hook did not start');}
+function assertCommitStorageClean(f){for(const name of fs.readdirSync(f.storageRoot)){assert.equal(fs.existsSync(path.join(f.storageRoot,name,'index')),false);assert.equal(fs.existsSync(path.join(f.storageRoot,name,'index.lock')),false);}assert.equal(fs.existsSync(path.join(f.root,'.git/index.lock')),false);}
+test('judgefix2 live cancellation immediately before commit creates no commit and cleans temporary index',async()=>{
+ const f=await fixture(),abort=new AbortController();let calls=0;const before=f.git('write-tree');
+ const r=await f.run({signal:abort.signal,guard:async()=>{if(++calls===2)abort.abort();}});assert.equal(r.ok,false);assert.equal(r.reason,'task_cancelled');assert.equal(f.git('rev-parse','HEAD'),f.start.head);assert.equal(f.git('write-tree'),before);assertCommitStorageClean(f);
+});
+test('judgefix2 cancellation during a slow hook terminates its process group and preserves user index',async()=>{
+ const f=await fixture(),abort=new AbortController();f.start.timeoutMs=3000;fs.writeFileSync(path.join(f.root,'user.txt'),'USER STAGED');f.git('add','--','user.txt');const before=f.git('write-tree');
+ fs.writeFileSync(path.join(f.root,'.git/hooks/pre-commit'),'#!/bin/sh\nsleep 30 &\nchild=$!\necho "$child" > hook-child.pid\ntrap \'kill "$child" 2>/dev/null; wait "$child"; exit 130\' INT TERM\nwait "$child"\n',{mode:0o755});
+ const pending=f.run({signal:abort.signal});await waitForHook(path.join(f.root,'hook-child.pid'));abort.abort();const r=await pending;
+ assert.equal(r.ok,false);assert.equal(r.reason,'task_cancelled');assert.equal(f.git('rev-parse','HEAD'),f.start.head);assert.equal(f.git('write-tree'),before);assertCommitStorageClean(f);
+ const pid=Number(fs.readFileSync(path.join(f.root,'hook-child.pid'),'utf8'));let alive=false;try{process.kill(pid,0);alive=true;if(process.platform==='linux')alive=!/^State:\s+Z/m.test(fs.readFileSync('/proc/'+pid+'/status','utf8'));}catch{}assert.equal(alive,false,'hook descendant terminated');
+});
+test('judgefix2 cancellation after commit creation reports the existing commit for Undo',async()=>{
+ const f=await fixture(),abort=new AbortController();f.start.timeoutMs=3000;
+ fs.writeFileSync(path.join(f.root,'.git/hooks/post-commit'),'#!/bin/sh\nprintf ready > committed-marker\nsleep 30\n',{mode:0o755});
+ const pending=f.run({signal:abort.signal});await waitForHook(path.join(f.root,'committed-marker'));abort.abort();const r=await pending;
+ assert.equal(r.ok,true,JSON.stringify(r));assert.equal(r.cancelledAfterCommit,true);assert.equal(f.git('rev-parse','HEAD'),r.hash);assert.equal(f.git('diff','--cached','--','x.txt'),'');assertCommitStorageClean(f);
+ const undone=await api().undo({...r,environment:f.environment});assert.equal(undone.ok,true);assert.equal(f.git('rev-parse','HEAD'),f.start.head);
+});
+test('judgefix2 hook-added quarantined rules withdraw the whole commit without index or working-tree changes',async()=>{
+ const f=await fixture();fs.writeFileSync(path.join(f.root,'user.txt'),'USER STAGED');f.git('add','--','user.txt');const before=f.git('write-tree');
+ fs.writeFileSync(path.join(f.root,'.git/hooks/pre-commit'),'#!/bin/sh\nprintf "hook rule\\n" > AGENTS.md\ngit add -- AGENTS.md\n',{mode:0o755});
+ const r=await f.run({excludedPaths:[path.join(f.root,'AGENTS.md')]});assert.equal(r.ok,false);assert.equal(r.withdrawn,true);assert.deepEqual(r.hookAddedPaths,['AGENTS.md']);assert.equal(f.git('rev-parse','HEAD'),f.start.head);assert.equal(f.git('write-tree'),before);assert.equal(fs.readFileSync(f.file,'utf8'),'50\n');assert.equal(fs.readFileSync(path.join(f.root,'AGENTS.md'),'utf8'),'hook rule\n');assertCommitStorageClean(f);
+});
+test('judgefix2 hook-added commit withdrawal refuses a changed branch and preserves the real index',async()=>{
+ const f=await fixture();const before=f.git('write-tree');
+ fs.writeFileSync(path.join(f.root,'.git/hooks/pre-commit'),'#!/bin/sh\nprintf extra > extra.txt\ngit add -- extra.txt\n',{mode:0o755});
+ fs.writeFileSync(path.join(f.root,'.git/hooks/post-commit'),'#!/bin/sh\ngit update-ref refs/heads/other HEAD\ngit symbolic-ref HEAD refs/heads/other\n',{mode:0o755});
+ const r=await f.run();assert.equal(r.ok,true);assert.equal(r.withdrawn,false);assert.equal(r.reason,'hook_added_paths_withdraw_failed');assert.equal(f.git('symbolic-ref','HEAD'),'refs/heads/other');assert.notEqual(f.git('rev-parse','HEAD'),f.start.head);assert.equal(f.git('write-tree'),before);assert.equal(fs.existsSync(path.join(f.root,'.git/HEAD.lock')),false);
 });

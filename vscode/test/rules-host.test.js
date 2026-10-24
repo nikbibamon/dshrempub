@@ -61,3 +61,28 @@ test('judgefix explicitly approved direct rules writes do not quarantine unrelat
  const f=await fixture();const tracker=f.host.beginTask(f.folder),target=path.join(f.root,'AGENTS.md');await fs.writeFile(target,'APPROVED_DIRECT');assert.deepEqual(await tracker.check({approvedPath:target}),[]);assert.equal(tracker.approvalRequired,false);
  await fs.writeFile(target,'LATER_COMMAND');assert.ok((await tracker.check()).some(row=>row.file==='AGENTS.md'));assert.equal(tracker.approvalRequired,true);assert.doesNotMatch((await f.host.collect({})).rulesText,/LATER_COMMAND/);
 });
+
+for(const relative of ['sub/AGENTS.md','sub/Agents.MD'])test('judgefix2 subtree quarantine survives later folder selection and case aliases: '+relative,async()=>{
+ const f=await fixture(),tracker=f.host.beginTask(f.folder);await fs.mkdir(path.join(f.root,'sub'));const target=path.join(f.root,relative);await fs.writeFile(target,'SUBTREE_RULE_CANARY');
+ assert.ok((await tracker.check()).some(row=>row.file===relative));assert.equal(tracker.approvalRequired,true);
+ const sub=require('../lib/active-workspace').resolveFolder(f.vscode,{uri:f.uri(path.join(f.root,'sub'))});let next=await f.host.collect({folder:sub});assert.doesNotMatch(next.rulesText,/SUBTREE_RULE_CANARY/);
+ const canonical=path.join(f.root,'sub/AGENTS.md');if(target!==canonical)await fs.rename(target,canonical);
+ next=await createRulesHost(f.options).collect({folder:sub});assert.doesNotMatch(next.rulesText,/SUBTREE_RULE_CANARY/);const row=next.summary.rules.files.find(row=>row.file==='AGENTS.md');assert.equal(row.quarantined,true);
+ const restarted=createRulesHost(f.options);await restarted.collect({folder:sub});await restarted.reenable(row.quarantineId || row.id);assert.match((await restarted.collect({folder:sub})).rulesText,/SUBTREE_RULE_CANARY/);
+});
+test('judgefix2 any nested clinerules change quarantines the directory including case variants and non-Markdown files',async()=>{
+ const f=await fixture(),dir=path.join(f.root,'.clinerules');await fs.mkdir(dir);await fs.writeFile(path.join(dir,'a.md'),'EXISTING_ADVICE');const tracker=f.host.beginTask(f.folder);
+ await fs.mkdir(path.join(dir,'nested'));await fs.writeFile(path.join(dir,'nested/new.txt'),'NOT_MARKDOWN');await tracker.check();let next=await f.host.collect({});assert.doesNotMatch(next.rulesText,/EXISTING_ADVICE/);assert.equal(next.summary.rules.files.find(row=>row.file==='.clinerules/a.md').quarantined,true);
+ await fs.rename(dir,path.join(f.root,'.Clinerules'));next=await f.host.collect({});assert.doesNotMatch(next.rulesText,/EXISTING_ADVICE/);const row=next.summary.rules.files.find(row=>row.file==='.Clinerules/a.md');assert.equal(row.quarantined,true);await f.host.reenable(row.quarantineId || row.id);assert.match((await f.host.collect({})).rulesText,/EXISTING_ADVICE/);
+ await fs.unlink(path.join(f.root,'.Clinerules/nested/new.txt'));assert.ok((await tracker.check()).length);assert.doesNotMatch((await f.host.collect({})).rulesText,/EXISTING_ADVICE/);
+});
+test('judgefix2 bounded fingerprint scan exposes truncation and requires command approval on directory or entry caps',async()=>{
+ for(const limits of [{maxDirectories:1,maxEntries:20000},{maxDirectories:1024,maxEntries:1}]){
+  const f=await fixture();await fs.mkdir(path.join(f.root,'sub'));await fs.writeFile(path.join(f.root,'sub/AGENTS.md'),'SUB');
+  const host=createRulesHost({...f.options,scanOptions:limits}),tracker=host.beginTask(f.folder);assert.equal(tracker.scanTruncated,true);assert.equal(tracker.approvalRequired,true);await tracker.check();assert.equal(host.scanTruncated(),true);assert.equal((await host.collect({})).summary.rules.scanTruncated,true);
+ }
+});
+test('judgefix2 quarantine is canonical-path persistent and account scoped',async()=>{
+ const f=await fixture();let account='account-A';const options={...f.options,accountScope:()=>account};const host=createRulesHost(options),tracker=host.beginTask(f.folder);await fs.writeFile(path.join(f.root,'AGENTS.md'),'ACCOUNT_RULE_CANARY');await tracker.check();assert.doesNotMatch((await host.collect({})).rulesText,/ACCOUNT_RULE_CANARY/);
+ account='account-B';assert.match((await host.collect({})).rulesText,/ACCOUNT_RULE_CANARY/);account='account-A';assert.doesNotMatch((await createRulesHost(options).collect({})).rulesText,/ACCOUNT_RULE_CANARY/);
+});

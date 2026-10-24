@@ -74,11 +74,15 @@ Hard command denials, file-tool workspace/symlink/secret guards, task budget
 ceilings and reservations remain mandatory. Edits still require Rewind checkpoints
 before applying edits. In Full access and Auto, Agent edits are saved to disk
 before later reads or tests. Quick Edit and review modes retain buffer review
-semantics. Commands can still do anything your user can do; Full access is not
-an operating-system sandbox. Inherited Git configuration blocks push, including
-Git invoked by Python, npm scripts or other children. To cover explicit push URLs,
-Git transports are disabled in Agent commands; fetch and clone also fail there.
-Programs deliberately clearing that environment remain outside this protection.
+semantics. Full access is not an operating-system sandbox. Commands run with your user's rights. Push is blocked for inherited environments; a program that rewrites its own environment is not stopped. Rules files changed by commands are quarantined, not prevented.
+Git transports are disabled in inherited Agent environments; fetch and clone also
+fail there. Indirect programs can still commit/reset and can bypass the transport
+block by replacing their environment.
+
+Команды выполняются с правами вашего пользователя. Push блокируется при унаследованном окружении; программа, заменяющая собственное окружение, не останавливается. Изменения файлов правил командами помещаются в карантин, а не предотвращаются.
+Полный доступ не является изоляцией ОС. Программа может выполнить commit/reset
+или обойти запрет транспортов, заменив окружение; fetch/clone в унаследованном
+окружении также блокируются.
 Restricted Mode cannot enable Full access.
 
 ## Project rules
@@ -94,13 +98,19 @@ truncation indicators and per-file switches. Context Off disables them.
 Symlinks, hard links, invalid UTF-8 and files over 256 KiB are refused. Credential
 scanning covers the complete read before truncation. Rules are quoted project
 advice and cannot grant permissions. Agent file-tool writes to every rules file
-always ask, including in Full access. Git commands that change state also always
+always ask, including in Full access. Literal Git commands that change state also always
 ask; hard command denials still apply. Commands whose literal arguments name a
-rules file also ask. Tvijo fingerprints the loader's complete rules scope before
-the task and after every command. Changes outside an approved direct file edit
+rules file also ask. Tvijo fingerprints rules case-insensitively across the selected
+subtree and the loader's permitted ancestors before the task and after every command.
+It skips Git/dependency/build/cache/generated directories and never follows child
+symlinks. The scan caps are 1,024 directories and 20,000 entries; a visible scan
+truncation flag requires command confirmations for the rest of that task. Changes outside an approved direct file edit
 quarantine the affected rules and require confirmation for subsequent commands in
 that task. Quarantined rules are excluded from later requests until you explicitly
-re-enable each file in Settings. Creations and deletions are covered. An arbitrary
+re-enable them in Settings. Quarantine uses canonical, case-folded paths scoped
+to the account and survives selecting a child folder. Any change under .clinerules,
+including non-Markdown or nested entries, quarantines that rules directory.
+Creations and deletions are covered. An arbitrary
 program can still modify files your user can modify; detection is reported rather
 than hidden, and it is not a filesystem sandbox.
 
@@ -117,14 +127,18 @@ active Git operations, changed HEAD or Git refs and missing Git identity are rep
 The final answer explicitly reports command-time HEAD/ref changes.
 The host uses an isolated index, runs hooks and signing, and preserves the user's
 staging. After hooks run, reconciliation uses the blobs and modes actually
-committed. Hook-added paths are explicitly reported and their user index entries
-are left untouched. Quarantined rules are excluded. Commit messages identify the editor, served models, task and checks.
+committed. If a hook adds any unselected path, the commit is withdrawn atomically only while
+HEAD is still that commit and the branch is unchanged. The working tree and real
+index remain untouched. If concurrent changes prevent withdrawal, the hash and
+warning remain visible for review. Quarantined rules are excluded. Commit messages identify the editor, served models, task and checks.
 Shell side effects, including removals and renames, are not tracked or committed.
 
 The answer shows the commit hash and **Undo commit**. Undo uses a soft reset only
 while that commit is still HEAD and no remote-tracking branch contains it; otherwise
 it attempts a revert. Hooks have a 120-second limit and are interrupted before
-termination. A hook, signing or index reconciliation failure is reported; review
+termination. Cancel is checked live immediately before commit and interrupts a
+running Git process group. If the commit already exists, the final answer shows
+its hash and Undo instead of silently hiding it. A hook, signing or index reconciliation failure is reported; review
 preserved files and the Git index before continuing.
 
 ## Agent saves before disk checks

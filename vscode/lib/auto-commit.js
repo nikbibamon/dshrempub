@@ -9,16 +9,21 @@ function gitEnvironment(source,workspaceRoot,index){
  Object.assign(env,{GIT_TERMINAL_PROMPT:'0',GIT_EDITOR:'true',GIT_CEILING_DIRECTORIES:path.dirname(workspaceRoot)});
  if(index)env.GIT_INDEX_FILE=index;return env;
 }
-function runGit(start,args,{input,index,timeoutMs=start.timeoutMs||120000}={}){
+function runGit(start,args,{input,index,timeoutMs=start.timeoutMs||120000,signal:abortSignal,onPrepared}={}){
  return new Promise((resolve,reject)=>{
+  if(abortSignal?.aborted){resolve({ok:false,code:null,cancelled:true,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)});return;}
   const child=spawn('git',[...(args[0]==='check-ignore'?[]:['--literal-pathspecs']),...args],{cwd:start.root,env:gitEnvironment(start.environment,start.workspaceRoot,index),shell:false,detached:process.platform!=='win32',stdio:['pipe','pipe','pipe']});
-  let stdout=Buffer.alloc(0),stderr=Buffer.alloc(0),timedOut=false,finished=false,truncated=false,term,kill;
-  const signal=s=>{try{if(process.platform!=='win32')process.kill(-child.pid,s);else child.kill(s);}catch{}};
+  let stdout=Buffer.alloc(0),stderr=Buffer.alloc(0),timedOut=false,cancelled=false,finished=false,truncated=false,term,kill;
+  const send=s=>{try{if(process.platform!=='win32')process.kill(-child.pid,s);else child.kill(s);}catch{}};
+  const stop=()=>{send('SIGINT');if(!term)term=setTimeout(()=>{send('SIGTERM');kill=setTimeout(()=>send('SIGKILL'),1000);},1000);};
+  const onAbort=()=>{cancelled=true;stop();};
   const append=(old,data)=>{const combined=Buffer.concat([old,data]);if(combined.length>1024*1024)truncated=true;return combined.subarray(0,1024*1024);};
-  child.stdout.on('data',data=>{stdout=append(stdout,data);});child.stderr.on('data',data=>{stderr=append(stderr,data);});
-  const timer=setTimeout(()=>{timedOut=true;signal('SIGINT');term=setTimeout(()=>{signal('SIGTERM');kill=setTimeout(()=>signal('SIGKILL'),1000);},1000);},timeoutMs);
-  function finish(error,code){if(finished)return;finished=true;clearTimeout(timer);clearTimeout(term);clearTimeout(kill);if(timedOut)signal('SIGKILL');if(error)reject(error);else resolve({ok:code===0&&!timedOut&&!truncated,code,timedOut,truncated,stdout,stderr});}
-  child.once('error',e=>finish(e));child.once('close',code=>finish(null,code));child.stdin.on('error',()=>{});child.stdin.end(input);
+  let prepared=false;
+  child.stdout.on('data',data=>{stdout=append(stdout,data);if(onPrepared && !prepared && stdout.includes(Buffer.from('prepare: ok\n'))){prepared=true;let accept=false;try{accept=onPrepared()===true;}catch{}child.stdin.end(accept?'commit\n':'abort\n');}});child.stderr.on('data',data=>{stderr=append(stderr,data);});
+  const timer=setTimeout(()=>{timedOut=true;stop();},timeoutMs);
+  function finish(error,code){if(finished)return;finished=true;clearTimeout(timer);clearTimeout(term);clearTimeout(kill);abortSignal?.removeEventListener('abort',onAbort);if(timedOut||cancelled)send('SIGKILL');if(error)reject(error);else resolve({ok:code===0&&!timedOut&&!cancelled&&!truncated,code,timedOut,cancelled,truncated,stdout,stderr});}
+  child.once('error',e=>finish(e));child.once('close',code=>finish(null,code));child.stdin.on('error',()=>{});if(onPrepared)child.stdin.write(input);else child.stdin.end(input);
+  abortSignal?.addEventListener('abort',onAbort,{once:true});if(abortSignal?.aborted)onAbort();
  });
 }
 const output=r=>r.stdout.toString('utf8').trim();
@@ -77,10 +82,23 @@ async function reconcileIndex(start,selected){
   return {updated:updated.map(f=>f.relative),skipped};
  }finally{if(fd!==undefined)fs.closeSync(fd);if(owned)fs.unlinkSync(lock);}
 }
-async function commitTask({start,writes=[],result,aborted=false,events=[],models=[],taskId,guard=async()=>{},enabled=true,refChanged=false,excludedPaths=[]}={}){
+async function withdrawCommit(start,hash){
+ // prepare locks both HEAD and its branch. Check the symbolic branch while
+ // those locks are held, then commit the compare-and-swap (tested with Git 2.43).
+ const headPath=path.resolve(start.root,output(await git(start,['rev-parse','--git-path','HEAD'])));
+ let sameBranch=false;
+ const transaction=await runGit(start,['update-ref','--stdin'],{
+  input:'start\nupdate HEAD '+start.head+' '+hash+'\nprepare\n',
+  onPrepared:()=>{sameBranch=fs.readFileSync(headPath,'utf8').trim()==='ref: '+start.branch;return sameBranch;}
+ });
+ return transaction.ok && sameBranch;
+}
+async function commitTask({start,writes=[],result,aborted=false,signal,events=[],models=[],taskId,guard=async()=>{},enabled=true,refChanged=false,excludedPaths=[]}={}){
+ const cancelled=()=>aborted || signal?.aborted===true;
  const response={ok:false,skipped:[],commandSideEffects:'Command side effects (including removals and renames) are not tracked or committed.'};
  if(!enabled)return {...response,reason:'off'};
- if(aborted||result?.reason!=='finish'||result?.status!=='done')return {...response,reason:'task_not_done'};
+ if(cancelled())return {...response,reason:'task_cancelled'};
+ if(result?.reason!=='finish'||result?.status!=='done')return {...response,reason:'task_not_done'};
  if(!start?.ok)return {...response,reason:start?.reason||'no_repo'};
  if(refChanged)return {...response,reason:'refs_changed'};
  const writesList=writes instanceof Map?[...writes.values()]:writes;if(!writesList.length)return {...response,reason:'no_saved_edits'};
@@ -98,10 +116,11 @@ async function commitTask({start,writes=[],result,aborted=false,events=[],models
   temp=fs.mkdtempSync(path.join(start.storageRoot,'auto-commit-'));const index=path.join(temp,'index');
   await git(start,['read-tree',start.head],{index});const selected=[];
   for(const file of writesList){
+   if(cancelled())return {...response,reason:'task_cancelled'};
    const absolute=file.absolute||file.document?.uri?.fsPath;const relative=path.relative(start.root,absolute).split(path.sep).join('/');
    const skip=reason=>response.skipped.push({path:relative,reason});
    if(!within(start.root,absolute)){skip('outside_repo');continue;}
-   if(excludedPaths.some(value=>path.resolve(value)===path.resolve(absolute))){skip('rules_quarantined');continue;}
+   if(require('./project-rules').quarantineMatch(absolute,excludedPaths)){skip('rules_quarantined');continue;}
    let checked;try{checked=safePath(start.root,relative,true);const stat=fs.lstatSync(checked);if(!stat.isFile()||stat.nlink!==1)throw Error();}catch{skip('unsafe_path');continue;}
    const head=await headEntry(start,relative),current=await indexEntries(start,relative),original=start.startIndex.filter(e=>e.path===relative);
    if(file.previous===null && (head||current.length||original.length)){skip('new_file_already_tracked');continue;}
@@ -121,11 +140,22 @@ async function commitTask({start,writes=[],result,aborted=false,events=[],models
   await guard();if(!await unchangedHead(start))return {...response,reason:'head_moved'};if(await refsChanged(start))return {...response,reason:'refs_changed'};
   if(await progressReason(start))return {...response,reason:'operation_in_progress'};
   for(const file of selected){if(!sameEntry(await indexEntries(start,file.relative),file.head))return {...response,reason:'index_changed'};if(!fs.readFileSync(safePath(start.root,file.relative,true)).equals(file.bytes))return {...response,reason:'disk_changed'};}
-  const committed=await runGit(start,['commit','-F',messageFile],{index});
-  if(!committed.ok)return {...response,reason:committed.timedOut?'hook_timeout':!await unchangedHead(start)?'head_moved':'hook_or_signing_failed',detail:clean(committed.stderr.toString('utf8')).slice(0,2000)};
+  if(cancelled())return {...response,reason:'task_cancelled'};
+  const committed=await runGit(start,['commit','-F',messageFile],{index,signal});
+  if(!committed.ok){
+   const current=output(await git(start,['rev-parse','HEAD']));let created=false;
+   // Cancel can interrupt a post-commit hook after Git has updated HEAD. Do not
+   // lose that commit or attribute a concurrent user's commit to this editor.
+   if(cancelled() && current!==start.head && output(await git(start,['symbolic-ref','-q','HEAD']))===start.branch){
+    const parent=output(await git(start,['rev-parse',current+'^']));
+    const body=(await git(start,['show','-s','--format=%B',current])).stdout.toString('utf8');
+    created=parent===start.head && body.split('\n').includes('Tvijo-Task: '+clean(taskId).slice(0,160));
+   }
+   if(!created)return {...response,reason:cancelled()?'task_cancelled':committed.timedOut?'hook_timeout':!await unchangedHead(start)?'head_moved':'hook_or_signing_failed',detail:clean(committed.stderr.toString('utf8')).slice(0,2000),unverifiedHead:current!==start.head?current:undefined};
+  }
   const hash=output(await git(start,['rev-parse','HEAD']));
   const parent=output(await git(start,['rev-parse',hash+'^']));
-  const record={...response,ok:true,hash,root:start.root,workspaceRoot:start.workspaceRoot,paths:selected.map(f=>f.relative),checks};
+  const record={...response,ok:true,hash,cancelledAfterCommit:cancelled(),root:start.root,workspaceRoot:start.workspaceRoot,paths:selected.map(f=>f.relative),checks};
   if(parent!==start.head)return {...record,reason:'head_changed_during_commit',indexWarning:true};
   try{
    // Hooks run with the temporary index and can restage or add paths. Inspect
@@ -133,12 +163,16 @@ async function commitTask({start,writes=[],result,aborted=false,events=[],models
    const diff=(await git(start,['diff-tree','-r','--no-commit-id','--name-status','-z','--no-renames',parent,hash])).stdout.toString('utf8').split('\0').filter(Boolean);
    record.paths=[];for(let i=0;i<diff.length;i+=2)record.paths.push(diff[i+1]);
    const selectedPaths=new Set(selected.map(file=>file.relative));record.hookAddedPaths=record.paths.filter(file=>!selectedPaths.has(file));
+   if(record.hookAddedPaths.length){
+    const withdrawn=await withdrawCommit(start,hash);
+    return {...record,ok:!withdrawn,withdrawn,reason:withdrawn?'hook_added_paths_withdrawn':'hook_added_paths_withdraw_failed',indexWarning:!withdrawn};
+   }
    const actual=[];for(const file of selected){const entry=await headEntry(start,file.relative,hash);actual.push({...file,mode:entry?.mode || '0',oid:entry?.oid || '0'.repeat(hash.length)});}
    const reconciled=await reconcileIndex(start,actual);record.skipped.push(...reconciled.skipped);
   }catch{record.indexWarning=true;}
-  return record;
+  record.cancelledAfterCommit=cancelled();return record;
  }catch(error){return {...response,reason:error.reason||'git_failed'};}
- finally{if(temp){const ownLock=path.join(temp,'index.lock');try{fs.unlinkSync(ownLock);}catch(error){if(error.code!=='ENOENT'){} }}}
+ finally{if(temp)for(const name of ['index.lock','index','message'])try{fs.unlinkSync(path.join(temp,name));}catch(error){if(error.code!=='ENOENT'){} }}
 }
 async function undo({root,workspaceRoot,hash,environment=process.env,timeoutMs=120000}){
  const start=await capture({root,workspaceRoot,environment,timeoutMs});if(!start.ok)return {ok:false,reason:start.reason};
@@ -148,6 +182,6 @@ async function undo({root,workspaceRoot,hash,environment=process.env,timeoutMs=1
  try{await git(start,soft?['reset','--soft',hash+'^']:['revert','--no-edit',hash]);return {ok:true,method:soft?'soft_reset':'revert'};}catch(error){return {ok:false,reason:error.reason||'git_failed'};}
 }
 const REASONS={
- refs_changed:['HEAD or Git refs changed during the task; review the command effects','HEAD или ссылки Git изменились во время задачи; проверьте действия команд'],rules_quarantined:['rules file is quarantined','файл правил в карантине'],off:['disabled in Settings','выключен в настройках'],task_not_done:['the task did not finish with status done','задача не завершилась со статусом done'],no_saved_edits:['no saved editor edits','нет сохранённых правок редактора'],no_repo:['no Git repository','нет репозитория Git'],detached_head:['HEAD is detached','HEAD не привязан к ветке'],unborn_head:['the branch has no first commit','в ветке нет первого коммита'],operation_in_progress:['a Git operation is in progress','идёт операция Git'],repo_outside_workspace:['the repository root is outside this workspace','корень репозитория вне рабочей области'],submodule:['submodule commits need manual review','коммит подмодуля требует ручной проверки'],missing_identity:['configure Git user.name and user.email','задайте user.name и user.email в Git'],head_moved:['HEAD changed during the task','HEAD изменился во время задачи'],no_eligible_edits:['no files with exclusively Tvijo edits','нет файлов только с правками Tvijo'],user_staged:['user-staged file preserved','пользовательский staging сохранён'],mixed_authorship:['pre-existing user edits preserved','исходные правки пользователя сохранены'],new_file_already_tracked:['new-file path is already tracked','путь нового файла уже отслеживается Git'],ignored:['file is ignored by Git','файл исключён Git'],outside_repo:['file is outside the repository','файл вне репозитория'],unsafe_path:['file path or link identity is unsafe','небезопасный путь или связь файла'],previous_not_in_head:['previous file version is absent from HEAD','исходной версии файла нет в HEAD'],disk_changed:['file changed on disk','файл изменился на диске'],unchanged:['no saved change','нет сохранённых изменений'],check_failed:['the last command failed','последняя команда завершилась ошибкой'],check_before_last_write:['the last check preceded the last edit','последняя проверка была до последней правки'],hook_timeout:['Git hook timed out','истекло время Git-хука'],hook_or_signing_failed:['Git hook or signing failed','ошибка Git-хука или подписи'],index_changed:['user staging changed before commit','staging пользователя изменился до коммита'],index_changed_after_commit:['new user staging preserved after commit','новый staging пользователя сохранён после коммита'],git_failed:['Git failed; saved edits are preserved','ошибка Git; сохранённые правки оставлены'],storage_unavailable:['local commit storage is unavailable','локальное хранилище коммитов недоступно'],storage_inside_repo:['commit storage is inside the repository','хранилище коммитов внутри репозитория'],unsupported_mode:['unsupported file mode','неподдерживаемый режим файла']};
+ task_cancelled:['cancelled before a commit was created','отменено до создания коммита'],hook_added_paths_withdrawn:['hook added paths; commit withdrawn, edits remain on disk','хук добавил файлы — коммит отозван, изменения остались на диске'],hook_added_paths_withdraw_failed:['hook added paths; concurrent HEAD/branch change prevented withdrawal — review this commit','хук добавил файлы; изменение HEAD/ветки помешало отзыву — проверьте коммит'],refs_changed:['HEAD or Git refs changed during the task; review the command effects','HEAD или ссылки Git изменились во время задачи; проверьте действия команд'],rules_quarantined:['rules file is quarantined','файл правил в карантине'],off:['disabled in Settings','выключен в настройках'],task_not_done:['the task did not finish with status done','задача не завершилась со статусом done'],no_saved_edits:['no saved editor edits','нет сохранённых правок редактора'],no_repo:['no Git repository','нет репозитория Git'],detached_head:['HEAD is detached','HEAD не привязан к ветке'],unborn_head:['the branch has no first commit','в ветке нет первого коммита'],operation_in_progress:['a Git operation is in progress','идёт операция Git'],repo_outside_workspace:['the repository root is outside this workspace','корень репозитория вне рабочей области'],submodule:['submodule commits need manual review','коммит подмодуля требует ручной проверки'],missing_identity:['configure Git user.name and user.email','задайте user.name и user.email в Git'],head_moved:['HEAD changed during the task','HEAD изменился во время задачи'],no_eligible_edits:['no files with exclusively Tvijo edits','нет файлов только с правками Tvijo'],user_staged:['user-staged file preserved','пользовательский staging сохранён'],mixed_authorship:['pre-existing user edits preserved','исходные правки пользователя сохранены'],new_file_already_tracked:['new-file path is already tracked','путь нового файла уже отслеживается Git'],ignored:['file is ignored by Git','файл исключён Git'],outside_repo:['file is outside the repository','файл вне репозитория'],unsafe_path:['file path or link identity is unsafe','небезопасный путь или связь файла'],previous_not_in_head:['previous file version is absent from HEAD','исходной версии файла нет в HEAD'],disk_changed:['file changed on disk','файл изменился на диске'],unchanged:['no saved change','нет сохранённых изменений'],check_failed:['the last command failed','последняя команда завершилась ошибкой'],check_before_last_write:['the last check preceded the last edit','последняя проверка была до последней правки'],hook_timeout:['Git hook timed out','истекло время Git-хука'],hook_or_signing_failed:['Git hook or signing failed','ошибка Git-хука или подписи'],index_changed:['user staging changed before commit','staging пользователя изменился до коммита'],index_changed_after_commit:['new user staging preserved after commit','новый staging пользователя сохранён после коммита'],git_failed:['Git failed; saved edits are preserved','ошибка Git; сохранённые правки оставлены'],storage_unavailable:['local commit storage is unavailable','локальное хранилище коммитов недоступно'],storage_inside_repo:['commit storage is inside the repository','хранилище коммитов внутри репозитория'],unsupported_mode:['unsupported file mode','неподдерживаемый режим файла']};
 function describe(reason,locale='en'){return REASONS[reason]?.[locale==='ru'?1:0] || reason;}
 module.exports={capture,commitTask,undo,buildMessage,gitEnvironment,describe,readRefs,refsChanged};
