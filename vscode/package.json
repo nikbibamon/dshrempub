@@ -38,7 +38,7 @@
       "tvijo": [
         {
           "id": "tvijo.chat",
-          "name": "DSHREM Chat",
+          "name": "Tvijo",
           "type": "webview"
         }
       ]
@@ -82,7 +82,8 @@
       {
         "command": "tvijo.chooseThread",
         "title": "Open shared server thread",
-        "category": "Tvijo"
+        "category": "Tvijo",
+        "icon": "$(history)"
       },
       {
         "command": "tvijo.refreshThread",
@@ -257,7 +258,9 @@
       {
         "command": "tvijo.newConversation",
         "title": "New conversation",
-        "category": "Tvijo"
+        "category": "Tvijo",
+        "icon": "$(add)",
+        "enablement": "!tvijo.busy"
       },
       {
         "command": "tvijo.cancelPending",
@@ -335,6 +338,12 @@
         "command": "tvijo.reloadWindow",
         "title": "Reload window",
         "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.openChatSettings",
+        "title": "Open chat settings",
+        "category": "Tvijo",
+        "icon": "$(settings-gear)"
       }
     ],
     "menus": {
@@ -371,6 +380,23 @@
           "command": "tvijo.addFileToKnowledge",
           "when": "!explorerResourceIsFolder",
           "group": "7_modification@90"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "tvijo.newConversation",
+          "when": "view == tvijo.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "tvijo.chooseThread",
+          "when": "view == tvijo.chat",
+          "group": "navigation@2"
+        },
+        {
+          "command": "tvijo.openChatSettings",
+          "when": "view == tvijo.chat",
+          "group": "navigation@3"
         }
       ]
     },

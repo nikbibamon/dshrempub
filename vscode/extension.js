@@ -254,6 +254,7 @@ function activate(context) {
     await postChatState();
     await vscode.commands.executeCommand('tvijo.chat.focus');
   });
+  command('tvijo.openChatSettings', async () => { await vscode.commands.executeCommand('tvijo.chat.focus'); await chatView?.webview.postMessage({type:'openSettings'}); });
   command('tvijo.reloadWindow', () => vscode.commands.executeCommand('workbench.action.reloadWindow'));
   command('tvijo.chooseWorkspace', async () => { ensureIdle(); await activeWorkspace.choose(); await postChatState(); });
   function fullAccessState() {
@@ -585,6 +586,7 @@ function activate(context) {
   }
 
   async function postChatState(message = '', error = null) {
+    void vscode.commands.executeCommand('setContext','tvijo.busy',busy || attaching || rewindBusy || modeUpdatePending);
     const view=chatView, renderEpoch=authAttempt, renderWorkspaceEpoch=workspaceEpoch;
     if (!view) return;
     const auth = await readAuth();

@@ -10,3 +10,12 @@ test('0.10.8 Auto and step fallbacks match manifest defaults',()=>{
  }
  assert.match(require('../lib/agent').systemPrompt({}),/at most 30/);
 });
+
+test('0.10.8 webview literal IDs exist and header rows are removed',()=>{
+ const {chatHtml}=require('../lib/chat-view');const html=chatHtml({cspSource:'test:'});const markup=html.split('<script nonce=')[0];
+ const source=fs.readFileSync(path.join(__dirname,'../lib/chat-view.js'),'utf8');
+ for(const match of source.matchAll(/getElementById\(['"]([^'"]+)['"]\)/g))assert.ok(markup.includes('id="'+match[1]+'"'),'missing '+match[1]);
+ assert.doesNotMatch(markup,/<header|id="identity-bar"|id="brand"|id="new"|id="history"/);
+ const c=require('../package.json').contributes;assert.equal(c.views.tvijo[0].name,'Tvijo');assert.equal(c.menus['view/title'].length,3);
+ assert.equal(c.commands.find(c=>c.command==='tvijo.newConversation').enablement,'!tvijo.busy');
+});

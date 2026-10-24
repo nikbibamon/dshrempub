@@ -22,8 +22,6 @@ ${REWIND_CSS}
 header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(--vscode-contrastBorder,var(--border));border-radius:999px;background:var(--surface);color:var(--text)}#elapsed-chip{white-space:nowrap}#agent-map-button{white-space:nowrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
 #workspace-choice,#identity-button{min-width:0;max-width:100%;overflow-wrap:anywhere;white-space:normal;text-align:left}#identity-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:5px 12px;border-bottom:1px solid var(--border);flex-shrink:0}#identity-button{font-size:12px}#identity-state{font-size:11px;overflow-wrap:anywhere}
 </style></head><body>
-<header><strong id="brand" title="Tvijo">Tvijo</strong><button id="history" class="icon" type="button" title="History" aria-label="History">◷</button><button id="new" class="icon" type="button" title="New session" aria-label="New session">＋</button></header>
-<div id="identity-bar"><button id="workspace-choice" type="button">Local workspace…</button><button id="identity-button" type="button">Connecting…</button><span id="identity-state" role="status" aria-live="polite"></span><button id="runtime-version" type="button" title="Reload window after updating Tvijo"></button></div>
 <section id="folder-browser" aria-labelledby="folder-title" hidden><div class="drawer-heading"><strong id="folder-title"></strong><button id="folder-close" type="button">×</button></div><p id="folder-hint"></p><div id="folder-rows"></div></section>
 <aside id="settings-drawer" aria-label="Chat settings" hidden><div class="drawer-heading"><strong id="drawer-title">Chat settings</strong><button id="drawer-close" class="icon" type="button" aria-label="Close settings">×</button></div>
 <nav aria-label="Workspace"><button id="tab-chat" type="button" aria-selected="true">Chat</button><button id="tab-context" type="button" aria-selected="false">Context</button><button id="tab-usage" type="button" aria-selected="false">Usage</button><button id="tab-terminal" type="button" aria-selected="false">Terminal</button></nav>
@@ -32,12 +30,12 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
 <details id="recovery" hidden><summary id="recovery-title">Interrupted runs</summary><p id="recovery-notes" role="status"></p><div id="recovery-list"></div></details>
 <div class="product-links"><button id="product-guide" type="button">Tvijo AI guide</button><button id="connections" type="button">Connections</button><button id="tasks" type="button">Server task history</button><button id="context-select" type="button">Select project context…</button><button id="context-preview" type="button">Preview context</button><button id="quick-edit" type="button">Quick edit</button></div>
 <p id="shared-thread-note" hidden><a id="shared-thread-link" href="#"></a></p><p id="history-note" class="mini-select"></p>
-<div id="account-status" role="status"><span class="dot">●</span><span id="connection-label">Connecting…</span><span id="budget"></span></div></aside>
+<div class="drawer-tools"><span id="account-identity"></span><span id="account-verification"></span><button id="runtime-version" type="button"></button></div><div id="account-status" role="status"><span class="dot">●</span><span id="connection-label">Connecting…</span><span id="budget"></span></div></aside>
 <section id="rewind" aria-labelledby="rewind-title" hidden><div id="rewind-heading"><h2 id="rewind-title">Rewind</h2><button id="rewind-close" type="button">Back to chat</button></div><p id="rewind-hint"></p><p id="rewind-status" role="status"></p><div id="rewind-list"></div></section><main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
 <section id="full-access-warning" role="region" aria-label="Full access warning" hidden></section>
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
 <div id="agent-log" role="log" aria-live="polite"></div>
-<form id="form"><button id="composer-signin" type="button">Sign in</button><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><p id="mode-help" role="note"></p><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode" aria-haspopup="menu" aria-controls="mode-menu" aria-expanded="false">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="settings-drawer">⚙</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
+<form id="form"><button id="composer-signin" type="button">Sign in</button><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><p id="mode-help" role="note"></p><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="workspace-choice" type="button">Choose project…</button><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode" aria-haspopup="menu" aria-controls="mode-menu" aria-expanded="false">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="settings-drawer">⚙</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
 <div id="plus-menu" role="menu" aria-label="Actions"><button id="attach" data-action-id="tvijo.attachFile" type="button" role="menuitem">Attach file…</button><button id="mention-file" data-action-id="tvijo.mentionFile" type="button" role="menuitem">Mention file…</button><button id="attach-problems" data-action-id="tvijo.attachProblems" type="button" role="menuitem">@problems</button><button id="attach-terminal" data-action-id="tvijo.attachTerminal" type="button" role="menuitem">@terminal</button><button id="workspace" type="button" role="menuitem">Choose workspace file…</button><button id="selection" type="button" role="menuitem">Use editor selection</button><button id="path" type="button" role="menuitem">Paste workspace path…</button><button id="clear-conversation" data-action-id="tvijo.newConversation" type="button" role="menuitem">Clear conversation</button><button id="rewind-action" data-action-id="tvijo.rewind" type="button" role="menuitem">Rewind…</button><button id="export-conversation" data-action-id="tvijo.export" type="button" role="menuitem">Export conversation as Markdown</button><button id="switch-model" data-action-id="tvijo.chooseWorkflow" type="button" role="menuitem">Switch model</button><button id="all-actions" type="button" role="menuitem">All commands…</button></div>
 <div id="mode-menu" role="menu" aria-label="Mode" hidden></div><div id="options-menu" role="menu" aria-label="Model and method"></div>
 <div id="notice" role="alert"><p id="notice-text"></p><button id="notice-action" type="button">Resolve task</button></div>
@@ -55,7 +53,6 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   const state = document.getElementById('state');
   const send = document.getElementById('send');
   const question = document.getElementById('question');
-  const newConversation = document.getElementById('new');
   const attached = document.getElementById('attachments');
   const fileInput = document.getElementById('file');
   const plusMenu = document.getElementById('plus-menu');
@@ -457,7 +454,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   function setLocale(next) {
     locale = next; document.documentElement.lang = locale;
     document.getElementById('drawer-title').textContent = t('chatSettings');
-    for (const [id,key] of [['history','history'],['drawer-close','closeSettings'],['settings','settings'],['new','new']]) {
+    for (const [id,key] of [['drawer-close','closeSettings'],['settings','settings']]) {
       document.getElementById(id).title = t(key); document.getElementById(id).setAttribute('aria-label',t(key));
     }
     document.getElementById('settings-drawer').setAttribute('aria-label',t('chatSettings'));
@@ -509,7 +506,6 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     document.getElementById('composer-signin').textContent = t('signIn');
     document.getElementById('composer-signin').hidden = lastSignedIn;
     renderIdentity();
-    document.getElementById('new').title = t('new');
     document.getElementById('settings').title = t('settings');
     if (uiMode === 'chat') document.getElementById('question').placeholder = t('ask');
     document.getElementById('question').setAttribute('aria-label', t('ask'));
@@ -547,11 +543,8 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     const profile = lastAccount?.identity;
     const name = profile?.email_verified && profile.email ? profile.email : profile?.display_name;
     const labels = locale === 'ru' ? {loading:'Проверка аккаунта…',connecting:'Ожидание входа в браузере…',signed_out:'Не выполнен вход',error:'Ошибка подключения',signed_in:'Аккаунт подтверждён'} : {loading:'Checking account…',connecting:'Waiting for browser sign-in…',signed_out:'Signed out',error:'Connection error',signed_in:'Account verified'};
-    const button = document.getElementById('identity-button');
-    button.textContent = lastSignedIn ? (name || (locale === 'ru' ? 'Аккаунт ' : 'Account ') + (lastAccount?.tenant_id || '')) : (lastAuthState === 'connecting' || lastAuthState === 'loading' ? labels[lastAuthState] : t('signIn'));
-    button.disabled = lastAuthState === 'connecting';
-    button.title = lastSignedIn ? (locale === 'ru' ? 'Открыть аккаунт' : 'Open account') : t('signIn');
-    document.getElementById('identity-state').textContent = lastAuthError || labels[lastAuthState] || labels.signed_out;
+    document.getElementById('account-identity').textContent = name || '';
+    document.getElementById('account-verification').textContent = lastAuthError || (lastSignedIn && !profile?.email_verified ? (locale === 'ru' ? 'Email не подтверждён' : 'Email unverified') : labels[lastAuthState]) || labels.signed_out;
     document.getElementById('workspace-choice').textContent = activeWorkspaceLabel || (locale === 'ru' ? 'Выбрать проект…' : 'Choose project…');
   }
   function setTheme(next) { theme = next; document.body.setAttribute('data-theme', theme); updateThemeButton(); saveState(); }
@@ -631,7 +624,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   question.addEventListener('input', saveDraft);
   function controls() {
     const blocked = running || preparing || submitting || uploading;
-    send.disabled = blocked || !!pendingModeRequestId || !scopeKey; newConversation.disabled = blocked || !scopeKey;
+    send.disabled = blocked || !!pendingModeRequestId || !scopeKey;
     for (const id of ['attach','workspace','selection','path','plus','workflow','mode']) document.getElementById(id).disabled = blocked;
     document.getElementById('cancel').hidden = !running;
     send.hidden = running;
@@ -720,6 +713,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   }
   window.addEventListener('message', event => {
     const data = event.data;
+    if(data.type === 'openSettings'){setDrawer(true);return;}
     if (data.type === 'rewind') {
       setTab('chat'); messages.hidden = true; rewindPanel.hidden = false;
       rewindRuns = data.runs || []; rewindChosen = null; rewindWorkspaceKey = data.workspaceKey;
@@ -785,7 +779,6 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
         saveState();
       }
       if (data.locale && data.locale !== locale) setLocale(data.locale);
-      document.getElementById('brand').textContent = typeof data.projectLabel === 'string' && data.projectLabel.trim() ? data.projectLabel.slice(0,120) : 'Tvijo';
       document.getElementById('workspace-choice').title = data.workspacePath || '';
       document.getElementById('runtime-version').textContent = 'Tvijo ' + (data.runtimeVersion || '—') + ' ↻';
       document.getElementById('runtime-version').title = locale === 'ru' ? 'После обновления: перезагрузить окно' : 'After updating: reload window';
@@ -892,14 +885,12 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   document.getElementById('map-close').addEventListener('click', () => { setTab('chat'); document.getElementById('agent-map-button').focus(); });
   document.getElementById('agent-map').addEventListener('keydown', event => { if (event.key === 'Escape') { setTab('chat'); document.getElementById('agent-map-button').focus(); } });
   document.getElementById('pack-picker').addEventListener('click', () => post({type:'choosePack'}));
-  document.getElementById('identity-button').addEventListener('click', () => post({type:'account'}));
   document.getElementById('workspace-choice').addEventListener('click', openFolderBrowser);
   document.getElementById('folder-close').addEventListener('click', closeFolderBrowser);
   document.getElementById('folder-browser').addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); closeFolderBrowser(); } });
   document.getElementById('runtime-version').addEventListener('click', () => post({type:'reloadWindow'}));
   document.getElementById('composer-signin').addEventListener('click', () => post({type:'account'}));
   document.getElementById('signin').addEventListener('click', () => post({type:lastSignedIn ? 'account' : 'account'}));
-  document.getElementById('new').addEventListener('click', () => post({type:'new'}));
   document.getElementById('cancel').addEventListener('click', () => post({type:'cancel'}));
   noticeActionButton.addEventListener('click', () => post({type: currentNotice?.action === 'account' ? 'account' : currentNotice?.action === 'context' ? 'contextPreview' : 'cancel'}));
   document.getElementById('context-preview').addEventListener('click', () => post({ type: 'contextPreview' }));
@@ -930,7 +921,6 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     if (open) document.getElementById('drawer-close').focus();
   }
   document.getElementById('settings').addEventListener('click', () => setDrawer(document.getElementById('settings-drawer').hidden));
-  document.getElementById('history').addEventListener('click', () => { setDrawer(false); post({type:'history'}); });
   document.getElementById('drawer-close').addEventListener('click', () => {setDrawer(false);document.getElementById('settings').focus();});
   document.getElementById('settings-drawer').addEventListener('keydown', event => {if(event.key==='Escape'){setDrawer(false);document.getElementById('settings').focus();}});
   document.getElementById('extension-settings').addEventListener('click', () => post({type:'settings'}));
