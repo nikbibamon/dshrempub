@@ -55,12 +55,14 @@ function truncate(text, limit = MAX_OUTPUT) {
   return text.length > limit ? text.slice(0, limit) + '\n… [truncated]' : text;
 }
 
-function cleanEnv() {
+function cleanEnv(source = process.env) {
   const env = {};
   for (const key of ['PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'SYSTEMROOT', 'WINDIR', 'TMPDIR', 'TEMP', 'TMP']) {
-    if (typeof process.env[key] === 'string') env[key] = process.env[key];
+    if (typeof source[key] === 'string') env[key] = source[key];
   }
-  return env;
+  // Preserve the complete counted config before adding the host transport policy.
+  for(const [key,value] of Object.entries(source))if(/^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/.test(key))env[key]=value;
+  return require('./agent-command-env').blockGitPush(env);
 }
 
 async function listDirectory(root, relative) {
