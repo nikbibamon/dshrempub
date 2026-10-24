@@ -1,3 +1,9 @@
+# 0.10.8
+
+- Start in Auto mode with up to 30 steps; saved Agent edits are ready for tests.
+- Keep the conversation clear with folder, mode and model controls below the composer; account details live in Settings.
+- Load project rules automatically in trusted workspaces and commit successful Agent changes locally, with model attribution. Never push automatically.
+
 ## 0.10.7 — 2026-10-24
 
 - Preserve the editor line endings when saving Agent changes, including CRLF files and repeated edits; disk checks and checkpoints use the actual saved bytes.
