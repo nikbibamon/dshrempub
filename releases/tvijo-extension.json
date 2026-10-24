@@ -1,6 +1,6 @@
 {
   "schema": "tvijo.extension-release/v1",
-  "as_of": "2026-10-23",
+  "as_of": "2026-10-24",
   "product": {
     "id": "tvijo-dshrem-vscode",
     "name": "Tvijo DSHREM for VS Code",
@@ -9,28 +9,28 @@
       "ru": "Помощь с кодом: выбранный контекст, проверяемые правки и задачи с лимитом."
     }
   },
-  "latest_version": "0.10.6",
+  "latest_version": "0.10.7",
   "channel": "preview",
   "publication": {
     "status": "published",
-    "published_at": "2026-10-23",
+    "published_at": "2026-10-24",
     "note": {
       "en": "Direct VSIX release. Reload Window after installation. Marketplace publication was not performed.",
       "ru": "Прямой выпуск VSIX. После установки выполните Reload Window. Публикации в Marketplace не было."
     }
   },
   "package": {
-    "filename": "tvijo-dshrem-0.10.6.vsix",
-    "sha256": "2fface64594570c4b7e8ebc4759a22408f260b8120dc83f6ba84a0bc49ccfd4d",
-    "bytes": 797378,
+    "filename": "tvijo-dshrem-0.10.7.vsix",
+    "sha256": "8a4a5155de28455f39f3bff7c958b70a92ed497c28c72254bada17ef0a9a027e",
+    "bytes": 826915,
     "editor_requirement": "^1.90.0",
-    "source_commit": "9285b5aaedfa582be10b39e025c9638887a4c4f0",
-    "verified_environment": "636 extension and 22 gateway tests; four synthetic Chromium locale/viewport flows. Real Devstral and ds41f each read/create/edit/read owned files; separate read/finish followups completed normally. Fifteen metered calls including initial diagnostic failure. Native Windows desktop unavailable."
+    "source_commit": "933392d7308fafc59aa04befe2296c06b685ffb5",
+    "verified_environment": "675 deterministic extension checks; synthetic EN/RU desktop/mobile Chromium flows; production extension-handler and tool-loop filesystem/command checks. No new paid model calls. Native Windows unavailable."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
-    "source": "https://github.com/nikbibamon/dshrempub/tree/9285b5aaedfa582be10b39e025c9638887a4c4f0",
-    "changelog": "https://github.com/nikbibamon/dshrempub/blob/9285b5aaedfa582be10b39e025c9638887a4c4f0/vscode/CHANGELOG.md",
+    "source": "https://github.com/nikbibamon/dshrempub/tree/933392d7308fafc59aa04befe2296c06b685ffb5",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/933392d7308fafc59aa04befe2296c06b685ffb5/vscode/CHANGELOG.md",
     "issues": "https://github.com/nikbibamon/dshrempub/issues"
   },
   "features": [
@@ -108,6 +108,34 @@
     }
   ],
   "releases": [
+    {
+      "version": "0.10.7",
+      "date": "2026-10-24",
+      "title": {
+        "en": "Visual project selection and autonomous editor execution",
+        "ru": "Наглядный выбор проекта и автоматическое выполнение в редакторе"
+      },
+      "changes": [
+        {
+          "en": "Right-click a folder in Explorer and choose Work in Tvijo to select it directly and open chat. The in-chat folder tree supports expansion and selection without typing paths.",
+          "ru": "Контекстное меню папки Explorer → Work in Tvijo сразу выбирает её и открывает чат. Дерево папок внутри чата раскрывается и выбирается без ввода путей."
+        },
+        {
+          "en": "New simple conversations use the agent loop. Successful Full access selection and reconnect preserve agent execution; explicit Chat and failed permission changes remain distinct. The loaded version and reload action are visible.",
+          "ru": "Новые простые диалоги запускают агентский цикл. Успешный выбор полного доступа и переподключение сохраняют выполнение агентом; явный Чат и неудачная смена разрешений учитываются отдельно. Видны загруженная версия и действие перезагрузки."
+        },
+        {
+          "en": "Full access saves clean agent-edited documents before disk reads and checks, with checkpoints and guards for scope, cancellation, dirty buffers and save failures.",
+          "ru": "Полный доступ сохраняет чистые документы с правками агента перед чтением с диска и проверками. Сохраняются checkpoints и проверки области, отмены, чужих несохранённых правок и ошибок сохранения."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Native Windows desktop was unavailable. Current validation uses a synthetic VS Code bridge, production extension handlers and real scratch filesystem commands; no new model API probes. Reload Window is needed after updating the installed extension.",
+          "ru": "Нативный Windows интерфейс недоступен. Проверены синтетический мост VS Code, рабочие обработчики расширения и команды над реальными тестовыми файлами; новых API-проб моделей не было. После установки обновления нужен Reload Window."
+        }
+      ]
+    },
     {
       "version": "0.10.6",
       "date": "2026-10-23",
@@ -482,11 +510,11 @@
     }
   ],
   "verification": {
-    "date": "2026-10-23",
-    "extension_tests": 636,
+    "date": "2026-10-24",
+    "extension_tests": 675,
     "native_gui": {
-      "en": "Not tested. Synthetic Chromium UI plus actual authenticated Devstral/ds41f service and filesystem receipts.",
-      "ru": "Не проверен. Синтетический Chromium UI и реальные авторизованные вызовы Devstral/ds41f с квитанциями и файлами."
+      "en": "Not tested; synthetic Chromium EN/RU desktop/mobile plus production host integration.",
+      "ru": "Не проверен; синтетический Chromium EN/RU desktop/mobile и интеграционные проверки рабочих обработчиков."
     }
   }
 }
