@@ -2,7 +2,7 @@
 
 Build with a clear task, visible limits and evidence you can review. Tvijo connects a browser workspace, VS Code and terminal workflows; each tool keeps its own execution permissions and account requirements.
 
-[Open DSHREM](https://dsh.tvijo.com/) · [Open Builder](https://dsh.tvijo.com/builder/) · [Extension & terminal](https://dsh.tvijo.com/download) · [Settings explained](https://dsh.tvijo.com/knowledge/settings-explained) · [Agent teams & costs](https://dsh.tvijo.com/knowledge/agentroy-teams-and-costs) · [Recovery](https://dsh.tvijo.com/knowledge/durable-work-and-recovery)
+[Open DSHREM](https://dsh.tvijo.com/) · [Open Builder](https://builder.tvijo.com/) · [Extension & terminal](https://dsh.tvijo.com/download) · [Settings explained](https://dsh.tvijo.com/knowledge/settings-explained) · [Agent teams & costs](https://dsh.tvijo.com/knowledge/agentroy-teams-and-costs) · [Recovery](https://dsh.tvijo.com/knowledge/durable-work-and-recovery)
 
 ## Read the introductory guide in your language
 
