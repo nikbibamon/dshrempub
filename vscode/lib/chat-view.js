@@ -38,8 +38,8 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
 <div id="notice" role="alert"><p id="notice-text"></p><button id="notice-action" type="button">Resolve task</button></div>
 <script nonce="${nonce}">
   const COPY = ${JSON.stringify(COPY)};
-  Object.assign(COPY.en,{modeFull:'Full access',modeFullHint:'Saves agent edits for checks and approves commands; hard limits still apply.',agentSavedHelp:'Agent edits are saved before disk checks. Dirty user buffers are protected.',fullAccessWarning:'Full access is active',fullAccessRevert:'Revert'});
-  Object.assign(COPY.ru,{modeFull:'Полный доступ',modeFullHint:'Сохранять правки агента для проверок и одобрять команды; жёсткие ограничения сохраняются.',agentSavedHelp:'Правки агента сохраняются до проверок на диске. Пользовательские несохранённые буферы защищены.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
+  Object.assign(COPY.en,{modeFull:'Full access',modeFullHint:'Commands can do anything your user can do. Push is blocked by inherited Git settings; rules changes are quarantined. Not an OS sandbox.',agentSavedHelp:'Agent edits are saved before disk checks. Dirty user buffers are protected.',fullAccessWarning:'Full access is active',fullAccessRevert:'Revert'});
+  Object.assign(COPY.ru,{modeFull:'Полный доступ',modeFullHint:'Команды имеют права вашего пользователя. Унаследованные настройки Git блокируют push; изменения правил уходят в карантин. Это не изоляция ОС.',agentSavedHelp:'Правки агента сохраняются до проверок на диске. Пользовательские несохранённые буферы защищены.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
   const safeExternalUrl = ${safeExternalUrl.toString()};
   const renderMarkdown = ${renderMarkdown.toString()};
   const renderAgentMap = ${renderAgentMap.toString()};
@@ -328,7 +328,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   function showNotice(text, action) {
     currentNotice = text ? { text, action: action || null } : null;
     noticeText.textContent = text || '';
-    noticeActionButton.hidden = !action; noticeActionButton.textContent = action === 'chooseFolder' ? (locale==='ru'?'Выбрать папку':'Choose folder') : action === 'addWorkspaceFolder' ? (locale==='ru'?'Добавить как папку рабочей области':'Add as workspace folder') : action === 'account' ? t('signIn') : action === 'context' ? t('contextPreview') : t('resolvePending');
+    noticeActionButton.hidden = !action; noticeActionButton.textContent = action === 'chooseFolder' ? (locale==='ru'?'Выбрать папку':'Choose folder') : action === 'addWorkspaceFolder' ? (locale==='ru'?'Добавить как папку рабочей области':'Add as workspace folder') : action === 'rulesSettings' ? (locale==='ru'?'Проверить правила в ⚙':'Review rules in ⚙') : action === 'account' ? t('signIn') : action === 'context' ? t('contextPreview') : t('resolvePending');
     notice.className = text ? 'visible' : '';
   }
   function drawQuote(q) {
@@ -771,7 +771,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       document.getElementById('runtime-version').title = locale === 'ru' ? 'После обновления: перезагрузить окно' : 'After updating: reload window';
       document.getElementById('auto-commit').textContent=(locale==='ru'?'Автокоммит: ':'Auto-commit: ')+(data.autoCommit==='off'?(locale==='ru'?'выкл':'off'):(locale==='ru'?'вкл':'on'));
       const rulesPanel=document.getElementById('loaded-rules');rulesPanel.replaceChildren();
-      for(const rule of data.loadedRules || []){const row=document.createElement('div');row.className='rule-row';const toggle=document.createElement('button');toggle.type='button';toggle.textContent=(rule.disabled?'☐ ':'☑ ')+rule.file+' · '+rule.bytes+' B'+(rule.truncated?(locale==='ru'?' · обрезано':' · truncated'):'')+(rule.status==='rejected'?' · '+rule.reason:'');toggle.disabled=running;toggle.addEventListener('click',()=>post({type:'toggleRule',id:rule.id}));row.append(toggle);rulesPanel.append(row);}
+      for(const rule of data.loadedRules || []){const row=document.createElement('div');row.className='rule-row';const toggle=document.createElement('button');toggle.type='button';toggle.textContent=(rule.quarantined?'⚠ ':rule.disabled?'☐ ':'☑ ')+rule.file+' · '+rule.bytes+' B'+(rule.truncated?(locale==='ru'?' · обрезано':' · truncated'):'')+(rule.status==='rejected'?' · '+rule.reason:'')+(rule.quarantined?(locale==='ru'?' · карантин — включить снова':' · quarantined — re-enable'):'');toggle.disabled=running;toggle.addEventListener('click',()=>post({type:rule.quarantined?'reenableRule':'toggleRule',id:rule.id}));row.append(toggle);rulesPanel.append(row);}
       renderRunSession(data.runSession);
       if (data.workflow && !data.options) { window.tvijoWorkflow = data.workflow; document.getElementById('workflow-label').textContent = data.workflow; }
       const packPicker = document.getElementById('pack-picker');
@@ -885,7 +885,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   document.getElementById('composer-signin').addEventListener('click', () => post({type:'account'}));
   document.getElementById('signin').addEventListener('click', () => post({type:lastSignedIn ? 'account' : 'account'}));
   document.getElementById('cancel').addEventListener('click', () => post({type:'cancel'}));
-  noticeActionButton.addEventListener('click', () => post({type: ['chooseFolder','addWorkspaceFolder'].includes(currentNotice?.action) ? currentNotice.action : currentNotice?.action === 'account' ? 'account' : currentNotice?.action === 'context' ? 'contextPreview' : 'cancel'}));
+  noticeActionButton.addEventListener('click', () => {if(currentNotice?.action==='rulesSettings'){setDrawer(true);return;}post({type: ['chooseFolder','addWorkspaceFolder'].includes(currentNotice?.action) ? currentNotice.action : currentNotice?.action === 'account' ? 'account' : currentNotice?.action === 'context' ? 'contextPreview' : 'cancel'});});
   document.getElementById('context-preview').addEventListener('click', () => post({ type: 'contextPreview' }));
   document.getElementById('quick-edit').addEventListener('click', () => post({ type: 'quickEdit' }));
   document.getElementById('workflow').addEventListener('click', () => { plusMenu.className = ''; document.getElementById('plus').setAttribute('aria-expanded','false'); const open = optionsMenu.className !== 'open'; optionsMenu.className = open ? 'open' : ''; document.getElementById('workflow').setAttribute('aria-expanded', String(open)); });

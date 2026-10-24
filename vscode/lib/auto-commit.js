@@ -12,21 +12,26 @@ function gitEnvironment(source,workspaceRoot,index){
 function runGit(start,args,{input,index,timeoutMs=start.timeoutMs||120000}={}){
  return new Promise((resolve,reject)=>{
   const child=spawn('git',[...(args[0]==='check-ignore'?[]:['--literal-pathspecs']),...args],{cwd:start.root,env:gitEnvironment(start.environment,start.workspaceRoot,index),shell:false,detached:process.platform!=='win32',stdio:['pipe','pipe','pipe']});
-  let stdout=Buffer.alloc(0),stderr=Buffer.alloc(0),timedOut=false,finished=false,term,kill;
+  let stdout=Buffer.alloc(0),stderr=Buffer.alloc(0),timedOut=false,finished=false,truncated=false,term,kill;
   const signal=s=>{try{if(process.platform!=='win32')process.kill(-child.pid,s);else child.kill(s);}catch{}};
-  const append=(old,data)=>Buffer.concat([old,data]).subarray(0,1024*1024);
+  const append=(old,data)=>{const combined=Buffer.concat([old,data]);if(combined.length>1024*1024)truncated=true;return combined.subarray(0,1024*1024);};
   child.stdout.on('data',data=>{stdout=append(stdout,data);});child.stderr.on('data',data=>{stderr=append(stderr,data);});
   const timer=setTimeout(()=>{timedOut=true;signal('SIGINT');term=setTimeout(()=>{signal('SIGTERM');kill=setTimeout(()=>signal('SIGKILL'),1000);},1000);},timeoutMs);
-  function finish(error,code){if(finished)return;finished=true;clearTimeout(timer);clearTimeout(term);clearTimeout(kill);if(timedOut)signal('SIGKILL');if(error)reject(error);else resolve({ok:code===0&&!timedOut,code,timedOut,stdout,stderr});}
+  function finish(error,code){if(finished)return;finished=true;clearTimeout(timer);clearTimeout(term);clearTimeout(kill);if(timedOut)signal('SIGKILL');if(error)reject(error);else resolve({ok:code===0&&!timedOut&&!truncated,code,timedOut,truncated,stdout,stderr});}
   child.once('error',e=>finish(e));child.once('close',code=>finish(null,code));child.stdin.on('error',()=>{});child.stdin.end(input);
  });
 }
 const output=r=>r.stdout.toString('utf8').trim();
 async function git(start,args,options){const r=await runGit(start,args,options);if(!r.ok)throw Object.assign(Error(clean(r.stderr.toString('utf8')).slice(0,2000)||'Git failed'),{reason:r.timedOut?'hook_timeout':'git_failed'});return r;}
 function entries(buffer){return buffer.toString('utf8').split('\0').filter(Boolean).map(row=>{const tab=row.indexOf('\t');const [mode,oid,stage]=row.slice(0,tab).split(' ');return {mode,oid,stage,path:row.slice(tab+1)};});}
-async function headEntry(start,relative){const r=await git(start,['ls-tree','-z',start.head,'--',relative]);const row=entries(r.stdout)[0];return row?{mode:row.mode,oid:row.stage,path:row.path}:null;}
+async function headEntry(start,relative,revision=start.head){const r=await git(start,['ls-tree','-z',revision,'--',relative]);const row=entries(r.stdout)[0];return row?{mode:row.mode,oid:row.stage,path:row.path}:null;}
 async function indexEntries(start,relative,index){return entries((await git(start,['ls-files','--stage','-z','--',relative],{index})).stdout);}
 const sameEntry=(list,head)=>head?list.length===1&&list[0].stage==='0'&&list[0].mode===head.mode&&list[0].oid===head.oid:list.length===0;
+async function readRefs(start){
+ if(!start?.head)return null;
+ return {head:output(await git(start,['rev-parse','HEAD'])),branch:output(await git(start,['symbolic-ref','-q','HEAD']).catch(()=>({stdout:Buffer.alloc(0)}))),refs:output(await git(start,['for-each-ref','--format=%(refname) %(objectname)']))};
+}
+async function refsChanged(start){if(!start?.refs)return false;try{return JSON.stringify(await readRefs(start))!==JSON.stringify(start.refs);}catch{return true;}}
 const inProgress=['MERGE_HEAD','rebase-merge','rebase-apply','CHERRY_PICK_HEAD','REVERT_HEAD','BISECT_LOG','BISECT_START'];
 async function progressReason(start){for(const marker of inProgress){const r=await git(start,['rev-parse','--git-path',marker]);const file=path.resolve(start.root,output(r));if(fs.existsSync(file))return 'operation_in_progress';}return null;}
 async function capture({root,workspaceRoot=root,storageRoot,environment=process.env,timeoutMs=120000}={}){
@@ -42,7 +47,7 @@ async function capture({root,workspaceRoot=root,storageRoot,environment=process.
   if(!within(start.workspaceRoot,start.root))return {...start,reason:'repo_outside_workspace'};
   if(output(await git(start,['rev-parse','--show-superproject-working-tree'])))return {...start,reason:'submodule'};
   const branch=await runGit(start,['symbolic-ref','-q','HEAD']);if(!branch.ok)return {...start,reason:'detached_head'};start.branch=output(branch);
-  const head=await runGit(start,['rev-parse','--verify','HEAD']);if(!head.ok)return {...start,reason:'unborn_head'};start.head=output(head);
+  const head=await runGit(start,['rev-parse','--verify','HEAD']);if(!head.ok)return {...start,reason:'unborn_head'};start.head=output(head);start.refs=await readRefs(start);
   const progress=await progressReason(start);if(progress)return {...start,reason:progress};
   const name=await runGit(start,['config','user.name']),email=await runGit(start,['config','user.email']);
   if(!name.ok||!email.ok||!output(name)||!output(email))return {...start,reason:'missing_identity'};
@@ -72,11 +77,12 @@ async function reconcileIndex(start,selected){
   return {updated:updated.map(f=>f.relative),skipped};
  }finally{if(fd!==undefined)fs.closeSync(fd);if(owned)fs.unlinkSync(lock);}
 }
-async function commitTask({start,writes=[],result,aborted=false,events=[],models=[],taskId,guard=async()=>{},enabled=true}={}){
+async function commitTask({start,writes=[],result,aborted=false,events=[],models=[],taskId,guard=async()=>{},enabled=true,refChanged=false,excludedPaths=[]}={}){
  const response={ok:false,skipped:[],commandSideEffects:'Command side effects (including removals and renames) are not tracked or committed.'};
  if(!enabled)return {...response,reason:'off'};
  if(aborted||result?.reason!=='finish'||result?.status!=='done')return {...response,reason:'task_not_done'};
  if(!start?.ok)return {...response,reason:start?.reason||'no_repo'};
+ if(refChanged)return {...response,reason:'refs_changed'};
  const writesList=writes instanceof Map?[...writes.values()]:writes;if(!writesList.length)return {...response,reason:'no_saved_edits'};
  const checks=events.map((e,index)=>({...e,index})).filter(e=>e.type==='result'&&e.action?.tool==='run_command').map(e=>({command:e.action.command,ok:e.result?.ok===true,index:e.index}));
  const lastWrite=events.findLastIndex(e=>e.type==='result'&&['write_file','replace_in_file'].includes(e.action?.tool)&&e.result?.ok===true);
@@ -84,7 +90,7 @@ async function commitTask({start,writes=[],result,aborted=false,events=[],models
  if(checks.length && checks.at(-1).index<lastWrite)return {...response,reason:'check_before_last_write'};
  let temp;
  try{
-  await guard();if(!await unchangedHead(start))return {...response,reason:'head_moved'};
+  await guard();if(!await unchangedHead(start))return {...response,reason:'head_moved'};if(await refsChanged(start))return {...response,reason:'refs_changed'};
   const progress=await progressReason(start);if(progress)return {...response,reason:progress};
   if(!start.storageRoot || !path.isAbsolute(start.storageRoot))return {...response,reason:'storage_unavailable'};
   fs.mkdirSync(start.storageRoot,{recursive:true,mode:0o700});
@@ -95,6 +101,7 @@ async function commitTask({start,writes=[],result,aborted=false,events=[],models
    const absolute=file.absolute||file.document?.uri?.fsPath;const relative=path.relative(start.root,absolute).split(path.sep).join('/');
    const skip=reason=>response.skipped.push({path:relative,reason});
    if(!within(start.root,absolute)){skip('outside_repo');continue;}
+   if(excludedPaths.some(value=>path.resolve(value)===path.resolve(absolute))){skip('rules_quarantined');continue;}
    let checked;try{checked=safePath(start.root,relative,true);const stat=fs.lstatSync(checked);if(!stat.isFile()||stat.nlink!==1)throw Error();}catch{skip('unsafe_path');continue;}
    const head=await headEntry(start,relative),current=await indexEntries(start,relative),original=start.startIndex.filter(e=>e.path===relative);
    if(file.previous===null && (head||current.length||original.length)){skip('new_file_already_tracked');continue;}
@@ -111,7 +118,7 @@ async function commitTask({start,writes=[],result,aborted=false,events=[],models
   }
   if(!selected.length)return {...response,reason:'no_eligible_edits'};
   const message=buildMessage({summary:result.text,paths:selected.map(f=>f.relative),checks,models,taskId});const messageFile=path.join(temp,'message');fs.writeFileSync(messageFile,message,{flag:'wx',mode:0o600});
-  await guard();if(!await unchangedHead(start))return {...response,reason:'head_moved'};
+  await guard();if(!await unchangedHead(start))return {...response,reason:'head_moved'};if(await refsChanged(start))return {...response,reason:'refs_changed'};
   if(await progressReason(start))return {...response,reason:'operation_in_progress'};
   for(const file of selected){if(!sameEntry(await indexEntries(start,file.relative),file.head))return {...response,reason:'index_changed'};if(!fs.readFileSync(safePath(start.root,file.relative,true)).equals(file.bytes))return {...response,reason:'disk_changed'};}
   const committed=await runGit(start,['commit','-F',messageFile],{index});
@@ -120,7 +127,15 @@ async function commitTask({start,writes=[],result,aborted=false,events=[],models
   const parent=output(await git(start,['rev-parse',hash+'^']));
   const record={...response,ok:true,hash,root:start.root,workspaceRoot:start.workspaceRoot,paths:selected.map(f=>f.relative),checks};
   if(parent!==start.head)return {...record,reason:'head_changed_during_commit',indexWarning:true};
-  try{const reconciled=await reconcileIndex(start,selected);record.skipped.push(...reconciled.skipped);}catch{record.indexWarning=true;}
+  try{
+   // Hooks run with the temporary index and can restage or add paths. Inspect
+   // what Git actually committed before changing any entry in the user's index.
+   const diff=(await git(start,['diff-tree','-r','--no-commit-id','--name-status','-z','--no-renames',parent,hash])).stdout.toString('utf8').split('\0').filter(Boolean);
+   record.paths=[];for(let i=0;i<diff.length;i+=2)record.paths.push(diff[i+1]);
+   const selectedPaths=new Set(selected.map(file=>file.relative));record.hookAddedPaths=record.paths.filter(file=>!selectedPaths.has(file));
+   const actual=[];for(const file of selected){const entry=await headEntry(start,file.relative,hash);actual.push({...file,mode:entry?.mode || '0',oid:entry?.oid || '0'.repeat(hash.length)});}
+   const reconciled=await reconcileIndex(start,actual);record.skipped.push(...reconciled.skipped);
+  }catch{record.indexWarning=true;}
   return record;
  }catch(error){return {...response,reason:error.reason||'git_failed'};}
  finally{if(temp){const ownLock=path.join(temp,'index.lock');try{fs.unlinkSync(ownLock);}catch(error){if(error.code!=='ENOENT'){} }}}
@@ -133,6 +148,6 @@ async function undo({root,workspaceRoot,hash,environment=process.env,timeoutMs=1
  try{await git(start,soft?['reset','--soft',hash+'^']:['revert','--no-edit',hash]);return {ok:true,method:soft?'soft_reset':'revert'};}catch(error){return {ok:false,reason:error.reason||'git_failed'};}
 }
 const REASONS={
- off:['disabled in Settings','выключен в настройках'],task_not_done:['the task did not finish with status done','задача не завершилась со статусом done'],no_saved_edits:['no saved editor edits','нет сохранённых правок редактора'],no_repo:['no Git repository','нет репозитория Git'],detached_head:['HEAD is detached','HEAD не привязан к ветке'],unborn_head:['the branch has no first commit','в ветке нет первого коммита'],operation_in_progress:['a Git operation is in progress','идёт операция Git'],repo_outside_workspace:['the repository root is outside this workspace','корень репозитория вне рабочей области'],submodule:['submodule commits need manual review','коммит подмодуля требует ручной проверки'],missing_identity:['configure Git user.name and user.email','задайте user.name и user.email в Git'],head_moved:['HEAD changed during the task','HEAD изменился во время задачи'],no_eligible_edits:['no files with exclusively Tvijo edits','нет файлов только с правками Tvijo'],user_staged:['user-staged file preserved','пользовательский staging сохранён'],mixed_authorship:['pre-existing user edits preserved','исходные правки пользователя сохранены'],new_file_already_tracked:['new-file path is already tracked','путь нового файла уже отслеживается Git'],ignored:['file is ignored by Git','файл исключён Git'],outside_repo:['file is outside the repository','файл вне репозитория'],unsafe_path:['file path or link identity is unsafe','небезопасный путь или связь файла'],previous_not_in_head:['previous file version is absent from HEAD','исходной версии файла нет в HEAD'],disk_changed:['file changed on disk','файл изменился на диске'],unchanged:['no saved change','нет сохранённых изменений'],check_failed:['the last command failed','последняя команда завершилась ошибкой'],check_before_last_write:['the last check preceded the last edit','последняя проверка была до последней правки'],hook_timeout:['Git hook timed out','истекло время Git-хука'],hook_or_signing_failed:['Git hook or signing failed','ошибка Git-хука или подписи'],index_changed:['user staging changed before commit','staging пользователя изменился до коммита'],index_changed_after_commit:['new user staging preserved after commit','новый staging пользователя сохранён после коммита'],git_failed:['Git failed; saved edits are preserved','ошибка Git; сохранённые правки оставлены'],storage_unavailable:['local commit storage is unavailable','локальное хранилище коммитов недоступно'],storage_inside_repo:['commit storage is inside the repository','хранилище коммитов внутри репозитория'],unsupported_mode:['unsupported file mode','неподдерживаемый режим файла']};
+ refs_changed:['HEAD or Git refs changed during the task; review the command effects','HEAD или ссылки Git изменились во время задачи; проверьте действия команд'],rules_quarantined:['rules file is quarantined','файл правил в карантине'],off:['disabled in Settings','выключен в настройках'],task_not_done:['the task did not finish with status done','задача не завершилась со статусом done'],no_saved_edits:['no saved editor edits','нет сохранённых правок редактора'],no_repo:['no Git repository','нет репозитория Git'],detached_head:['HEAD is detached','HEAD не привязан к ветке'],unborn_head:['the branch has no first commit','в ветке нет первого коммита'],operation_in_progress:['a Git operation is in progress','идёт операция Git'],repo_outside_workspace:['the repository root is outside this workspace','корень репозитория вне рабочей области'],submodule:['submodule commits need manual review','коммит подмодуля требует ручной проверки'],missing_identity:['configure Git user.name and user.email','задайте user.name и user.email в Git'],head_moved:['HEAD changed during the task','HEAD изменился во время задачи'],no_eligible_edits:['no files with exclusively Tvijo edits','нет файлов только с правками Tvijo'],user_staged:['user-staged file preserved','пользовательский staging сохранён'],mixed_authorship:['pre-existing user edits preserved','исходные правки пользователя сохранены'],new_file_already_tracked:['new-file path is already tracked','путь нового файла уже отслеживается Git'],ignored:['file is ignored by Git','файл исключён Git'],outside_repo:['file is outside the repository','файл вне репозитория'],unsafe_path:['file path or link identity is unsafe','небезопасный путь или связь файла'],previous_not_in_head:['previous file version is absent from HEAD','исходной версии файла нет в HEAD'],disk_changed:['file changed on disk','файл изменился на диске'],unchanged:['no saved change','нет сохранённых изменений'],check_failed:['the last command failed','последняя команда завершилась ошибкой'],check_before_last_write:['the last check preceded the last edit','последняя проверка была до последней правки'],hook_timeout:['Git hook timed out','истекло время Git-хука'],hook_or_signing_failed:['Git hook or signing failed','ошибка Git-хука или подписи'],index_changed:['user staging changed before commit','staging пользователя изменился до коммита'],index_changed_after_commit:['new user staging preserved after commit','новый staging пользователя сохранён после коммита'],git_failed:['Git failed; saved edits are preserved','ошибка Git; сохранённые правки оставлены'],storage_unavailable:['local commit storage is unavailable','локальное хранилище коммитов недоступно'],storage_inside_repo:['commit storage is inside the repository','хранилище коммитов внутри репозитория'],unsupported_mode:['unsupported file mode','неподдерживаемый режим файла']};
 function describe(reason,locale='en'){return REASONS[reason]?.[locale==='ru'?1:0] || reason;}
-module.exports={capture,commitTask,undo,buildMessage,gitEnvironment,describe};
+module.exports={capture,commitTask,undo,buildMessage,gitEnvironment,describe,readRefs,refsChanged};

@@ -176,36 +176,65 @@ function collect({ root, knownPaths = [], knownSecrets = [], contextMode = 'on',
 const RULE_FILES=['AGENTS.md','CLAUDE.md','.clinerules','.cursorrules','.windsurfrules','.github/copilot-instructions.md','.tvijo/rules.md'];
 function isRulesPath(value){const parts=path.posix.normalize(String(value).replace(/\\/g,'/')).toLowerCase().split('/');const base=parts.at(-1);return ['agents.md','claude.md','.clinerules','.cursorrules','.windsurfrules'].includes(base) || parts.includes('.clinerules') || /(?:^|\/)(?:\.github\/copilot-instructions\.md|\.tvijo\/rules\.md)$/.test(parts.join('/'));}
 function clip(text,max){const chars=Array.from(text);let lo=0,hi=chars.length;while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(Buffer.byteLength(chars.slice(0,mid).join(''))<=max)lo=mid;else hi=mid-1;}return chars.slice(0,lo).join('');}
-function collectProject({root,boundary,resolveDirectory=()=>true,knownPaths=[],knownSecrets=[],contextMode='on',workspaceTrusted=false,disabled=[]}={}){
- if(contextMode==='off' || !workspaceTrusted)return {text:'',status:contextMode==='off'?'disabled':'untrusted',files:[]};
- const blocks=[],files=[];let used=0,dir=root;
- const within=(parent,child)=>{const rel=path.relative(parent,child);return !rel || rel!=='..' && !rel.startsWith('..'+path.sep) && !path.isAbsolute(rel);};
- try{if(fs.realpathSync(root)!==root || fs.realpathSync(boundary)!==boundary || !within(boundary,root))return {text:'',status:'rejected',files:[]};}catch{return {text:'',status:'unavailable',files:[]};}
+function ruleDirectories({root,boundary,resolveDirectory=()=>true}={}){
+ const result=[],within=(parent,child)=>{const rel=path.relative(parent,child);return !rel || rel!=='..'&&!rel.startsWith('..'+path.sep)&&!path.isAbsolute(rel);};
+ try{if(fs.realpathSync(root)!==root || fs.realpathSync(boundary)!==boundary || !within(boundary,root))return result;}catch{return result;}
+ let dir=root;
  while(within(boundary,dir)){
   try{if(resolveDirectory(dir)===false)break;lstatChain(dir);}catch{break;}
-  const candidates=[];
-  for(const file of RULE_FILES){
-   if(file==='.clinerules'){
-    try{const stat=fs.lstatSync(path.join(dir,file));if(stat.isDirectory()&&!stat.isSymbolicLink()){for(const entry of fs.readdirSync(path.join(dir,file)).sort())if(entry.endsWith('.md'))candidates.push(file+'/'+entry);continue;}}catch{}
+  result.push(dir);if(fs.existsSync(path.join(dir,'.git')) || dir===boundary)break;
+  const parent=path.dirname(dir);if(parent===dir)break;dir=parent;
+ }
+ return result;
+}
+function ruleCandidates(dir){
+ const candidates=[];
+ for(const file of RULE_FILES){
+  if(file==='.clinerules')try{const stat=fs.lstatSync(path.join(dir,file));if(stat.isDirectory()&&!stat.isSymbolicLink()){for(const entry of fs.readdirSync(path.join(dir,file)).sort())if(entry.endsWith('.md'))candidates.push(file+'/'+entry);continue;}}catch{}
+  candidates.push(file);
+ }
+ return candidates;
+}
+const ruleId=absolute=>createHash('sha256').update(absolute).digest('hex');
+function fingerprintProject(options){
+ const result=new Map();
+ for(const dir of ruleDirectories(options)){
+  for(const relative of new Set([...ruleCandidates(dir),'.clinerules'])){
+   const absolute=path.join(dir,relative);let fingerprint,bytes=0;
+   try{
+    const stat=fs.lstatSync(absolute,{bigint:true});bytes=Number(stat.size);
+    if(relative==='.clinerules'&&stat.isDirectory()&&!stat.isSymbolicLink())fingerprint='directory';
+    else {const read=readRules(dir,relative);fingerprint=read.missing?'missing':createHash('sha256').update(read.bytes).update(JSON.stringify([String(stat.dev),String(stat.ino),String(stat.mtimeNs),String(stat.ctimeNs)])).digest('hex');}
+   }catch(error){
+    if(error.code==='ENOENT'||error.code==='ENOTDIR')fingerprint='missing';
+    else {let metadata='';try{const st=fs.lstatSync(absolute,{bigint:true});metadata=[st.dev,st.ino,st.size,st.mtimeNs,st.ctimeNs].map(String).join(':');}catch{}fingerprint='rejected:'+error.message+':'+metadata;}
    }
-   candidates.push(file);
+   result.set(absolute,{absolute,id:ruleId(absolute),file:path.relative(options.root,absolute).split(path.sep).join('/'),bytes,fingerprint});
   }
+ }
+ return result;
+}
+function collectProject({root,boundary,resolveDirectory=()=>true,knownPaths=[],knownSecrets=[],contextMode='on',workspaceTrusted=false,disabled=[],quarantined=[]}={}){
+ if(contextMode==='off' || !workspaceTrusted)return {text:'',status:contextMode==='off'?'disabled':'untrusted',files:[]};
+ const blocks=[],files=[];let used=0;
+ const within=(parent,child)=>{const rel=path.relative(parent,child);return !rel || rel!=='..' && !rel.startsWith('..'+path.sep) && !path.isAbsolute(rel);};
+ try{if(fs.realpathSync(root)!==root || fs.realpathSync(boundary)!==boundary || !within(boundary,root))return {text:'',status:'rejected',files:[]};}catch{return {text:'',status:'unavailable',files:[]};}
+ for(const dir of ruleDirectories({root,boundary,resolveDirectory})){
+  const candidates=ruleCandidates(dir);
   for(const relative of candidates){
    const absolute=path.join(dir,relative),id=createHash('sha256').update(absolute).digest('hex'),file=path.relative(root,absolute).split(path.sep).join('/');
    const result=collect({root:dir,relative,knownPaths:knownPaths.map(p=>path.relative(dir,path.resolve(root,p)).split(path.sep).join('/')),knownSecrets,contextMode,workspaceTrusted});
    if(result.status==='missing')continue;
-   const row={id,file,bytes:result.sourceBytes || 0,truncated:false,status:result.status,reason:result.reason,disabled:disabled.includes(id)};files.push(row);
-   if(!result.text || row.disabled)continue;
+   const row={id,file,bytes:result.sourceBytes || 0,truncated:false,status:quarantined.includes(id)?'quarantined':result.status,reason:result.reason,disabled:disabled.includes(id),quarantined:quarantined.includes(id)};files.push(row);
+   if(!result.text || row.disabled || row.quarantined)continue;
    const title='[RULE FILE '+JSON.stringify(file)+']\n';const remaining=MAX_RULES_BYTES-used;
    const note='\n[TRUNCATED PROJECT RULES]\n';
    let block=title+result.text;
    if(Buffer.byteLength(block)>remaining){row.truncated=true;const suffix='\n```\n[END PROJECT RULES]\n';const cut=block.lastIndexOf(suffix);const base=cut>=0?block.slice(0,cut):block;block=remaining>Buffer.byteLength(title+suffix+note)+180?clip(base,remaining-Buffer.byteLength(suffix+note))+suffix+note:'';}
    row.includedBytes=Buffer.byteLength(block);used+=row.includedBytes;if(block)blocks.push(block);
   }
-  if(fs.existsSync(path.join(dir,'.git')) || dir===boundary)break;
-  const parent=path.dirname(dir);if(parent===dir)break;dir=parent;
  }
  return {text:blocks.join(''),status:blocks.length?'included':'empty',files,bytes:used,truncated:files.some(f=>f.truncated)};
 }
-module.exports = { collect, collectProject, inspect, compileGlob, MAX_RULES_BYTES, MAX_READ_BYTES, RULES_RELATIVE, RULE_FILES, isRulesPath };
+module.exports = { collect, collectProject, inspect, compileGlob, MAX_RULES_BYTES, MAX_READ_BYTES, RULES_RELATIVE, RULE_FILES, isRulesPath, ruleDirectories, ruleCandidates, fingerprintProject, ruleId };
 

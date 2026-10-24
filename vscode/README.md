@@ -74,8 +74,12 @@ Hard command denials, file-tool workspace/symlink/secret guards, task budget
 ceilings and reservations remain mandatory. Edits still require Rewind checkpoints
 before applying edits. In Full access and Auto, Agent edits are saved to disk
 before later reads or tests. Quick Edit and review modes retain buffer review
-semantics. Commands use local host permissions; this preset
-does not provide an operating-system sandbox. Restricted Mode cannot enable it.
+semantics. Commands can still do anything your user can do; Full access is not
+an operating-system sandbox. Inherited Git configuration blocks push, including
+Git invoked by Python, npm scripts or other children. To cover explicit push URLs,
+Git transports are disabled in Agent commands; fetch and clone also fail there.
+Programs deliberately clearing that environment remain outside this protection.
+Restricted Mode cannot enable Full access.
 
 ## Project rules
 
@@ -91,7 +95,14 @@ Symlinks, hard links, invalid UTF-8 and files over 256 KiB are refused. Credenti
 scanning covers the complete read before truncation. Rules are quoted project
 advice and cannot grant permissions. Agent file-tool writes to every rules file
 always ask, including in Full access. Git commands that change state also always
-ask; hard command denials still apply.
+ask; hard command denials still apply. Commands whose literal arguments name a
+rules file also ask. Tvijo fingerprints the loader's complete rules scope before
+the task and after every command. Changes outside an approved direct file edit
+quarantine the affected rules and require confirmation for subsequent commands in
+that task. Quarantined rules are excluded from later requests until you explicitly
+re-enable each file in Settings. Creations and deletions are covered. An arbitrary
+program can still modify files your user can modify; detection is reported rather
+than hidden, and it is not a filesystem sandbox.
 
 ## Local auto-commit
 
@@ -102,9 +113,12 @@ cancellation, blocked answer or step limit prevents the commit. Tvijo never push
 
 Only files whose original bytes match HEAD are eligible. User-staged files,
 mixed-authorship files, ignored files, submodules, detached or unborn branches,
-active Git operations, moved HEAD and missing Git identity are reported and skipped.
+active Git operations, changed HEAD or Git refs and missing Git identity are reported and skipped.
+The final answer explicitly reports command-time HEAD/ref changes.
 The host uses an isolated index, runs hooks and signing, and preserves the user's
-staging. Commit messages identify the editor, served models, task and checks.
+staging. After hooks run, reconciliation uses the blobs and modes actually
+committed. Hook-added paths are explicitly reported and their user index entries
+are left untouched. Quarantined rules are excluded. Commit messages identify the editor, served models, task and checks.
 Shell side effects, including removals and renames, are not tracked or committed.
 
 The answer shows the commit hash and **Undo commit**. Undo uses a soft reset only

@@ -1,5 +1,9 @@
 # 0.10.8
 
+- Block Git pushes inherited by Agent command children, including Python and npm; this also disables fetch/clone in those commands. Report HEAD/ref changes and refuse auto-commit after them.
+- Quarantine rules changed through commands until explicitly re-enabled in Settings; ask before further commands in that task.
+- Reconcile hook-formatted files using actual committed blobs and report hook-added paths without changing their user staging.
+
 - Start in Auto mode with up to 30 steps; saved Agent edits are ready for tests. The task budget stays $2.
 - Keep the conversation clear with folder, mode and model controls below the composer; account details live in Settings.
 - Load project rules automatically in trusted workspaces, with per-file controls and visible truncation.
