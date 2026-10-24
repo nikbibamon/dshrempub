@@ -19,3 +19,11 @@ test('0.10.8 webview literal IDs exist and header rows are removed',()=>{
  const c=require('../package.json').contributes;assert.equal(c.views.tvijo[0].name,'Tvijo');assert.equal(c.menus['view/title'].length,3);
  assert.equal(c.commands.find(c=>c.command==='tvijo.newConversation').enablement,'!tvijo.busy');
 });
+
+test('0.10.8 composer owns folder chip and settings owns account and version',()=>{
+ const html=require('../lib/chat-view').chatHtml({cspSource:'test:'}).split('<script nonce=')[0];
+ assert.match(html,/<div class="composer-actions"><button id="workspace-choice"/);
+ const drawer=html.match(/<aside id="settings-drawer"[\s\S]*?<\/aside>/)[0];
+ for(const id of ['account-identity','account-verification','runtime-version','auto-commit','loaded-rules','signout'])assert.ok(drawer.includes('id="'+id+'"'));
+ assert.doesNotMatch(html,/id="full-access-warning"/);
+});

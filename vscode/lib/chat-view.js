@@ -18,11 +18,10 @@ ${THEME_CSS}
 ${CHAT_CSS}
 ${REWIND_CSS}
 #recovery{flex-shrink:0;max-height:260px;overflow:auto;padding:8px 12px;border-top:1px solid var(--border)}#recovery summary{font-size:12px;cursor:pointer;padding:4px 0}.recovery-card{padding:8px;margin:6px 0;border:1px solid var(--border);border-radius:6px}.recovery-card p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 6px}.recovery-actions{display:flex;flex-wrap:wrap;gap:6px}.recovery-actions button{font-size:11px}#recovery-notes{font-size:11px;overflow-wrap:anywhere}
-#full-access-warning{flex-shrink:0;margin:6px 10px;padding:8px;border:1px solid #d99b32;border-radius:6px;background:rgba(217,155,50,.12);font-size:12px;overflow-wrap:anywhere;max-width:calc(100% - 36px);max-height:180px;overflow:auto}#full-access-warning[hidden]{display:none}.full-access-row{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;margin-top:5px}.full-access-folder{min-width:0;overflow-wrap:anywhere;flex:1 1 120px}.full-access-row button{max-width:100%;white-space:normal}
 header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(--vscode-contrastBorder,var(--border));border-radius:999px;background:var(--surface);color:var(--text)}#elapsed-chip{white-space:nowrap}#agent-map-button{white-space:nowrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
 #workspace-choice,#identity-button{min-width:0;max-width:100%;overflow-wrap:anywhere;white-space:normal;text-align:left}#identity-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:5px 12px;border-bottom:1px solid var(--border);flex-shrink:0}#identity-button{font-size:12px}#identity-state{font-size:11px;overflow-wrap:anywhere}
 </style></head><body>
-<section id="folder-browser" aria-labelledby="folder-title" hidden><div class="drawer-heading"><strong id="folder-title"></strong><button id="folder-close" type="button">×</button></div><p id="folder-hint"></p><div id="folder-rows"></div></section>
+<section id="folder-browser" aria-labelledby="folder-title" hidden><div class="drawer-heading"><strong id="folder-title"></strong><button id="folder-close" type="button">×</button></div><div class="drawer-tools"><button id="folder-active" type="button"></button><button id="folder-recent" type="button"></button></div><p id="folder-hint"></p><div id="folder-rows"></div></section>
 <aside id="settings-drawer" aria-label="Chat settings" hidden><div class="drawer-heading"><strong id="drawer-title">Chat settings</strong><button id="drawer-close" class="icon" type="button" aria-label="Close settings">×</button></div>
 <nav aria-label="Workspace"><button id="tab-chat" type="button" aria-selected="true">Chat</button><button id="tab-context" type="button" aria-selected="false">Context</button><button id="tab-usage" type="button" aria-selected="false">Usage</button><button id="tab-terminal" type="button" aria-selected="false">Terminal</button></nav>
 <div class="drawer-tools"><button id="signin" type="button">Sign in</button><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="engineering" type="button" aria-pressed="false">Engineering view</button><button id="extension-settings" type="button">Extension settings…</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button></div>
@@ -30,9 +29,8 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
 <details id="recovery" hidden><summary id="recovery-title">Interrupted runs</summary><p id="recovery-notes" role="status"></p><div id="recovery-list"></div></details>
 <div class="product-links"><button id="product-guide" type="button">Tvijo AI guide</button><button id="connections" type="button">Connections</button><button id="tasks" type="button">Server task history</button><button id="context-select" type="button">Select project context…</button><button id="context-preview" type="button">Preview context</button><button id="quick-edit" type="button">Quick edit</button></div>
 <p id="shared-thread-note" hidden><a id="shared-thread-link" href="#"></a></p><p id="history-note" class="mini-select"></p>
-<div class="drawer-tools"><span id="account-identity"></span><span id="account-verification"></span><button id="runtime-version" type="button"></button></div><div id="account-status" role="status"><span class="dot">●</span><span id="connection-label">Connecting…</span><span id="budget"></span></div></aside>
+<div class="drawer-tools"><span id="account-identity"></span><span id="account-verification"></span><button id="runtime-version" type="button"></button></div><div class="drawer-tools"><button id="auto-commit" type="button"></button><button id="signout" type="button"></button></div><section id="loaded-rules"></section><div id="account-status" role="status"><span class="dot">●</span><span id="connection-label">Connecting…</span><span id="budget"></span></div></aside>
 <section id="rewind" aria-labelledby="rewind-title" hidden><div id="rewind-heading"><h2 id="rewind-title">Rewind</h2><button id="rewind-close" type="button">Back to chat</button></div><p id="rewind-hint"></p><p id="rewind-status" role="status"></p><div id="rewind-list"></div></section><main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
-<section id="full-access-warning" role="region" aria-label="Full access warning" hidden></section>
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
 <div id="agent-log" role="log" aria-live="polite"></div>
 <form id="form"><button id="composer-signin" type="button">Sign in</button><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><p id="mode-help" role="note"></p><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="workspace-choice" type="button">Choose project…</button><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode" aria-haspopup="menu" aria-controls="mode-menu" aria-expanded="false">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="settings-drawer">⚙</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
@@ -339,7 +337,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     state.textContent = t('upTo') + ' ' + amount(q.estimated_max_micro_tvijo) + ' TT' + (engineering ? ' · ' + t('quoteLabel') + ' ' + (q.quote_id || '—') + ' · ' + t('ceilingLabel') + ' ' + amount(q.ceiling_micro_tvijo) + ' TT · ' + t('tariffLabel') + ' ' + (q.tariff_version || '—') : '');
   }
   function updateMode() {
-    const preset = uiMode === 'plan' ? 'plan' : optionState?.agentPreset || 'manual';
+    const preset = uiMode === 'plan' ? 'plan' : optionState?.agentPreset || 'auto';
     const labelKey = uiMode === 'chat' ? 'modeChat' : uiMode === 'plan' ? 'modePlan' : ({manual:'modeManual',edit:'modeEdit',auto:'modeAuto',full:'modeFull',custom:'modeCustom'}[preset] || 'modeCustom');
     const label = t(labelKey);
     modeButton.textContent = label;
@@ -371,23 +369,8 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       button.append(name,hint); button.disabled = !!row.disabled || running || submitting || preparing || !!pendingModeRequestId;
       button.addEventListener('click', () => chooseMode(row.mode)); modeMenu.append(button);
     }
+    if(fullAccess?.enabled){const cancel=document.createElement('button');cancel.type='button';cancel.textContent=t('fullAccessRevert');cancel.setAttribute('data-mode','revoke');cancel.addEventListener('click',()=>{closeModeMenu();post({type:'fullAccessRevert',fullAccessScope:fullAccess.scopeKey});});modeMenu.append(cancel);}
     modeButton.disabled = running || submitting || preparing || !!pendingModeRequestId;
-  }
-  function renderFullAccessWarning() {
-    const panel = document.getElementById('full-access-warning');
-    panel.setAttribute('aria-label',t('modeFull'));
-    const active = fullAccess?.enabled === true && Array.isArray(fullAccess.active) ? fullAccess.active.filter(row=>row.scopeKey === fullAccess.scopeKey) : [];
-    panel.replaceChildren(); panel.hidden = !active.length;
-    if (!active.length) return;
-    const message = document.createElement('div'); message.textContent = t('fullAccessWarning'); panel.append(message);
-    for (const row of active) {
-      const line = document.createElement('div'); line.className = 'full-access-row';
-      const folder = document.createElement('span'); folder.className = 'full-access-folder'; folder.textContent = String(row.folder ?? '');
-      const button = document.createElement('button'); button.type = 'button'; button.textContent = t('fullAccessRevert');
-      button.setAttribute('aria-label', t('fullAccessRevert') + ': ' + String(row.folder ?? ''));
-      button.addEventListener('click', () => post({type:'fullAccessRevert',fullAccessScope:row.scopeKey}));
-      line.append(folder,button); panel.append(line);
-    }
   }
   function openModeMenu() {
     if (modeButton.disabled) return;
@@ -453,6 +436,9 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   }
   function setLocale(next) {
     locale = next; document.documentElement.lang = locale;
+    document.getElementById('folder-active').textContent=locale==='ru'?'Папка активного файла':'Active file folder';
+    document.getElementById('folder-recent').textContent=locale==='ru'?'Недавние папки':'Recent folders';
+    document.getElementById('signout').textContent=locale==='ru'?'Выйти':'Sign out';
     document.getElementById('drawer-title').textContent = t('chatSettings');
     for (const [id,key] of [['drawer-close','closeSettings'],['settings','settings']]) {
       document.getElementById(id).title = t(key); document.getElementById(id).setAttribute('aria-label',t(key));
@@ -471,7 +457,6 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     document.getElementById('rewind-hint').textContent = locale === 'ru' ? 'Только на этом устройстве · 7 дней · до 50 МиБ. Изменённые файлы и удаление требуют подтверждения.' : 'On this machine only · 7 days · up to 50 MiB. Changed files and deletions need confirmation.';
     if (!rewindPanel.hidden) drawRewind();
     renderRunSession(runSession);
-    renderFullAccessWarning();
     document.getElementById('map-title').textContent = locale === 'ru' ? 'Карта агентов' : 'Agent map';
     document.getElementById('map-canvas').setAttribute('aria-label', locale === 'ru' ? 'Карта агентов' : 'Agent map');
     document.getElementById('map-close').textContent = locale === 'ru' ? 'Вернуться к чату' : 'Back to chat';
@@ -782,6 +767,9 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       document.getElementById('workspace-choice').title = data.workspacePath || '';
       document.getElementById('runtime-version').textContent = 'Tvijo ' + (data.runtimeVersion || '—') + ' ↻';
       document.getElementById('runtime-version').title = locale === 'ru' ? 'После обновления: перезагрузить окно' : 'After updating: reload window';
+      document.getElementById('auto-commit').textContent=(locale==='ru'?'Автокоммит: ':'Auto-commit: ')+(data.autoCommit==='off'?(locale==='ru'?'выкл':'off'):(locale==='ru'?'вкл':'on'));
+      const rulesPanel=document.getElementById('loaded-rules');rulesPanel.replaceChildren();
+      for(const rule of data.loadedRules || []){const row=document.createElement('div');row.className='rule-row';const toggle=document.createElement('button');toggle.type='button';toggle.textContent=(rule.disabled?'☐ ':'☑ ')+rule.file+' · '+rule.bytes+' B'+(rule.truncated?(locale==='ru'?' · обрезано':' · truncated'):'')+(rule.status==='rejected'?' · '+rule.reason:'');toggle.disabled=running;toggle.addEventListener('click',()=>post({type:'toggleRule',id:rule.id}));row.append(toggle);rulesPanel.append(row);}
       renderRunSession(data.runSession);
       if (data.workflow && !data.options) { window.tvijoWorkflow = data.workflow; document.getElementById('workflow-label').textContent = data.workflow; }
       const packPicker = document.getElementById('pack-picker');
@@ -791,8 +779,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       packPicker.setAttribute('aria-label', (locale === 'ru' ? 'Выбрать пакет навыков: ' : 'Choose skill pack: ') + (data.pack?.label || ''));
       if (data.options) renderOptions(data.options);
       fullAccess = data.fullAccess && typeof data.fullAccess === 'object' ? data.fullAccess : null;
-      renderFullAccessWarning();
-      if (data.agentMap) { mapModel = data.agentMap; if (mapOpen) drawMap(); }
+        if (data.agentMap) { mapModel = data.agentMap; if (mapOpen) drawMap(); }
       renderContext(data.context);
       if (data.error) showNotice(data.error.text, data.error.action);
       else if (data.pending) showNotice(t('pendingNotice'), 'cancel');
@@ -886,6 +873,10 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   document.getElementById('agent-map').addEventListener('keydown', event => { if (event.key === 'Escape') { setTab('chat'); document.getElementById('agent-map-button').focus(); } });
   document.getElementById('pack-picker').addEventListener('click', () => post({type:'choosePack'}));
   document.getElementById('workspace-choice').addEventListener('click', openFolderBrowser);
+  document.getElementById('folder-active').addEventListener('click',()=>post({type:'activeFileFolder'}));
+  document.getElementById('folder-recent').addEventListener('click',()=>post({type:'recentFolder'}));
+  document.getElementById('signout').addEventListener('click',()=>post({type:'signout'}));
+  document.getElementById('auto-commit').addEventListener('click',()=>post({type:'toggleAutoCommit'}));
   document.getElementById('folder-close').addEventListener('click', closeFolderBrowser);
   document.getElementById('folder-browser').addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); closeFolderBrowser(); } });
   document.getElementById('runtime-version').addEventListener('click', () => post({type:'reloadWindow'}));
