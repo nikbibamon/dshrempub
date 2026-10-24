@@ -9,7 +9,7 @@
       "ru": "Помощь с кодом: выбранный контекст, проверяемые правки и задачи с лимитом."
     }
   },
-  "latest_version": "0.10.7",
+  "latest_version": "0.10.8",
   "channel": "preview",
   "publication": {
     "status": "published",
@@ -20,17 +20,17 @@
     }
   },
   "package": {
-    "filename": "tvijo-dshrem-0.10.7.vsix",
-    "sha256": "8a4a5155de28455f39f3bff7c958b70a92ed497c28c72254bada17ef0a9a027e",
-    "bytes": 826915,
+    "filename": "tvijo-dshrem-0.10.8.vsix",
+    "sha256": "c50af1a394ce6e47f9b83c01a3f334bc221d996016b8b8c1ad96833732424aa0",
+    "bytes": 894964,
     "editor_requirement": "^1.90.0",
-    "source_commit": "933392d7308fafc59aa04befe2296c06b685ffb5",
-    "verified_environment": "675 deterministic extension checks; synthetic EN/RU desktop/mobile Chromium flows; production extension-handler and tool-loop filesystem/command checks. No new paid model calls. Native Windows unavailable."
+    "source_commit": "ecc511892ad9553fb224f39182f585b1d205b083",
+    "verified_environment": "798 deterministic extension checks (independent parent re-run); real-git auto-commit tests; operator-journey gate in the production extension host; EN/RU desktop/mobile Chromium render. No paid model calls. Native Windows unavailable."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
-    "source": "https://github.com/nikbibamon/dshrempub/tree/933392d7308fafc59aa04befe2296c06b685ffb5",
-    "changelog": "https://github.com/nikbibamon/dshrempub/blob/933392d7308fafc59aa04befe2296c06b685ffb5/vscode/CHANGELOG.md",
+    "source": "https://github.com/nikbibamon/dshrempub/tree/ecc511892ad9553fb224f39182f585b1d205b083",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/ecc511892ad9553fb224f39182f585b1d205b083/vscode/CHANGELOG.md",
     "issues": "https://github.com/nikbibamon/dshrempub/issues"
   },
   "features": [
@@ -108,6 +108,46 @@
     }
   ],
   "releases": [
+    {
+      "version": "0.10.8",
+      "date": "2026-10-24",
+      "title": {
+        "en": "Works like Copilot: no header, project rules, local auto-commit",
+        "ru": "Как Copilot: без шапки, правила проекта, локальный автокоммит"
+      },
+      "changes": [
+        {
+          "en": "The chat header is gone. New, History and Settings are VS Code view buttons; folder, mode and model sit under the input; account, version and rules live in ⚙.",
+          "ru": "Шапки чата больше нет. «Новый», «История» и «Настройки» — кнопки панели VS Code; папка, режим и модель — под полем ввода; аккаунт, версия и правила — в ⚙."
+        },
+        {
+          "en": "New tasks start in Auto: the agent saves edits to disk and runs tests by itself, up to 30 steps. Money limits are unchanged.",
+          "ru": "Новые задачи начинаются в «Авто»: агент сам сохраняет правки на диск и запускает тесты, до 30 шагов. Денежные лимиты не изменились."
+        },
+        {
+          "en": "Project rules are read automatically in trusted workspaces: AGENTS.md, CLAUDE.md, .clinerules, .cursorrules, .windsurfrules, .github/copilot-instructions.md and .tvijo/rules.md. The agent always asks before changing them.",
+          "ru": "Правила проекта читаются сами в доверенной рабочей области: AGENTS.md, CLAUDE.md, .clinerules, .cursorrules, .windsurfrules, .github/copilot-instructions.md и .tvijo/rules.md. Перед их изменением агент всегда спрашивает."
+        },
+        {
+          "en": "After a successful task Tvijo commits only its own saved edits to the current branch, with Tvijo-Model and Co-Authored-By trailers. It never pushes, and offers Undo commit.",
+          "ru": "После успешной задачи Tvijo коммитит в текущую ветку только свои сохранённые правки, с трейлерами Tvijo-Model и Co-Authored-By. Push не делает, есть «Отменить коммит»."
+        },
+        {
+          "en": "Folder refusals come with an action (choose folder, add as workspace folder). The folder is guessed once from the active file and then stays put. A Chat answer can be resent as an agent task with one button.",
+          "ru": "Отказы по папке идут с кнопкой действия («Выбрать папку», «Добавить как папку рабочей области»). Папка угадывается один раз по активному файлу и дальше не меняется. Ответ в Чате можно одной кнопкой отправить агенту."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Native Windows desktop was not observed; validation used the production extension host harness, real git repositories and Chromium. Command side effects such as rm/mv are not auto-committed. Reload Window is needed after updating.",
+          "ru": "Нативное окно Windows не проверено; проверка шла в рабочем хосте расширения, на настоящих git-репозиториях и в Chromium. Побочные эффекты команд (rm/mv) не коммитятся. После обновления нужен Reload Window."
+        },
+        {
+          "en": "Full access is not an OS sandbox: commands run with your user rights. Git network transports are blocked for agent commands (so push, and also fetch/pull/clone, fail there); a program that deliberately rewrites its own environment is not stopped. Rules files changed by commands are quarantined after the write, not prevented.",
+          "ru": "«Полный доступ» — не песочница ОС: команды работают с правами вашего пользователя. Для команд агента git-сеть закрыта (push, а заодно fetch/pull/clone там не работают); программа, которая намеренно подменяет себе окружение, не останавливается. Файлы правил, изменённые командами, попадают в карантин после записи, а не предотвращаются."
+        }
+      ]
+    },
     {
       "version": "0.10.7",
       "date": "2026-10-24",
@@ -511,10 +551,10 @@
   ],
   "verification": {
     "date": "2026-10-24",
-    "extension_tests": 675,
+    "extension_tests": 798,
     "native_gui": {
-      "en": "Not tested; synthetic Chromium EN/RU desktop/mobile plus production host integration.",
-      "ru": "Не проверен; синтетический Chromium EN/RU desktop/mobile и интеграционные проверки рабочих обработчиков."
+      "en": "Not tested; production host harness plus Chromium EN/RU desktop/mobile.",
+      "ru": "Не проверен; рабочий хост расширения и Chromium EN/RU desktop/mobile."
     }
   }
 }
