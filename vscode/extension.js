@@ -208,7 +208,7 @@ function activate(context) {
     }));
   }
   const customCommands = new Map();
-  if (vscode.workspace.onDidChangeWorkspaceFolders) context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { workspaceEpoch++; fullAccess.invalidate(); syntaxChecks.invalidate(); terminalCaptures.invalidate(); codingReview = null; agentMaps.clear(); refreshStatus(); }));
+  if (vscode.workspace.onDidChangeWorkspaceFolders) context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { if(pendingScopeUri && vscode.workspace.workspaceFolders.some(f=>f.uri.fsPath===pendingScopeUri.fsPath)){const uri=pendingScopeUri;pendingScopeUri=null;void activeWorkspace.select(uri).then(()=>{lastError=null;return postChatState();}).catch(report);} workspaceEpoch++; fullAccess.invalidate(); syntaxChecks.invalidate(); terminalCaptures.invalidate(); codingReview = null; agentMaps.clear(); refreshStatus(); }));
   const handlers = new Map();
   let customerBot = null;
   let accountSnapshot = null;
@@ -227,6 +227,7 @@ function activate(context) {
   const uiLocale = () => context.globalState.get(UI_LOCALE) === 'ru' ? 'ru' : 'en';
   const L = (en, ru) => uiLocale() === 'ru' ? ru : en;
   const localPreviewDocuments = new WeakSet();
+  let pendingScopeUri = null;
   let rulesPreviewSecrets = [];
   let rulesRevocationEpoch = 0;
   const contextSelection = createContextSelection({vscode,state:context.globalState,L});
@@ -1040,6 +1041,8 @@ function activate(context) {
   }
 
   function localizedMessage(error) {
+    const scopeNotice=require('./lib/scope-notices').notice(error?.code,uiLocale());
+    if(scopeNotice){if(error.scopeUri)pendingScopeUri=error.scopeUri;return scopeNotice.text;}
     const code = error?.serverCode || (typeof error?.code === 'string' ? error.code : '');
     if (error?.code === 'command_policy') return L('Command refused. Use one executable with literal arguments; unsafe commands and shell syntax are blocked.', 'Команда отклонена. Используйте одну программу с буквальными аргументами; опасные команды и синтаксис оболочки заблокированы.');
     if (!(error instanceof core.ServiceError)) {
@@ -1080,6 +1083,7 @@ function activate(context) {
   }
 
   function errorAction(error) {
+    const scopeNotice=require('./lib/scope-notices').notice(error?.code,uiLocale());if(scopeNotice)return scopeNotice.action;
     if (error?.code === 'preview_context_limit' || error?.code?.startsWith('context_budget')) return 'context';
     if (error?.code === 'unauthorized') return 'account';
     if (['pending_task','charge_pending','usage_unknown','usage_recovery_unavailable','usage_reconciliation_required','model_request_failed'].includes(error?.code)) return 'cancel';
@@ -2407,6 +2411,14 @@ function activate(context) {
             await activeWorkspace.select(folderUri(vscode,message.uri));
             await postChatState();
             await view.webview.postMessage({type:'folderSelected',requestId:message.requestId});
+          } else if (message?.type === 'chooseFolder') {
+            ensureIdle();await view.webview.postMessage({type:'chooseFolder'});
+          } else if (message?.type === 'addWorkspaceFolder') {
+            ensureIdle();if(!pendingScopeUri)throw new core.ServiceError('no_workspace','Choose a folder first.');
+            const canonical=require('node:fs').realpathSync(pendingScopeUri.fsPath),uri=vscode.Uri.file(canonical);
+            if(!vscode.workspace.updateWorkspaceFolders?.(vscode.workspace.workspaceFolders.length,0,{uri}))throw new core.ServiceError('no_workspace','Open the folder using File → Add Folder to Workspace.');
+            pendingScopeUri=uri;
+            if(vscode.workspace.workspaceFolders.some(f=>f.uri.fsPath===canonical)){await activeWorkspace.select(uri);pendingScopeUri=null;lastError=null;await postChatState();}
           } else if (message?.type === 'signout') {
             await handlers.get('tvijo.signOut')();
           } else if (message?.type === 'toggleAutoCommit') {

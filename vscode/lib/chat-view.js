@@ -329,7 +329,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   function showNotice(text, action) {
     currentNotice = text ? { text, action: action || null } : null;
     noticeText.textContent = text || '';
-    noticeActionButton.hidden = !action; noticeActionButton.textContent = action === 'account' ? t('signIn') : action === 'context' ? t('contextPreview') : t('resolvePending');
+    noticeActionButton.hidden = !action; noticeActionButton.textContent = action === 'chooseFolder' ? (locale==='ru'?'Выбрать папку':'Choose folder') : action === 'addWorkspaceFolder' ? (locale==='ru'?'Добавить как папку рабочей области':'Add as workspace folder') : action === 'account' ? t('signIn') : action === 'context' ? t('contextPreview') : t('resolvePending');
     notice.className = text ? 'visible' : '';
   }
   function drawQuote(q) {
@@ -698,6 +698,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   }
   window.addEventListener('message', event => {
     const data = event.data;
+    if(data.type === 'chooseFolder'){openFolderBrowser();return;}
     if(data.type === 'openSettings'){setDrawer(true);return;}
     if (data.type === 'rewind') {
       setTab('chat'); messages.hidden = true; rewindPanel.hidden = false;
@@ -883,7 +884,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   document.getElementById('composer-signin').addEventListener('click', () => post({type:'account'}));
   document.getElementById('signin').addEventListener('click', () => post({type:lastSignedIn ? 'account' : 'account'}));
   document.getElementById('cancel').addEventListener('click', () => post({type:'cancel'}));
-  noticeActionButton.addEventListener('click', () => post({type: currentNotice?.action === 'account' ? 'account' : currentNotice?.action === 'context' ? 'contextPreview' : 'cancel'}));
+  noticeActionButton.addEventListener('click', () => post({type: ['chooseFolder','addWorkspaceFolder'].includes(currentNotice?.action) ? currentNotice.action : currentNotice?.action === 'account' ? 'account' : currentNotice?.action === 'context' ? 'contextPreview' : 'cancel'}));
   document.getElementById('context-preview').addEventListener('click', () => post({ type: 'contextPreview' }));
   document.getElementById('quick-edit').addEventListener('click', () => post({ type: 'quickEdit' }));
   document.getElementById('workflow').addEventListener('click', () => { plusMenu.className = ''; document.getElementById('plus').setAttribute('aria-expanded','false'); const open = optionsMenu.className !== 'open'; optionsMenu.className = open ? 'open' : ''; document.getElementById('workflow').setAttribute('aria-expanded', String(open)); });

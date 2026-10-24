@@ -27,3 +27,9 @@ test('0.10.8 composer owns folder chip and settings owns account and version',()
  for(const id of ['account-identity','account-verification','runtime-version','auto-commit','loaded-rules','signout'])assert.ok(drawer.includes('id="'+id+'"'));
  assert.doesNotMatch(html,/id="full-access-warning"/);
 });
+
+test('0.10.8 every scope refusal has localized text and a resolving action',()=>{
+ const {NOTICES,notice}=require('../lib/scope-notices');assert.ok(Object.keys(NOTICES).length>=6);
+ for(const code of Object.keys(NOTICES))for(const lang of ['en','ru']){const n=notice(code,lang);assert.ok(n.text.length>20);assert.ok(['chooseFolder','addWorkspaceFolder'].includes(n.action),code);}
+ assert.equal(notice('scope_outside').action,'addWorkspaceFolder');
+});

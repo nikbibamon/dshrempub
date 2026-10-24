@@ -1,6 +1,7 @@
 'use strict';
 const path = require('node:path');
 const fs = require('node:fs');
+const {scopeError}=require('./scope-notices');
 const KEY = 'tvijo.activeWorkspace.v1';
 const identity = folder => folder?.uri ? JSON.stringify([folder.uri.scheme,folder.uri.authority || '',path.resolve(folder.uri.fsPath)]) : null;
 function contains(parent, child) {
@@ -14,10 +15,10 @@ function owned(vscode, folder) {
 // Resolve an explicitly chosen host directory once. File URIs in an SSH extension
 // host are local to that host; never convert a remote authority into a local path.
 function resolveFolder(vscode, folder, savedOwner = null) {
-  if (!folder?.uri || folder.uri.scheme !== 'file' || folder.uri.authority) throw Error('Choose a directory inside an open workspace on this extension host.');
-  const canonical = fs.realpathSync(folder.uri.fsPath);
-  if ([path.parse(canonical).root,require('node:os').homedir(),'/root','/home','/etc','/usr','/var'].includes(canonical)) throw Error('Choose a project directory, not a system or home directory.');
-  if (!fs.statSync(canonical).isDirectory()) throw Error('Choose a directory.');
+  if (!folder?.uri || folder.uri.scheme !== 'file' || folder.uri.authority) throw scopeError('scope_uri',folder?.uri);
+  let canonical;try{canonical=fs.realpathSync(folder.uri.fsPath);}catch{throw scopeError('scope_missing',folder.uri);}
+  if ([path.parse(canonical).root,require('node:os').homedir(),'/root','/home','/etc','/usr','/var'].includes(canonical)) throw scopeError('scope_system',folder?.uri);
+  if (!fs.statSync(canonical).isDirectory()) throw scopeError('scope_directory',folder?.uri);
   const roots=(vscode.workspace.workspaceFolders || []).filter(root=>root.uri.scheme===folder.uri.scheme && (root.uri.authority || '')===(folder.uri.authority || ''));
   const candidates=roots.map(root=>{try{return {root,canonical:fs.realpathSync(root.uri.fsPath)}}catch{return null}}).filter(Boolean);
   const within=(root,target)=>{const rel=path.relative(root,target);return !rel || rel!=='..' && !rel.startsWith('..'+path.sep) && !path.isAbsolute(rel)};
@@ -25,8 +26,8 @@ function resolveFolder(vscode, folder, savedOwner = null) {
   // A lexical owner takes precedence: a child symlink cannot escape it merely
   // because its target also happens to be another open workspace.
   const owner=lexical[0] || candidates.filter(row=>within(row.canonical,canonical)).sort((a,b)=>b.canonical.length-a.canonical.length)[0];
-  if(!owner || !within(owner.canonical,canonical)) throw Error('Choose a directory inside its canonical open workspace; symlink escape refused.');
-  if(savedOwner && (savedOwner.identity!==identity(owner.root) || savedOwner.canonicalRoot!==owner.canonical)) throw Error('The owning workspace changed. Choose the folder again.');
+  if(!owner || !within(owner.canonical,canonical)) throw scopeError('scope_outside',folder?.uri);
+  if(savedOwner && (savedOwner.identity!==identity(owner.root) || savedOwner.canonicalRoot!==owner.canonical)) throw scopeError('scope_owner',folder?.uri);
   const uri=folder.uri.with ? folder.uri.with({path:canonical}) : vscode.Uri.file(canonical);
   return {...folder,uri,sourceUri:folder.uri,canonicalRoot:canonical,owner:{identity:identity(owner.root),canonicalRoot:owner.canonical}};
 }
