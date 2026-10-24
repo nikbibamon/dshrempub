@@ -133,9 +133,11 @@ index remain untouched. If concurrent changes prevent withdrawal, the hash and
 warning remain visible for review. Quarantined rules are excluded. Commit messages identify the editor, served models, task and checks.
 Shell side effects, including removals and renames, are not tracked or committed.
 
-The answer shows the commit hash and **Undo commit**. Undo uses a soft reset only
-while that commit is still HEAD and no remote-tracking branch contains it; otherwise
-it attempts a revert. Hooks have a 120-second limit and are interrupted before
+The answer shows the commit hash and **Undo commit**. Undo requires the original
+host proof and exactly one update in both HEAD and branch reflogs. If history
+changed, it preserves the branch and index and shows the hashes for review.
+With unchanged history it uses a soft reset for an unpublished tip, or a revert
+when a remote-tracking branch contains it. Hooks have a 120-second limit and are interrupted before
 termination. Cancel is checked live immediately before commit and interrupts a
 running Git process group. If the commit already exists, the final answer shows
 its hash and Undo instead of silently hiding it. A hook, signing or index reconciliation failure is reported; review

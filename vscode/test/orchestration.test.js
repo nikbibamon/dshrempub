@@ -29,6 +29,25 @@ test('production adapter dispatch binds root account and caps; prompt is JSON no
  assert.ok(!fs.existsSync(path.join(f.root,'INJECTION')));
  assert.ok(f.host.saved('scope-a',f.root));assert.equal(f.host.saved('scope-b',f.root),undefined);
 });
+test('production adapter waits through queued and running quality before returning to auto-commit',async()=>{
+ let polls=0;const observed=[];
+ const f=fixture({},async command=>{
+  if(command==='status'){
+   polls++;
+   return {jobs:[{id:'job-1',status:polls===2?'quality_running':'quality_pending',execution_active:polls<3,report:'{}'}]};
+  }
+ });
+ const result=await f.host.run({...f.options,onStatus:async r=>observed.push(r.status)});
+ assert.equal(polls,3);assert.equal(result.job.execution_active,false);assert.ok(observed.includes('quality_running'));
+ assert.equal(f.host.saved('scope-a',f.root).qualityChecking,false);
+});
+test('saved unfinished quality blocks a new authority and is stopped on trust invalidation',async()=>{
+ const f=fixture();await f.host.run(f.options);const record=f.host.saved('scope-a',f.root);
+ record.status='quality_pending';record.qualityChecking=true;f.calls.length=0;
+ await assert.rejects(f.host.run(f.options),/durable orchestration task/);
+ assert.equal(f.calls.some(c=>c.command==='authorize'),false);
+ await f.host.invalidate();assert.equal(f.calls.filter(c=>c.command==='stop').length,1);
+});
 test('trust/workspace/account guard revokes already-minted authority',async()=>{
  const f=fixture();let checks=0;
  await assert.rejects(f.host.run({...f.options,guard:async()=>{if(++checks===3)throw Error('workspace_changed');}}),/workspace_changed/);

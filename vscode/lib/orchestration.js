@@ -72,7 +72,7 @@ function createOrchestrator({state,configuration,invokeController=invoke,pollMs=
   await guard();
   const canonical=fs.realpathSync(project),key=keyFor(scope,canonical);
   const previous=state.get(key);
-  if(previous&&['queued','running','launching','reconcile_required','reconnect_required'].includes(previous.status))throw Error('This project has a durable orchestration task. Use Status, Resume or Stop before a new task.');
+  if(previous&&(previous.qualityChecking||['queued','running','launching','quality_running','cancel_requested','reconcile_required','reconnect_required'].includes(previous.status)))throw Error('This project has a durable orchestration task. Use Status, Resume or Stop before a new task.');
   const doctor=await call(config,'doctor',{},canonical);await guard();
   if(doctor.setup_required)throw Error('DSH Harness needs setup on a Linux local or Remote SSH project host. Run Orchestration doctor and follow https://dsh.tvijo.com/orchestration/setup');
   if(config.policy==='sol-astra-claude'&&!doctor.native_claude_verified)throw Error('Claude native provider, exact model and subscription quota are not verified on this host. Select Sol or Sol + Astra.');
@@ -94,8 +94,8 @@ function createOrchestrator({state,configuration,invokeController=invoke,pollMs=
     await checkAuthority();if(signal?.aborted)throw Error('Orchestration cancelled.');
     const snapshot=await call(config,'status',{root_id:record.root_id,tenant,workspace},canonical);
     const job=snapshot.jobs.find(j=>j.id===record.job_id);if(!job)throw Error('Durable job missing; reconciliation required.');
-    record.status=job.status;await state.update(key,record);await onStatus({...record,snapshot});
-    if(!['queued','running','launching'].includes(job.status))return {record,snapshot,job};
+    record.status=job.status;record.qualityChecking=job.execution_active===true;await state.update(key,record);await onStatus({...record,snapshot});
+    if(!job.execution_active&&!['queued','running','launching','quality_running','cancel_requested'].includes(job.status))return {record,snapshot,job};
     await new Promise(resolve=>setTimeout(resolve,pollMs));
    }
   }catch(error){
@@ -108,13 +108,13 @@ function createOrchestrator({state,configuration,invokeController=invoke,pollMs=
  return {run,enabled:()=>settings(configuration()).enabled,settings:()=>settings(configuration()),
   doctor:()=>call(settings(configuration()),'doctor',{}),
   saved:(scope,project)=>state.get(keyFor(scope,fs.realpathSync(project))),
-  async status(scope,project){const r=this.saved(scope,project);if(!r)throw Error('No orchestration task saved for this account and project.');const snapshot=await call(r.config,'status',{root_id:r.root_id},r.project);const job=snapshot.jobs?.find(j=>j.id===r.job_id)||(r.job_id?null:snapshot.jobs?.length===1?snapshot.jobs[0]:null);if(job){r.job_id=job.id;r.status=job.status;await state.update(keyFor(scope,r.project),r);}return snapshot;},
+  async status(scope,project){const r=this.saved(scope,project);if(!r)throw Error('No orchestration task saved for this account and project.');const snapshot=await call(r.config,'status',{root_id:r.root_id},r.project);const job=snapshot.jobs?.find(j=>j.id===r.job_id)||(r.job_id?null:snapshot.jobs?.length===1?snapshot.jobs[0]:null);if(job){r.job_id=job.id;r.status=job.status;r.qualityChecking=job.execution_active===true;await state.update(keyFor(scope,r.project),r);}return snapshot;},
   async resume(scope,project){const r=this.saved(scope,project);if(!r)throw Error('No saved task.');if(!r.job_id)await this.status(scope,project);if(!r.job_id)throw Error('Submission outcome is unknown. Inspect the original authority before retrying.');return call(r.config,'resume',{job_id:r.job_id},r.project);},
   async stop(scope,project){const r=this.saved(scope,project);await stop(r);if(r){r.status='cancelled';await state.update(keyFor(scope,r.project),r);}},
   async repair(scope,project,prompt){const r=this.saved(scope,project);if(!r)throw Error('No original task authority.');const next=await call(r.config,'repair',{job_id:r.job_id,event_id:'repair-'+r.job_id,prompt},r.project);Object.assign(r,next);await state.update(keyFor(scope,r.project),r);return next;},
   async invalidate(){
    const records=new Map([...active.values()].map(r=>[r.root_id,r]));
-   for(const key of state.keys?.()||[]){const r=key.startsWith(PREFIX)?state.get(key):null;if(r&&['queued','running','launching','reconcile_required','reconnect_required'].includes(r.status))records.set(r.root_id,r);}
+   for(const key of state.keys?.()||[]){const r=key.startsWith(PREFIX)?state.get(key):null;if(r&&(r.qualityChecking||['queued','running','launching','quality_running','cancel_requested','reconcile_required','reconnect_required'].includes(r.status)))records.set(r.root_id,r);}
    await Promise.all([...records.values()].map(stop));
   },
  };

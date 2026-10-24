@@ -3042,6 +3042,22 @@ test('DSH production native commit preserves private Undo identity and verified 
  }finally{x.app.close();}
 });
 
+for(const locale of ['en','ru'])test('production Undo refuses an extra same-HEAD update with localized hashes: '+locale,async()=>{
+ const x=await nativeCommitHost('post-commit','#!/bin/sh\nexit 0\n');
+ try{
+  await x.app.context.globalState.update('tvijo.uiLocale',locale);await x.run();
+  const state=x.app.posts.filter(p=>p.type==='state').at(-1),index=state.messages.findIndex(row=>row.autoCommit);
+  assert.ok(index>=0);const hash=state.messages[index].autoCommit.hash;
+  x.git('reset','--soft','HEAD');const before=await fs.readFile(path.join(x.root,'.git/index'));
+  await x.app.receive({type:'undoCommit',index,scopeKey:state.scopeKey});
+  assert.equal(x.git('rev-parse','HEAD'),hash);assert.deepEqual(await fs.readFile(path.join(x.root,'.git/index')),before);
+  const after=x.app.posts.filter(p=>p.type==='state').at(-1);
+  assert.match(after.error.text,locale==='ru'?/Отмена остановлена: История Git изменилась/:/Undo stopped: Git history changed/);
+  assert.match(after.error.text,/Source Control/);assert.ok(after.error.text.includes(hash));
+  assert.equal(after.messages[index].autoCommit.hash,hash);
+ }finally{x.app.close();}
+});
+
 test('DSH production native commit reports concurrent user amend hashes without Undo or withdrawal',async()=>{
  const x=await nativeCommitHost('post-commit','#!/bin/sh\nif test -f once; then exit 0; fi\nprintf once > once\ngit rev-parse HEAD > created-a.hash\nprintf user > extra.txt\ngit add -- extra.txt\ngit commit --amend --no-edit\ngit rev-parse HEAD > user-b.hash\n');
  try{
@@ -3055,7 +3071,7 @@ test('DSH production native commit reports concurrent user amend hashes without 
 for(const locale of ['en','ru'])test('judgefix3 production ambiguous amend reports history hashes without Undo or user-index changes: '+locale,async()=>{
  const x=await judgefix2GitHost('post-commit','#!/bin/sh\nif test -f once; then exit 0; fi\nprintf once > once\ngit rev-parse HEAD > created-a.hash\nprintf user > extra.txt\ngit add -- extra.txt\ngit commit --amend --no-edit\ngit rev-parse HEAD > user-b.hash\n');
  try{await x.app.context.globalState.update('tvijo.uiLocale',locale);const before=await fs.readFile(path.join(x.root,'.git/index'));await x.run();const a=(await fs.readFile(path.join(x.root,'created-a.hash'),'utf8')).trim(),b=(await fs.readFile(path.join(x.root,'user-b.hash'),'utf8')).trim();assert.equal(x.git('rev-parse','HEAD'),b);assert.notEqual(a,b);assert.deepEqual(await fs.readFile(path.join(x.root,'.git/index')),before);
-  const state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.messages.at(-1).autoCommit,undefined);const text=state.messages.at(-1).content;assert.match(text,locale==='ru'?/HEAD изменился во время коммита — Tvijo ничего не отзывал; проверьте историю/:/HEAD changed during commit — Tvijo withdrew nothing; inspect the history/);for(const hash of [x.before,a,b])assert.ok(text.includes(hash));
+  const state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.messages.at(-1).autoCommit,undefined);const text=state.messages.at(-1).content;assert.match(text,locale==='ru'?/История Git изменилась; откройте Source Control/:/Git history changed; open Source Control/);for(const hash of [x.before,a,b])assert.ok(text.includes(hash));
   assert.ok(!JSON.stringify(x.calls()).includes('Tvijo-Commit-Nonce'));assert.equal(x.app.errors.length,0);
  }finally{x.close();}
 });

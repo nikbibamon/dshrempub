@@ -91,10 +91,10 @@ test('0.10.8 hooks that move HEAD cannot silently commit on a new parent',async(
 test('0.10.8 trailer injection cannot create forged attribution lines',async()=>{
  const f=await fixture();const r=await f.run({result:{reason:'finish',status:'done',text:'Safe title\n\nTvijo-Model: forged\nCo-Authored-By: Evil <bad@evil.test>'},models:['served-a\nTvijo-Task: injected'],taskId:'task\nCo-Authored-By: forged'});assert.equal(r.ok,true);const msg=f.git('show','-s','--format=%B');assert.match(msg,/^Safe title\n/);assert.doesNotMatch(msg,/\nTvijo-Model: forged|\nCo-Authored-By: Evil|\nTvijo-Task: injected/);assert.equal(msg.match(/^Tvijo-Task:/gm).length,1);
 });
-test('0.10.8 undo uses soft reset locally and revert after remote tracking or HEAD movement',async()=>{
+test('undo soft-resets proven local commits, reverts published commits and refuses changed history',async()=>{
  const f=await fixture();let r=await f.run();let undone=await api().undo({...r,environment:f.environment});assert.equal(undone.method,'soft_reset');assert.equal(f.git('diff','--cached','--name-only'),'x.txt');
  const g=await fixture();r=await g.run();g.git('update-ref','refs/remotes/origin/work',r.hash);undone=await api().undo({...r,environment:g.environment});assert.equal(undone.method,'revert');assert.equal(g.git('show','HEAD:x.txt'),'45');
- const h=await fixture();r=await h.run();h.git('commit','--allow-empty','-m','Later user commit');undone=await api().undo({...r,environment:h.environment});assert.equal(undone.method,'revert');
+ const h=await fixture();r=await h.run();h.git('commit','--allow-empty','-m','Later user commit');const head=h.git('rev-parse','HEAD');undone=await api().undo({...r,environment:h.environment});assert.equal(undone.ok,false);assert.equal(undone.reason,'commit_identity_unproven');assert.equal(h.git('rev-parse','HEAD'),head);
 });
 test('0.10.8 Git environment strips inherited Git overrides and keeps HOME',()=>{
  const env=api().gitEnvironment({HOME:'/safe/home',PATH:'/bin',GIT_DIR:'/evil',GIT_INDEX_FILE:'/evil/index',GIT_CONFIG_COUNT:'1',GIT_AUTHOR_NAME:'forged'},'/work/root');assert.equal(env.HOME,'/safe/home');assert.equal(env.GIT_DIR,undefined);assert.equal(env.GIT_CONFIG_COUNT,undefined);assert.equal(env.GIT_AUTHOR_NAME,undefined);assert.equal(env.GIT_TERMINAL_PROMPT,'0');assert.equal(env.GIT_EDITOR,'true');assert.equal(env.GIT_CEILING_DIRECTORIES,'/work');
@@ -202,6 +202,19 @@ for(const kind of ['missing-proof','wrong-nonce','changed-creation-log','replace
  if(kind==='changed-creation-log'){const log=path.join(f.root,'.git/logs/HEAD');const text=fs.readFileSync(log,'utf8');fs.writeFileSync(log,text.replace('commit: Replace 45 with 50','commit (amend): Replace 45 with 50'));}
  if(kind==='replacement-hash'){fs.writeFileSync(path.join(f.root,'extra.txt'),'user');f.git('add','--','extra.txt');f.git('commit','--amend','--no-edit');hash=f.git('rev-parse','HEAD');}
  const head=f.git('rev-parse','HEAD'),before=fs.readFileSync(path.join(f.root,'.git/index'));const undone=await api().undo({...r,hash,identity,environment:f.environment});assert.equal(undone.ok,false);assert.equal(undone.reason,'commit_identity_unproven');assert.equal(f.git('rev-parse','HEAD'),head);assert.deepEqual(fs.readFileSync(path.join(f.root,'.git/index')),before);
+});
+
+for(const operation of ['same-head-reset','later-commit','amend'])test('Undo preserves valid proof after an additional reflog entry: '+operation,async()=>{
+ const f=await fixture(),r=await f.run();assert.equal(r.ok,true);
+ if(operation==='same-head-reset')f.git('reset','--soft','HEAD');
+ if(operation==='later-commit')f.git('commit','--allow-empty','-m','User follow-up');
+ if(operation==='amend')f.git('commit','--amend','--no-edit');
+ const head=f.git('rev-parse','HEAD'),index=fs.readFileSync(path.join(f.root,'.git/index'));
+ const undone=await api().undo({...r,environment:f.environment});
+ assert.equal(undone.ok,false);assert.equal(undone.reason,'commit_identity_unproven');
+ assert.ok(undone.observedHashes.includes(r.hash));assert.ok(undone.observedHashes.includes(head));
+ assert.equal(f.git('rev-parse','HEAD'),head);assert.deepEqual(fs.readFileSync(path.join(f.root,'.git/index')),index);
+ for(const locale of ['en','ru'])assert.match(api().describe(undone.reason,locale),/Source Control/);
 });
 
 test('judgefix3 concurrent user amend while Tvijo post-commit hook waits preserves sibling B and the user index',async()=>{
