@@ -210,3 +210,13 @@ test('judgefix3 concurrent user amend while Tvijo post-commit hook waits preserv
  fs.writeFileSync(path.join(f.root,'user-extra.txt'),'USER EXTRA');f.git('add','--','user-extra.txt');f.git('commit','--amend','--no-edit');const b=f.git('rev-parse','HEAD'),before=fs.readFileSync(path.join(f.root,'.git/index'));fs.writeFileSync(path.join(f.root,'release-hook'),'release');const r=await pending;
  assert.notEqual(a,b);assert.equal(f.git('rev-parse',a+'^'),f.start.head);assert.equal(f.git('rev-parse',b+'^'),f.start.head);assert.equal(r.ok,false);assert.equal(r.identityWarning,true);assert.equal(r.withdrawn,false);assert.ok(r.observedHashes.includes(a));assert.ok(r.observedHashes.includes(b));assert.equal(f.git('rev-parse','HEAD'),b);assert.deepEqual(fs.readFileSync(path.join(f.root,'.git/index')),before);
 });
+
+test('Undo outcomes are explained in EN/RU without raw reason codes',()=>{
+ const {undoMessage}=api(),hash='0123456789abcdef0123456789abcdef01234567';
+ const refused=undoMessage({ok:false,reason:'commit_identity_unproven'},hash,'ru');
+ assert.match(refused,/не может доказать/);assert.match(refused,/0123456789ab/);assert.doesNotMatch(refused,/commit_identity_unproven/);
+ assert.match(undoMessage({ok:false,reason:'commit_identity_unproven'},hash,'en'),/cannot prove/);
+ assert.match(undoMessage({ok:true,method:'soft_reset'},hash,'ru'),/снят с ветки/);
+ assert.match(undoMessage({ok:true,method:'revert'},hash,'en'),/revert commit/);
+ const failed=undoMessage({ok:false,reason:'detached_head'},hash,'ru');assert.match(failed,/HEAD не привязан/);assert.doesNotMatch(failed,/detached_head/);
+});

@@ -2471,8 +2471,8 @@ function activate(context) {
             ensureIdle();const auth=await requireAuth();if(message.scopeKey!==currentViewScope(auth.scope))return;
             const record=historyFor(auth.scope)[message.index]?.autoCommit;if(!record)return;
             if(!permissionFolder() || path.relative(record.root,permissionFolder().uri.fsPath).split(path.sep).includes('..'))throw new core.ServiceError('account_changed','Choose the original folder.');
-            const undone=await require('./lib/auto-commit').undo(record);if(!undone.ok)throw new core.ServiceError('undo_commit','Undo commit: '+undone.reason);
-            const h=historyFor(auth.scope);h[message.index]={...h[message.index],autoCommit:undefined,display:(h[message.index].display || h[message.index].content)+'\n'+L('Commit undone: ','Коммит отменён: ')+undone.method};await local.saveHistory(localScope(auth.scope),h);await postChatState();
+            const autoCommitApi=require('./lib/auto-commit'),undone=await autoCommitApi.undo(record);if(!undone.ok)throw new core.ServiceError('undo_commit',autoCommitApi.undoMessage(undone,record.hash,uiLocale()));
+            const h=historyFor(auth.scope);h[message.index]={...h[message.index],autoCommit:undefined,display:(h[message.index].display || h[message.index].content)+'\n'+autoCommitApi.undoMessage(undone,record.hash,uiLocale())};await local.saveHistory(localScope(auth.scope),h);await postChatState();
           } else if (message?.type === 'makeAgent') {
             ensureIdle();const auth=await requireAuth();if(message.scopeKey!==currentViewScope(auth.scope) || shared.selection(auth.scope))return;
             const item=historyFor(auth.scope)[message.index];if(item?.role==='assistant' && typeof item.agentRequest==='string')await runAgentFlow(item.agentRequest);
