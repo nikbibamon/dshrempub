@@ -697,7 +697,8 @@ function activate(context) {
     if (!planMode && !fullGrant && !(config.get('agentAutoApply',true) && config.get('agentAutoRun',true))) throw Error('DSH implementation requires the Auto permission preset or Full Access. Plan remains read-only.');
     if ((vscode.workspace.textDocuments || []).some(d=>d.isDirty && d.uri.scheme==='file' && (d.uri.fsPath===folder.uri.fsPath || d.uri.fsPath.startsWith(folder.uri.fsPath+path.sep)))) throw Error('Save or close unsaved project buffers before delegating to DSH Harness.');
     const rules=projectRulesHost.snapshot({folder,knownSecrets:[auth.access_token,auth.refresh_token].filter(Boolean),contextMode:config.get('workspaceContext','ask')});
-    const checked=async()=>{await guard();if(vscode.workspace.isTrusted!==true)throw Error('Workspace trust was revoked.');if(!orchestration.enabled())throw Error('Orchestration was disabled.');projectRulesHost.assertCurrent(rules.text?[{}]:[]);};
+    const rulesTracker=projectRulesHost.beginTask(folder);
+    const checked=async()=>{if(abort.signal.aborted)throw Error('Orchestration cancelled.');await guard();if(abort.signal.aborted)throw Error('Orchestration cancelled.');if(vscode.workspace.isTrusted!==true)throw Error('Workspace trust was revoked.');if(!orchestration.enabled())throw Error('Orchestration was disabled.');await rulesTracker.check();if(rulesTracker.approvalRequired)throw Error('Rules changed outside an approved direct edit. Re-enable quarantined rules in Settings before continuing.');projectRulesHost.assertCurrent(rules.text?[{}]:[]);};
     const abort=new AbortController();agentAbort=abort;agentRunning=true;busy=true;lastError=null;
     const runId=randomUUID();beginMap(auth,goal.trim(),runId);
     const autoCommit=require('./lib/auto-commit');
@@ -708,10 +709,10 @@ function activate(context) {
       await checked();
       const report=JSON.parse(result.job.report || '{}');
       const evidence=require('./lib/orchestration').commitEvidence(report,commitStart);
-      const committed=await autoCommit.commitTask({start:commitStart,writes:evidence.writes,events:evidence.events,result:{reason:'finish',status:result.job.status==='quality_pending'||result.job.status==='completed'?'done':'failed'},aborted:abort.signal.aborted,models:['ds41f',config.get('orchestration.workerPolicy','sol')],taskId:runId,guard:checked,enabled:!planMode&&config.get('autoCommit','afterTask')==='afterTask'});
+      const committed=await autoCommit.commitTask({excludedPaths:projectRulesHost.quarantinedPaths(),start:commitStart,writes:evidence.writes,events:evidence.events,result:{reason:'finish',status:result.job.status==='quality_pending'||result.job.status==='completed'?'done':'failed'},aborted:abort.signal.aborted,models:require('./lib/orchestration').completedModels(report),taskId:runId,guard:checked,enabled:!planMode&&config.get('autoCommit','afterTask')==='afterTask'});
       const commitNote=committed.ok?'\nLocal commit: '+committed.hash:'\nAuto-commit: '+autoCommit.describe(committed.reason,uiLocale());
       const answer=report.text || 'DSH Harness: '+result.job.status+'. Inspect Orchestration status for provider and quality receipts.';
-      await local.saveHistory(agentScope,[...local.history(agentScope),{role:'user',content:goal.trim()},{role:'assistant',content:answer+commitNote+'\n\nQuality and publication: '+result.job.status+'.',orchestration:{rootId:result.record.root_id,jobId:result.record.job_id}}].slice(-40));
+      await local.saveHistory(agentScope,[...local.history(agentScope),{role:'user',content:goal.trim()},{role:'assistant',content:answer+commitNote+'\n\nQuality and publication: '+result.job.status+'.',orchestration:{rootId:result.record.root_id,jobId:result.record.job_id,coordinatorAlias:report.coordinator_alias||'ds41f',meteredCoordinator:report.metered_model||'unknown',completedModels:require('./lib/orchestration').completedModels(report)},autoCommit:committed.ok?{hash:committed.hash,root:committed.root,workspaceRoot:committed.workspaceRoot}:undefined}].slice(-40));
       await finishMap(auth,result.job.status==='quality_pending'?'quality_pending':result.job.status);
       lastAgentOutcome={scope:currentViewScope(auth.scope),text:'DSH Harness · '+result.job.status};
     } finally {agentAbort=null;agentRunning=false;busy=false;await postActivity('done','');await postChatState();}

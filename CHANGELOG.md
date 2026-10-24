@@ -1,3 +1,11 @@
+## Extension 0.10.9 — 2026-10-24
+
+Optional durable DSH Harness orchestration on the selected local/SSH host;
+automatic discovery after explicit setup, fixed ds41f + subscription workers,
+status/resume/stop/repair controls and separate quality/publication state.
+Includes final 0.10.8 judge fixes. See [extension changelog](vscode/CHANGELOG.md).
+This source entry is not a Marketplace publication receipt.
+
 ## 0.10.7 — 2026-10-24
 
 - Save exact Agent-owned edits in Full access and Auto before disk reads/tests. Preserve dirty and concurrent user buffers, require checkpoints, verify saved bytes and stop the run on save failure, conflict or revoked authority. Quick Edit/review buffer semantics remain separate.

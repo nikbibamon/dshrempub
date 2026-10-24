@@ -1,6 +1,6 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.10.8. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.9. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
@@ -748,3 +748,32 @@ may differ from unsaved buffers. Hidden, excluded, secret-like and symlink paths
 are skipped, with file, depth, input and output limits. Act search keeps its
 existing behavior. Plan does not start shell commands, Git or search processes;
 write and replace tools remain disabled. No new setting or model call is added.
+
+
+## Optional DSH Harness orchestration
+
+After explicit setup on the selected local/SSH host, enable **Orchestration:
+Enabled** and choose Sol, Sol + Astra, or Sol + Astra + Claude in Settings.
+The private host manifest is discovered automatically; no path entry is needed.
+The ordinary engine remains the default. The DSH composer shows its actual
+fixed ds41f coordinator and subscription worker policy.
+
+Use **Orchestration doctor**, **Status**, **Resume**, **Stop**, **Open tmux** and
+**Repair queue** from Settings or the command palette. Owned tmux jobs survive
+editor disconnection. Status transport loss preserves the original task for
+Resume; repair shares its original finite budget. Selected subfolders and new
+non-Git projects remain exact execution scopes. The browser cannot invoke the
+operator's server shell or subscription.
+
+The observed Linux runtime verified the published native Harness Codex and
+Claude providers, with subscription GPT-6.1 Sol, GPT-6 Astra/high and Claude
+Opus 5.5. Other hosts must satisfy setup/login prerequisites. Native Codex uses
+workspace-write with network disabled (Plan/Astra read-only); Claude advice
+has only Read/Glob/Grep. No subscription-to-API fallback occurs. The ordinary
+engine's command classifier is not claimed to run inside external CLIs.
+
+A model finish is **quality pending** until deterministic checks and actual
+publication receipts pass. Auto-commit includes only observed file writes with
+matching bytes and preserves user staging. Hook templates are opt-in and do
+not inspect another extension's conversations or rewrite global settings.
+See [host setup and boundaries](https://dsh.tvijo.com/orchestration/setup).

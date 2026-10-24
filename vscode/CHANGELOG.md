@@ -1,3 +1,10 @@
+# 0.10.9 — 2026-10-24
+
+- Add opt-in DSH Harness dispatch on the selected local/SSH project host, with fixed ds41f coordinator and subscription Sol/Astra/Claude worker policies. Preserve the compact 0.10.8 interface, Auto, sticky folders, project rules and guarded local auto-commit.
+- Discover explicit host setup automatically. Add doctor, durable status/resume, stop, open tmux and repair controls in Settings.
+- Preserve accepted jobs across disconnects and controller response loss. Bind delegated work to account, trust and the exact selected directory, including subfolders and non-Git projects. Repair keeps original lifetime caps.
+- Separate model finish from deterministic quality and actual publication receipts; no automatic paid repair loop or API fallback. Publication of this source version requires separate release receipts.
+
 # 0.10.8
 
 - Block Git pushes inherited by Agent command children, including Python and npm; this also disables fetch/clone in those commands. Report HEAD/ref changes and refuse auto-commit after them.

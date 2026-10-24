@@ -100,3 +100,8 @@ Release data for the extension is maintained in [releases/tvijo-extension.json](
 The current validated source preview is 0.8.3; website download publication is prepared separately.
 [Changelog](CHANGELOG.md) describes the accepted changes. Windows/macOS editor bundles have
 their own versions and do not update when the standalone extension changes.
+
+
+The VS Code extension's optional DSH Harness host integration is documented in
+[vscode/README.md](vscode/README.md#optional-dsh-harness-orchestration). It is an
+explicit host-local mode; the remote research CLI described above is unchanged.

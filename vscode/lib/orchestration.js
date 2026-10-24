@@ -42,6 +42,9 @@ function invoke(config,command,payload={},options={}){
  });
 }
 const keyFor=(scope,root)=>PREFIX+createHash('sha256').update(scope+'\0'+root).digest('hex');
+function completedModels(report){
+ return Object.entries(report?.completed_native_models||{}).filter(([model,proof])=>['gpt-6.1-sol','gpt-6-astra','claude-opus-5-5'].includes(model)&&proof?.verified===true&&typeof proof.receipt==='string').map(([model])=>model);
+}
 function commitEvidence(report,start){
  const writes=[];
  if(!start?.ok)return {writes,events:[]};
@@ -69,7 +72,7 @@ function createOrchestrator({state,configuration,invokeController=invoke,pollMs=
   await guard();
   const canonical=fs.realpathSync(project),key=keyFor(scope,canonical);
   const previous=state.get(key);
-  if(previous&&['queued','running','launching','reconcile_required'].includes(previous.status))throw Error('This project has a durable orchestration task. Use Status, Resume or Stop before a new task.');
+  if(previous&&['queued','running','launching','reconcile_required','reconnect_required'].includes(previous.status))throw Error('This project has a durable orchestration task. Use Status, Resume or Stop before a new task.');
   const doctor=await call(config,'doctor',{},canonical);await guard();
   if(doctor.setup_required)throw Error('DSH Harness needs setup on this project host. Run Orchestration doctor and follow https://dsh.tvijo.com/orchestration/setup');
   if(config.policy==='sol-astra-claude'&&!doctor.native_claude_verified)throw Error('Claude native provider, exact model and subscription quota are not verified on this host. Select Sol or Sol + Astra.');
@@ -80,34 +83,40 @@ function createOrchestrator({state,configuration,invokeController=invoke,pollMs=
   const authority=authorityRoot?{id:authorityRoot}:await call(config,'authorize',{...binding,cap_usd:String(Math.min(2,budgetUsd)),turns_max:Math.min(11,maxSteps),children_max:config.policy==='sol'?1:3,policy:config.policy,trusted:true},canonical);
   const record={root_id:authority.id,project:canonical,scope,status:'queued',config};
   active.set(key,record);await state.update(key,record);
+  let authorityInvalid=false;
+  const checkAuthority=async()=>{try{await guard();}catch(error){authorityInvalid=true;throw error;}};
   const abort=()=>{void stop(record).catch(()=>{});};signal?.addEventListener('abort',abort,{once:true});
   try{
-   await guard();if(signal?.aborted)throw Error('Orchestration cancelled.');
+   await checkAuthority();if(signal?.aborted)throw Error('Orchestration cancelled.');
    const submitted=await call(config,'submit',{root_id:record.root_id,...binding,event_id:'editor-'+randomUUID(),goal:goalRef||'goal-'+randomUUID(),prompt,read_only:planMode},canonical);
    Object.assign(record,submitted);await state.update(key,record);await onStatus(record);
    while(true){
-    await guard();if(signal?.aborted)throw Error('Orchestration cancelled.');
+    await checkAuthority();if(signal?.aborted)throw Error('Orchestration cancelled.');
     const snapshot=await call(config,'status',{root_id:record.root_id,tenant,workspace},canonical);
     const job=snapshot.jobs.find(j=>j.id===record.job_id);if(!job)throw Error('Durable job missing; reconciliation required.');
     record.status=job.status;await state.update(key,record);await onStatus({...record,snapshot});
     if(!['queued','running','launching'].includes(job.status))return {record,snapshot,job};
     await new Promise(resolve=>setTimeout(resolve,pollMs));
    }
-  }catch(error){await stop(record);record.status='cancelled';await state.update(key,record);throw error;}
+  }catch(error){
+   if(authorityInvalid||signal?.aborted){await stop(record);record.status='cancelled';}
+   else {record.status='reconnect_required';error.message+=' The durable task is preserved. Use Orchestration status or Resume; do not submit it again.';}
+   await state.update(key,record);throw error;
+  }
   finally{signal?.removeEventListener('abort',abort);active.delete(key);}
  }
  return {run,enabled:()=>settings(configuration()).enabled,settings:()=>settings(configuration()),
   doctor:()=>call(settings(configuration()),'doctor',{}),
   saved:(scope,project)=>state.get(keyFor(scope,fs.realpathSync(project))),
-  async status(scope,project){const r=this.saved(scope,project);if(!r)throw Error('No orchestration task saved for this account and project.');return call(r.config,'status',{root_id:r.root_id},r.project);},
-  async resume(scope,project){const r=this.saved(scope,project);if(!r)throw Error('No saved task.');return call(r.config,'resume',{job_id:r.job_id},r.project);},
+  async status(scope,project){const r=this.saved(scope,project);if(!r)throw Error('No orchestration task saved for this account and project.');const snapshot=await call(r.config,'status',{root_id:r.root_id},r.project);const job=snapshot.jobs?.find(j=>j.id===r.job_id)||(r.job_id?null:snapshot.jobs?.length===1?snapshot.jobs[0]:null);if(job){r.job_id=job.id;r.status=job.status;await state.update(keyFor(scope,r.project),r);}return snapshot;},
+  async resume(scope,project){const r=this.saved(scope,project);if(!r)throw Error('No saved task.');if(!r.job_id)await this.status(scope,project);if(!r.job_id)throw Error('Submission outcome is unknown. Inspect the original authority before retrying.');return call(r.config,'resume',{job_id:r.job_id},r.project);},
   async stop(scope,project){const r=this.saved(scope,project);await stop(r);if(r){r.status='cancelled';await state.update(keyFor(scope,r.project),r);}},
   async repair(scope,project,prompt){const r=this.saved(scope,project);if(!r)throw Error('No original task authority.');const next=await call(r.config,'repair',{job_id:r.job_id,event_id:'repair-'+r.job_id,prompt},r.project);Object.assign(r,next);await state.update(keyFor(scope,r.project),r);return next;},
   async invalidate(){
    const records=new Map([...active.values()].map(r=>[r.root_id,r]));
-   for(const key of state.keys?.()||[]){const r=key.startsWith(PREFIX)?state.get(key):null;if(r&&['queued','running','launching'].includes(r.status))records.set(r.root_id,r);}
+   for(const key of state.keys?.()||[]){const r=key.startsWith(PREFIX)?state.get(key):null;if(r&&['queued','running','launching','reconcile_required','reconnect_required'].includes(r.status))records.set(r.root_id,r);}
    await Promise.all([...records.values()].map(stop));
   },
  };
 }
-module.exports={settings,safeEnv,invoke,createOrchestrator,keyFor,discoverHost,commitEvidence};
+module.exports={settings,safeEnv,invoke,createOrchestrator,keyFor,discoverHost,commitEvidence,completedModels};

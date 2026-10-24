@@ -2938,3 +2938,24 @@ test('judgefix Full access Python and npm pushes fail at Git layer, direct push 
   x.app.warning('Cancel');const n=x.app.warnings.length;await x.run();const results=x.results();for(const r of results.slice(0,2)){assert.equal(r.ok,false);assert.match(r.stderr,/transport .* not allowed/);}assert.equal(results[2].refused,true);assert.equal(x.app.warnings.length,n+1);assert.equal(execFileSync('git',['--git-dir='+remote,'rev-parse','HEAD'],{env,encoding:'utf8'}).trim(),before);assert.equal(x.app.feedback.length,0);
  }finally{x.close();}
 });
+
+test('orchestration enabled setting drives real host message dispatch and controller subprocess',async()=>{
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'orchestration-host-'));
+ const controller=path.join(root,'controller.cjs'),calls=path.join(root,'calls.jsonl');
+ await fs.writeFile(controller,`const fs=require('node:fs');let input='';process.stdin.on('data',b=>input+=b);process.stdin.on('end',()=>{const data=JSON.parse(input),command=process.argv[4];fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify({command,data,cwd:process.cwd(),providerKeys:!!(process.env.OPENAI_API_KEY||process.env.ANTHROPIC_API_KEY)})+'\\n');const values={doctor:{setup_required:false},authorize:{id:'host-root'},submit:{root_id:'host-root',job_id:'host-job',tmux:'tvijo-host',status:'queued'},status:{jobs:[{id:'host-job',status:'quality_pending',report:JSON.stringify({text:'Controller dispatch reached selected host.'})}]}};process.stdout.write(JSON.stringify(values[command]||{}));});`);
+ const app=host({root,defaultAuto:true});
+ try{
+  for(const [key,value] of Object.entries({'workspaceContext':'off','orchestration.enabled':true,'orchestration.controllerPath':controller,'orchestration.pythonPath':process.execPath,'orchestration.statePath':path.join(root,'state')}))app.settings.set(key,value);
+  await app.receive({type:'ready'});const scopeKey=app.posts.filter(p=>p.type==='state').at(-1).scopeKey;
+  await app.receive({type:'ask',scopeKey,question:'Inspect this selected project',agent:true});
+  const invocations=(await fs.readFile(calls,'utf8')).trim().split('\n').map(JSON.parse);
+  assert.deepEqual(invocations.map(x=>x.command),['doctor','authorize','submit','status']);
+  assert.equal(invocations.find(x=>x.command==='submit').data.project,root);
+  assert.ok(invocations.every(x=>x.cwd===root&&!x.providerKeys));
+  assert.equal(app.requests.filter(r=>r.url.endsWith('/chat')).length,0);
+  const state=app.posts.filter(p=>p.type==='state').at(-1);
+  assert.equal(state.orchestration.enabled,true);assert.equal(state.orchestration.coordinator,'ds41f');
+  assert.match(state.messages.at(-1).content,/Controller dispatch reached selected host/);
+  assert.match(state.messages.at(-1).content,/quality_pending/);assert.equal(app.errors.length,0);
+ }finally{app.close();}
+});
