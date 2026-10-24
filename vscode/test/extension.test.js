@@ -52,7 +52,7 @@ function host(options = {}) {
   function fireDiagnostics(uris) { for (const listener of diagnosticsChangeListeners) listener({ uris }); }
   const root = options.root || path.resolve(__dirname, '../..');
   const storage = options.storage || require('node:fs').mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'rewind-host-'));
-  const settings = new Map();
+  const settings = new Map(options.defaultAuto ? [] : [['agentAutoApply',false],['agentAutoRun',false]]);
   const status = { show() {} };
   class Uri { constructor(fsPath) { this.fsPath = fsPath; this.scheme = 'file'; } static file(value) { return new Uri(value); } static parse(value) { return new Uri(value); } static joinPath(base, ...parts) { return new Uri(path.join(base.fsPath, ...parts)); } }
   class Position { constructor(line, character) { this.line = line; this.character = character; } }

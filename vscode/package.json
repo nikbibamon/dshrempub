@@ -508,10 +508,10 @@
         },
         "tvijo.agentMaxSteps": {
           "type": "number",
-          "default": 12,
+          "default": 30,
           "minimum": 1,
           "maximum": 30,
-          "markdownDescription": "Caps tool steps in one local Agent/Plan loop, including JSON repair turns (default 12, maximum 30). At the limit, one additional metered turn without tools summarizes the collected evidence within the same session budget."
+          "markdownDescription": "Caps tool steps in one local Agent/Plan loop, including JSON repair turns (default 30, maximum 30). At the limit, one additional metered turn without tools summarizes the collected evidence within the same session budget."
         },
         "tvijo.agentBudgetUsd": {
           "type": "number",
@@ -522,13 +522,13 @@
         },
         "tvijo.agentAutoRun": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "markdownDescription": "The Auto preset skips approval only for the existing exact local Agent command vectors. Destructive commands remain blocked; Plan refuses all commands."
         },
         "tvijo.agentAutoApply": {
           "type": "boolean",
-          "default": false,
-          "markdownDescription": "Edit automatically and Auto apply eligible local Agent edits. Existing-file whole-file replacements still ask in Auto. Edits remain unsaved editor buffers; Plan refuses writes even when enabled."
+          "default": true,
+          "markdownDescription": "Edit automatically and Auto apply eligible local Agent edits. Existing-file whole-file replacements still ask in Auto. Auto saves eligible edits to disk before checks; Plan refuses writes."
         },
         "tvijo.telegram.enabled": {
           "type": "boolean",

@@ -447,9 +447,9 @@ function activate(context) {
       models,
       model: current,
       agentMode: configuration.get('agentMode', 'single'),
-      agentAutoApply: !!configuration.get('agentAutoApply', false),
-      agentAutoRun: !!configuration.get('agentAutoRun', false),
-      agentPreset: modePresets.presetFor(configuration.get('agentAutoApply', false), configuration.get('agentAutoRun', false),fullAccess.status(permissionFolder()).enabled),
+      agentAutoApply: !!configuration.get('agentAutoApply', true),
+      agentAutoRun: !!configuration.get('agentAutoRun', true),
+      agentPreset: modePresets.presetFor(configuration.get('agentAutoApply', true), configuration.get('agentAutoRun', true),fullAccess.status(permissionFolder()).enabled),
       agentModel,
       reasoningMethod: configuration.get('reasoningMethod', 'evidence-first'),
       contextMode: configuration.get('workspaceContext', 'ask'),
@@ -705,10 +705,10 @@ function activate(context) {
     if (attachmentScope !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account or thread changed before the agent started.');
     const api = core.createClient({ base: auth.api_base });
     const config = vscode.workspace.getConfiguration('tvijo');
-    const maxSteps = config.get('agentMaxSteps', 12);
+    const maxSteps = config.get('agentMaxSteps', 30);
     const budgetUsd = config.get('agentBudgetUsd', 2);
-    const autoRun = !!config.get('agentAutoRun', false);
-    const autoApply = !!config.get('agentAutoApply', false);
+    const autoRun = !!config.get('agentAutoRun', true);
+    const autoApply = !!config.get('agentAutoApply', true);
     const startedAt = Date.now();
     const terminalCaptureEpoch = terminalCaptures.epoch;
     const abort = new AbortController();
@@ -2529,7 +2529,7 @@ function activate(context) {
               }
               await assertCurrent(auth);
               const effective = vscode.workspace.getConfiguration('tvijo');
-              const actual = { agentAutoApply: !!effective.get('agentAutoApply', false), agentAutoRun: !!effective.get('agentAutoRun', false) };
+              const actual = { agentAutoApply: !!effective.get('agentAutoApply', true), agentAutoRun: !!effective.get('agentAutoRun', true) };
               const globalActual = inspect();
               if (actual.agentAutoApply !== settings.agentAutoApply || actual.agentAutoRun !== settings.agentAutoRun ||
                   globalActual.agentAutoApply !== settings.agentAutoApply || globalActual.agentAutoRun !== settings.agentAutoRun) {

@@ -17,7 +17,7 @@ const TOOL_HELP = [
   '{"tool":"finish","answer":"what was done, what was checked, what remains"}'
 ].join('\n');
 
-function systemPrompt({ tree = '', planMode = false, step = 1, maxSteps = 12, budgetUsd = 2 }) {
+function systemPrompt({ tree = '', planMode = false, step = 1, maxSteps = 30, budgetUsd = 2 }) {
   return [
     'You are Tvijo Agent, a coding agent inside VS Code.',
     'Work only inside the opened workspace. Return exactly one JSON object per turn and nothing else.',
@@ -86,9 +86,9 @@ function conversationContext(history, maxBytes = 8192) {
   return result;
 }
 
-async function runAgent({ goal, tree, projectContext = '', history = [], planMode, maxSteps = 12, budgetUsd = 2, ask, tools, onEvent = () => {}, signal }) {
+async function runAgent({ goal, tree, projectContext = '', history = [], planMode, maxSteps = 30, budgetUsd = 2, ask, tools, onEvent = () => {}, signal }) {
   if (!goal || !goal.trim()) throw new Error('A goal is required.');
-  const steps = Math.min(Math.max(Math.floor(Number(maxSteps)) || 12, 1), 30);
+  const steps = Math.min(Math.max(Math.floor(Number(maxSteps)) || 30, 1), 30);
   const budget = Math.max(Number(budgetUsd) || 2, 0);
   const recent = conversationContext(history);
   const projectData = typeof projectContext === 'string' && projectContext ? projectContext : (typeof tree === 'string' ? tree : '');
