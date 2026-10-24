@@ -25,7 +25,7 @@
     "bytes": 894964,
     "editor_requirement": "^1.90.0",
     "source_commit": "ecc511892ad9553fb224f39182f585b1d205b083",
-    "verified_environment": "798 deterministic extension checks (independent parent re-run); real-git auto-commit tests; operator-journey gate in the production extension host; EN/RU desktop/mobile Chromium render. No paid model calls. Native Windows unavailable."
+    "verified_environment": "798 deterministic extension checks (independent parent re-run); real-git auto-commit tests; operator-journey gate in the production extension host with synthetic model responses; EN/RU desktop/mobile Chromium render. No paid model calls. Native Windows unavailable."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
@@ -112,8 +112,8 @@
       "version": "0.10.8",
       "date": "2026-10-24",
       "title": {
-        "en": "Works like Copilot: no header, project rules, local auto-commit",
-        "ru": "Как Copilot: без шапки, правила проекта, локальный автокоммит"
+        "en": "Edits, tests and commits on its own: no header, project rules, local auto-commit",
+        "ru": "Сам правит, проверяет и коммитит: без шапки, правила проекта, локальный автокоммит"
       },
       "changes": [
         {
@@ -125,8 +125,8 @@
           "ru": "Новые задачи начинаются в «Авто»: агент сам сохраняет правки на диск и запускает тесты, до 30 шагов. Денежные лимиты не изменились."
         },
         {
-          "en": "Project rules are read automatically in trusted workspaces: AGENTS.md, CLAUDE.md, .clinerules, .cursorrules, .windsurfrules, .github/copilot-instructions.md and .tvijo/rules.md. The agent always asks before changing them.",
-          "ru": "Правила проекта читаются сами в доверенной рабочей области: AGENTS.md, CLAUDE.md, .clinerules, .cursorrules, .windsurfrules, .github/copilot-instructions.md и .tvijo/rules.md. Перед их изменением агент всегда спрашивает."
+          "en": "Project rules are read automatically in trusted workspaces: AGENTS.md, .tvijo/rules.md and the rule files other editors keep in the project. The agent always asks before changing them.",
+          "ru": "Правила проекта читаются сами в доверенной рабочей области: AGENTS.md, .tvijo/rules.md и файлы правил других редакторов в проекте. Перед их изменением агент всегда спрашивает."
         },
         {
           "en": "After a successful task Tvijo commits only its own saved edits to the current branch, with Tvijo-Model and Co-Authored-By trailers. It never pushes, and offers Undo commit.",
