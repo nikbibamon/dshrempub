@@ -1,3 +1,11 @@
+## 0.10.11 — 2026-10-24
+
+- Save settings automatically and reflect native configuration changes without a refresh button. Keep draft text and focus through background updates; reject stale replies and show failed saves.
+- Explain reasoning methods and chat collaboration in English and Russian, with practical examples and learning links. Distinguish ordinary chat review from persistent host development jobs.
+- Show real loaded skill-pack and shared-service choices with readable names. Preserve unavailable saved identifiers. Move technical paths and legacy fields into Advanced.
+- Open completed private HTML reports inside VS Code with scripts and external resources disabled; changing accounts closes their previews.
+- Add host team size and report appearance preferences for controllers that advertise support. Counts include the coordinator and sequential worker invocations; installed subscription workers never silently fall back to paid APIs.
+
 ## 0.10.10 — 2026-10-24
 
 - Anchor the + menu to its button; dismiss on outside pointer/focus, Escape or a second click. Keep it within a narrow viewport even when notices change composer height.

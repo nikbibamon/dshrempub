@@ -3,6 +3,9 @@
   // RU: Скопируйте нужные значения в User / Remote settings.json; секреты сюда не помещайте.
   "tvijo.model": "ds41f",
   "tvijo.agentModel": "ds41f",
+  // Start from files/logs/tests; plan-check plans then verifies; peer-review asks for a review.
+  // Сначала факты; plan-check — план и проверка; peer-review — взгляд рецензента.
+  "tvijo.reasoningMethod": "evidence-first",
   "tvijo.agentBudgetUsd": 2,
   "tvijo.agentMaxSteps": 60,
   "tvijo.autoApply": true,
@@ -21,5 +24,12 @@
   "tvijo.telegram.allowedServices": [],
   // Advanced / Для администратора: keep the default unless using your own service.
   "tvijo.apiBase": "https://dsh.tvijo.com/api/dshrem/v1",
-  "tvijo.orchestration.enabled": false
+  "tvijo.orchestration.enabled": false,
+  // Installed subscriptions on the selected host; no automatic paid API fallback.
+  // Подписки, установленные на выбранном хосте; без автоматической подмены на платный API.
+  "tvijo.orchestration.workerPolicy": "sol",
+  // Includes the coordinator; workers run sequentially. Claude policy needs at least 4.
+  // Включает координатора; исполнители запускаются последовательно. Для состава с Claude нужно минимум 4.
+  "tvijo.orchestration.agentCount": 3,
+  "tvijo.orchestration.reportFormat": "both"
 }

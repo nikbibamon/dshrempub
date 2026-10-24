@@ -2,12 +2,13 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const {createOrchestrator,settings,safeEnv,keyFor}=require('../lib/orchestration');
+const teamOptions=()=>({agent_counts:[3,4,5,6],report_formats:['light','dark','rainbow','both'],policies:[{id:'sol',available:true,agent_counts:[3,4,5,6]}]});
 function fixture(extra={},intercept){
  const root=fs.mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS||os.tmpdir(),'orchestration-'));
  const values=new Map(),calls=[];
  const config={'orchestration.enabled':true,'orchestration.controllerPath':'/runtime/scripts/tvijo_orchestrator.py','orchestration.statePath':root+'/state',...extra};
  const invokeController=async(c,command,data,options)=>{calls.push({command,data,options});if(intercept){const value=await intercept(command,data);if(value!==undefined)return value;}
-  if(command==='doctor')return {setup_required:false};if(command==='authorize')return {id:'root-1'};
+  if(command==='doctor')return {setup_required:false,team_options:teamOptions()};if(command==='authorize')return {id:'root-1'};
   if(command==='submit')return {root_id:'root-1',job_id:'job-1',tmux:'tvijo-123abc',status:'queued'};
   if(command==='status')return {jobs:[{id:'job-1',status:'quality_pending',report:'{}'}]};return {};};
  const state={get:k=>values.get(k),keys:()=>[...values.keys()],update:async(k,v)=>values.set(k,v)};
@@ -23,7 +24,7 @@ test('production adapter dispatch binds root account and caps; prompt is JSON no
  assert.equal(result.job.status,'quality_pending');
  const grant=f.calls.find(c=>c.command==='authorize').data;
  assert.equal(grant.account,'account-a');assert.equal(grant.tenant,'tenant-a');assert.equal(grant.project,f.root);
- assert.equal(grant.cap_usd,'2');assert.equal(grant.turns_max,11);assert.equal(grant.children_max,1);
+ assert.equal(grant.cap_usd,'2');assert.equal(grant.turns_max,11);assert.equal(grant.children_max,2);assert.equal(grant.agent_count,3);assert.equal(grant.report_format,'both');
  const submit=f.calls.find(c=>c.command==='submit').data;
  assert.equal(submit.root_id,'root-1');assert.equal(submit.prompt,f.options.prompt);
  assert.ok(!fs.existsSync(path.join(f.root,'INJECTION')));
@@ -120,4 +121,21 @@ test('commit model attribution uses completed verified receipts, never worker po
  const {completedModels}=require('../lib/orchestration');
  assert.deepEqual(completedModels({coordinator_alias:'ds41f',workerPolicy:'sol-astra-claude'}),[]);
  assert.deepEqual(completedModels({completed_native_models:{'gpt-6.1-sol':{verified:true,receipt:'codex-1.jsonl'},'gpt-6-astra':{verified:false,receipt:'codex-2.jsonl'},'sol-astra-claude':{verified:true,receipt:'fake'}}}),['gpt-6.1-sol']);
+});
+
+test('team preferences validate role count, report format and Claude minimum',()=>{
+ for(const extra of [{'orchestration.agentCount':2},{'orchestration.agentCount':7},{'orchestration.agentCount':3.5},{'orchestration.reportFormat':'auto'},{'orchestration.workerPolicy':'sol-astra-claude','orchestration.agentCount':3}])assert.throws(()=>settings({get:(key,fallback)=>({'orchestration.enabled':true,...extra})[key]??fallback}));
+});
+test('explicit team count and format reach authorize with coherent sequential worker slots',async()=>{
+ const f=fixture({'orchestration.agentCount':6,'orchestration.reportFormat':'rainbow'});await f.host.run(f.options);const grant=f.calls.find(c=>c.command==='authorize').data;
+ assert.equal(grant.agent_count,6);assert.equal(grant.children_max,5);assert.equal(grant.report_format,'rainbow');assert.equal(grant.policy,'sol');
+});
+test('old runtimes and unavailable advertised worker policies stop before authorize',async()=>{
+ for(const doctor of [{setup_required:false},{setup_required:false,team_options:{...teamOptions(),policies:[{id:'sol',available:false,agent_counts:[3,4,5,6]}]}}]){
+ const f=fixture({},async command=>command==='doctor'?doctor:undefined);await assert.rejects(f.host.run(f.options),/team options|unavailable/);assert.equal(f.calls.some(c=>c.command==='authorize'),false);
+ }
+});
+
+test('partial and unsupported team capabilities fail before reserving money',async()=>{
+ for(const options of [{}, {...teamOptions(),agent_counts:[4,5,6]}, {...teamOptions(),report_formats:['light']}, {...teamOptions(),policies:[]}, {...teamOptions(),policies:[{id:'sol',available:true,agent_counts:[4]}]}]){const f=fixture({},async command=>command==='doctor'?{setup_required:false,team_options:options}:undefined);await assert.rejects(f.host.run(f.options),/not supported|unavailable/);assert.equal(f.calls.some(c=>c.command==='authorize'),false);}
 });

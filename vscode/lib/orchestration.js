@@ -23,8 +23,12 @@ function settings(config){
  const profile=config.get('orchestration.profile','dsh-harness');
  const policy=config.get('orchestration.workerPolicy','sol');
  if(enabled&&(profile!=='dsh-harness'||!['sol','sol-astra','sol-astra-claude'].includes(policy)))throw Error('Unsupported orchestration profile or worker policy.');
+ const agentCount=config.get('orchestration.agentCount',3),reportFormat=config.get('orchestration.reportFormat','both');
+ if(!Number.isInteger(agentCount)||agentCount<3||agentCount>6)throw Error('Team role count must be an integer from 3 to 6.');
+ if(!['light','dark','rainbow','both'].includes(reportFormat))throw Error('Unsupported orchestration report format.');
+ if(enabled&&policy==='sol-astra-claude'&&agentCount<4)throw Error('Sol + Astra + Claude requires at least 4 team roles including the coordinator.');
  const host=discoverHost();
- return {enabled,profile,policy,python:config.get('orchestration.pythonPath','')||host?.python||'python3',controller:config.get('orchestration.controllerPath','')||host?.controller||'',state:config.get('orchestration.statePath','')||host?.state||''};
+ return {enabled,profile,policy,agentCount,reportFormat,python:config.get('orchestration.pythonPath','')||host?.python||'python3',controller:config.get('orchestration.controllerPath','')||host?.controller||'',state:config.get('orchestration.statePath','')||host?.state||''};
 }
 function safeEnv(source=process.env){return Object.fromEntries(['PATH','HOME','LANG','LC_ALL','TMPDIR','XDG_CACHE_HOME'].filter(k=>source[k]).map(k=>[k,source[k]]));}
 function invoke(config,command,payload={},options={}){
@@ -75,12 +79,18 @@ function createOrchestrator({state,configuration,invokeController=invoke,pollMs=
   if(previous&&(previous.qualityChecking||['queued','running','launching','quality_running','cancel_requested','reconcile_required','reconnect_required'].includes(previous.status)))throw Error('This project has a durable orchestration task. Use Status, Resume or Stop before a new task.');
   const doctor=await call(config,'doctor',{},canonical);await guard();
   if(doctor.setup_required)throw Error('DSH Harness needs setup on a Linux local or Remote SSH project host. Run Orchestration doctor and follow https://dsh.tvijo.com/orchestration/setup');
+  // An old controller may silently ignore additive authorize fields. Require its
+  // advertised team-options capability before claiming a configured team.
+  if(!doctor.team_options||typeof doctor.team_options!=='object'||Array.isArray(doctor.team_options))throw Error('This host runtime does not advertise team options. Update it through explicit host setup before starting a team task.');
+  const selectedPolicy=Array.isArray(doctor.team_options.policies)?doctor.team_options.policies.find(item=>item.id===config.policy):null;
+  if(!Array.isArray(doctor.team_options.agent_counts)||!doctor.team_options.agent_counts.includes(config.agentCount)||!Array.isArray(doctor.team_options.report_formats)||!doctor.team_options.report_formats.includes(config.reportFormat))throw Error('The selected team size or report format is not supported by this host runtime. Update the host or choose a supported option.');
+  if(!selectedPolicy||selectedPolicy.available!==true||!Array.isArray(selectedPolicy.agent_counts)||!selectedPolicy.agent_counts.includes(config.agentCount))throw Error('The selected subscription worker policy is unavailable for this team size on this host. No paid API fallback.');
   if(config.policy==='sol-astra-claude'&&!doctor.native_claude_verified)throw Error('Claude native provider, exact model and subscription quota are not verified on this host. Select Sol or Sol + Astra.');
   const workspace=createHash('sha256').update(canonical).digest('hex');
   const binding={tenant,workspace,account,project:canonical};
   // authorityRoot is a host-only continuation input for explicit bounded repair/tests;
   // a webview message is never allowed to supply it.
-  const authority=authorityRoot?{id:authorityRoot}:await call(config,'authorize',{...binding,cap_usd:String(Math.min(2,budgetUsd)),turns_max:Math.min(11,maxSteps),children_max:config.policy==='sol'?1:3,policy:config.policy,trusted:true},canonical);
+  const authority=authorityRoot?{id:authorityRoot}:await call(config,'authorize',{...binding,cap_usd:String(Math.min(2,budgetUsd)),turns_max:Math.min(11,maxSteps),children_max:config.agentCount-1,agent_count:config.agentCount,report_format:config.reportFormat,policy:config.policy,trusted:true},canonical);
   const record={root_id:authority.id,project:canonical,scope,status:'queued',config};
   active.set(key,record);await state.update(key,record);
   let authorityInvalid=false;

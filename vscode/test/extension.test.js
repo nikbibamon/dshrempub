@@ -91,9 +91,9 @@ function host(options = {}) {
     languages: { onDidChangeDiagnostics: fn => { diagnosticsChangeListeners.push(fn); return disposable; }, getDiagnostics: uri => options.diagnosticsFor ? options.diagnosticsFor(uri) : (options.diagnostics || []) },
     DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2 },
     window: {
-      createWebviewPanel: () => {
+      createWebviewPanel: (viewType,title,column,options) => {
         let listener;
-        const panel = { revealed: 0, reveal() { this.revealed++; }, dispose() {}, onDidDispose() {},
+        const panel = { viewType,title,column,options,revealed: 0, reveal() { this.revealed++; }, dispose() { this.disposed=true; }, onDidDispose() {},
           webview: { cspSource: 'test:', html: '', postMessage: async message => { posts.push(message); }, onDidReceiveMessage: fn => { listener = fn; return disposable; } },
           receive: message => listener(message) };
         panels.push(panel); return panel;
@@ -167,7 +167,7 @@ function host(options = {}) {
   const accountLocal=tenantState(context);
   const folderScope=scope=>require('node:crypto').createHash('sha256').update(JSON.stringify([scope,require('../lib/active-workspace').identity(require('../lib/active-workspace').createActiveWorkspace({vscode,state:context.workspaceState}).current())])).digest('hex');
   const scopedLocal={...accountLocal,history:scope=>accountLocal.history(folderScope(scope)),saveHistory:(scope,value)=>accountLocal.saveHistory(folderScope(scope),value)};
-  return { vscode, context, posts, docs, shown, warnings, requests, commands, executed, errors, feedback, panels, external, copied, base, local: scopedLocal, rawLocal:accountLocal, folderScope, scope: tenant => scopeKey(base, tenant), receive: (message) => receive({...message,...(message.scopeKey === scopeKey(base,'tenant-a') || message.scopeKey === scopeKey(base,'tenant-b') ? {scopeKey:folderScope(message.scopeKey)} : {})}), workspaceChanged: () => { if (!workspaceChangeListener) return false; workspaceChangeListener({}); return true; }, configurationChanged: () => { for (const listener of configurationChangeListeners) listener({ affectsConfiguration: key => key === 'tvijo.apiBase' }); return configurationChangeListeners.length; },
+  return { vscode, context, posts, docs, shown, warnings, requests, commands, executed, errors, feedback, panels, external, copied, base, local: scopedLocal, rawLocal:accountLocal, folderScope, scope: tenant => scopeKey(base, tenant), receive: (message) => receive({...message,...(message.scopeKey === scopeKey(base,'tenant-a') || message.scopeKey === scopeKey(base,'tenant-b') ? {scopeKey:folderScope(message.scopeKey)} : {})}), workspaceChanged: () => { if (!workspaceChangeListener) return false; workspaceChangeListener({}); return true; }, configurationChanged: (changedKey='tvijo.apiBase') => { for (const listener of configurationChangeListeners) listener({ affectsConfiguration: key => key === changedKey || changedKey.startsWith(key+'.') }); return configurationChangeListeners.length; },
     root, storage, botAdapter: () => botAdapter, settings, status, Uri, Position, Range,
     grantError: value => { grantError = value; }, lookup: value => { lookup = value; }, warning: value => { warningAnswer = value; }, chat: value => { chatContent = value; }, editor: value => { activeEditor = value; }, applied: () => appliedEdit, taskSnapshot: value => { taskSnapshot = value; },
     fireDiagnostics,
@@ -1582,6 +1582,12 @@ test('settings guide works signed out, targets native settings, rejects arbitrar
     assert.equal(app.external.length, 0);
     await panel.receive({ type: 'guideAction', id: 'platform' });
     assert.deepEqual(app.external, ['https://platform.tvijo.com']);
+    await panel.receive({type:'locale',value:'ru'});
+    await panel.receive({type:'guideAction',id:'knowledge'});
+    assert.equal(app.external.at(-1),'https://dsh.tvijo.com/knowledge/settings-explained?lang=ru#article-top');
+    await panel.receive({type:'locale',value:'en'});
+    await panel.receive({type:'guideAction',id:'teamsHelp'});
+    assert.equal(app.external.at(-1),'https://dsh.tvijo.com/knowledge/agentroy-teams-and-costs?lang=en#article-top');
     await panel.receive({ type: 'guideAction', id: 'nativeSettings' });
     assert.deepEqual(app.executed.at(-1), { id: 'workbench.action.openSettings', args: ['@ext:tvijo.tvijo-dshrem'] });
     await panel.receive({ type: 'refresh' });
@@ -2866,7 +2872,7 @@ test('0.10.8 release gate G: symlink volume, default Auto, saved edit, test and 
   const beforeWarnings=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,beforeWarnings,'ZERO approvals during default Auto task');assert.equal(x.app.posts.find(p=>p.type==='agent' && p.event?.type==='start').event.maxSteps,60);
   assert.equal(await fs.readFile(x.file,'utf8'),'50\n');const check=x.results().find(r=>r.stdout?.includes('GATE_TEST_GREEN'));assert.equal(check?.ok,true,JSON.stringify(x.results()));
   assert.equal(git('rev-list','--count','HEAD'),'2');assert.equal(git('diff-tree','--no-commit-id','--name-only','-r','HEAD'),'x.txt');assert.equal(git('diff','--cached','--name-only'),'user-staged.txt');assert.equal(git('diff','--cached','--','x.txt'),'');assert.equal(git('diff','--name-only'),'dirty.txt');
-  const msg=git('show','-s','--format=%B');assert.match(msg,/Tvijo-Agent: tvijo-dshrem 0\.10\.10/);assert.match(msg,/Tvijo-Model: served-gate-model/);assert.match(msg,/Co-Authored-By:/);
+  const msg=git('show','-s','--format=%B');assert.match(msg,/Tvijo-Agent: tvijo-dshrem 0\.10\.11/);assert.match(msg,/Tvijo-Model: served-gate-model/);assert.match(msg,/Co-Authored-By:/);
   assert.equal(execFileSync('git',['--git-dir='+remote,'rev-parse','HEAD'],{env,encoding:'utf8'}),remoteBefore);
   const calls=x.calls();assert.match(JSON.stringify(calls),/CANARY_B_FOLLOW_STYLE/);assert.doesNotMatch(JSON.stringify(calls),/CANARY_A_MUST_NOT_LOAD/);
   state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.account.identity.email,'gate@example.test');assert.equal(state.runtimeVersion,require('../package.json').version);assert.ok(state.loadedRules.some(r=>r.file==='AGENTS.md'));
@@ -2943,7 +2949,8 @@ test('limitation: inherited-environment Python and npm pushes fail; direct push 
 test('orchestration enabled setting drives real host message dispatch and controller subprocess',async()=>{
  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'orchestration-host-'));
  const controller=path.join(root,'controller.cjs'),calls=path.join(root,'calls.jsonl');
- await fs.writeFile(controller,`const fs=require('node:fs');let input='';process.stdin.on('data',b=>input+=b);process.stdin.on('end',()=>{const data=JSON.parse(input),command=process.argv[4];fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify({command,data,cwd:process.cwd(),providerKeys:!!(process.env.OPENAI_API_KEY||process.env.ANTHROPIC_API_KEY)})+'\\n');const values={doctor:{setup_required:false},authorize:{id:'host-root'},submit:{root_id:'host-root',job_id:'host-job',tmux:'tvijo-host',status:'queued'},status:{jobs:[{id:'host-job',status:'quality_pending',report:JSON.stringify({text:'Controller dispatch reached selected host.'})}]}};process.stdout.write(JSON.stringify(values[command]||{}));});`);
+ const reportFile=path.join(root,'state','reports','job-'+'a'.repeat(32),'b'.repeat(16)+'-light.html');await fs.mkdir(path.dirname(reportFile),{recursive:true});await fs.writeFile(reportFile,'<html><head><style>body{color:blue}</style></head><body>Private report fixture</body></html>');
+ await fs.writeFile(controller,`const fs=require('node:fs');let input='';process.stdin.on('data',b=>input+=b);process.stdin.on('end',()=>{const data=JSON.parse(input),command=process.argv[4];fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify({command,data,cwd:process.cwd(),providerKeys:!!(process.env.OPENAI_API_KEY||process.env.ANTHROPIC_API_KEY)})+'\\n');const values={doctor:{setup_required:false,team_options:{agent_counts:[3,4,5,6],report_formats:['light','dark','rainbow','both'],policies:[{id:'sol',available:true,agent_counts:[3,4,5,6]}]}},authorize:{id:'host-root'},submit:{root_id:'host-root',job_id:'job-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',tmux:'tvijo-host',status:'queued'},status:{jobs:[{id:'job-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',status:'quality_pending',report_files:${JSON.stringify([reportFile])},report:JSON.stringify({text:'Controller dispatch reached selected host.'})}]}};process.stdout.write(JSON.stringify(values[command]||{}));});`);
  const app=host({root,defaultAuto:true});
  try{
   for(const [key,value] of Object.entries({'workspaceContext':'off','orchestration.enabled':true,'orchestration.controllerPath':controller,'orchestration.pythonPath':process.execPath,'orchestration.statePath':path.join(root,'state')}))app.settings.set(key,value);
@@ -2958,6 +2965,11 @@ test('orchestration enabled setting drives real host message dispatch and contro
   assert.equal(state.orchestration.enabled,true);assert.equal(state.orchestration.coordinator,'ds41f');
   assert.match(state.messages.at(-1).content,/Controller dispatch reached selected host/);
   assert.match(state.messages.at(-1).content,/quality_pending/);assert.equal(app.errors.length,0);
+  await app.commands.get('tvijo.orchestrationReport')();
+  const preview=app.panels.at(-1);assert.equal(preview.viewType,'tvijo.orchestrationReport');assert.equal(preview.options.enableScripts,false);assert.deepEqual(preview.options.localResourceRoots,[]);assert.match(preview.webview.html,/Private report fixture/);assert.match(preview.webview.html,/Content-Security-Policy/);
+  await app.commands.get('tvijo.orchestrationDoctor')();await app.commands.get('tvijo.settings')();assert.match(app.panels.at(-1).webview.html, /"quotaChecked":false/);assert.match(app.panels.at(-1).webview.html,/"policies":\[\{"id":"sol","available":true/);
+  const after=(await fs.readFile(calls,'utf8')).trim().split('\n').map(JSON.parse);assert.equal(after.filter(x=>x.command==='authorize').length,1);assert.equal(app.errors.length,0);
+  await app.commands.get('tvijo.signOut')();assert.equal(preview.disposed,true);
  }finally{app.close();}
 });
 
@@ -3011,7 +3023,7 @@ async function nativeCommitHost(hook='pre-commit',script){
  await fs.writeFile(path.join(root,'.git/hooks',hook),script || '#!/bin/sh\nprintf started > '+quote(marker)+'\nsleep 20\n',{mode:0o700});
  const content='native edit\n',sha256=createHash('sha256').update(content).digest('hex'),controller=path.join(base,'controller.cjs');
  const report={text:'Native fixture finished.',coordinator_alias:'ds41f',completed_native_models:{'gpt-6.1-sol':{verified:true,receipt:'fixture-native.jsonl'}},edit_receipts:{writes:[{path:'code.txt',sha256}],events:[]}};
- await fs.writeFile(controller,`const fs=require('node:fs');let input='';process.stdin.on('data',b=>input+=b);process.stdin.on('end',()=>{const command=process.argv[4];if(command==='status')fs.writeFileSync(${JSON.stringify(path.join(root,'code.txt'))},${JSON.stringify(content)});const values={doctor:{setup_required:false},authorize:{id:'fixture-root'},submit:{root_id:'fixture-root',job_id:'fixture-job',status:'queued'},status:{jobs:[{id:'fixture-job',status:'quality_pending',report:${JSON.stringify(JSON.stringify(report))}}]}};process.stdout.write(JSON.stringify(values[command]||{}));});`);
+ await fs.writeFile(controller,`const fs=require('node:fs');let input='';process.stdin.on('data',b=>input+=b);process.stdin.on('end',()=>{const command=process.argv[4];if(command==='status')fs.writeFileSync(${JSON.stringify(path.join(root,'code.txt'))},${JSON.stringify(content)});const values={doctor:{setup_required:false,team_options:{agent_counts:[3,4,5,6],report_formats:['light','dark','rainbow','both'],policies:[{id:'sol',available:true,agent_counts:[3,4,5,6]}]}},authorize:{id:'fixture-root'},submit:{root_id:'fixture-root',job_id:'fixture-job',status:'queued'},status:{jobs:[{id:'fixture-job',status:'quality_pending',report:${JSON.stringify(JSON.stringify(report))}}]}};process.stdout.write(JSON.stringify(values[command]||{}));});`);
  const app=host({root,storage,defaultAuto:true});
  for(const [key,value] of Object.entries({'workspaceContext':'off','orchestration.enabled':true,'orchestration.controllerPath':controller,'orchestration.pythonPath':process.execPath,'orchestration.statePath':path.join(base,'state')}))app.settings.set(key,value);
  await app.receive({type:'ready'});const scopeKey=app.posts.filter(p=>p.type==='state').at(-1).scopeKey;
@@ -3036,7 +3048,7 @@ test('DSH production native commit preserves private Undo identity and verified 
   await x.run();let state=x.app.posts.filter(p=>p.type==='state').at(-1);const index=state.messages.findIndex(row=>row.autoCommit);assert.ok(index>=0);
   const message=x.git('show','-s','--format=%B',state.messages[index].autoCommit.hash),nonce=message.match(/^Tvijo-Commit-Nonce: ([a-f0-9]{64})$/m)?.[1];
   assert.ok(nonce);assert.equal(JSON.stringify(x.app.posts).includes(nonce),false);assert.deepEqual(Object.keys(state.messages[index].autoCommit),['hash']);
-  assert.match(message,/Tvijo-Agent: tvijo-dshrem 0\.10\.10/);assert.match(message,/Tvijo-Model: gpt-6\.1-sol/);assert.doesNotMatch(message,/Tvijo-Model:.*ds41f/);
+  assert.match(message,/Tvijo-Agent: tvijo-dshrem 0\.10\.11/);assert.match(message,/Tvijo-Model: gpt-6\.1-sol/);assert.doesNotMatch(message,/Tvijo-Model:.*ds41f/);
   await x.app.receive({type:'undoCommit',index,scopeKey:state.scopeKey});assert.equal(x.git('rev-parse','HEAD'),x.head);
   state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.messages[index].autoCommit,undefined);assert.match(state.messages[index].content,/Commit undone/);
   assert.equal(await fs.readFile(path.join(x.root,'code.txt'),'utf8'),x.content);assert.equal(x.app.errors.length,0);
@@ -3086,10 +3098,10 @@ test('judgefix3 production Undo uses private identity proof and nonce stays out 
 test('settings panel saves validated values on host and reports failures without applying them',async()=>{
  const app=host();try{
   await app.commands.get('tvijo.settings')();const panel=app.panels[0];
-  await panel.receive({type:'saveSetting',key:'tvijo.agentMaxSteps',value:90});assert.equal(app.settings.get('agentMaxSteps'),90);
-  await panel.receive({type:'saveSetting',key:'tvijo.agentBudgetUsd',value:NaN});assert.equal(app.settings.has('agentBudgetUsd'),false);assert.ok(app.posts.find(x=>x.type==='settingsSaved'&&x.error));
-  await panel.receive({type:'saveSetting',key:'tvijo.telegram.ownerId',value:'123456'});assert.equal(app.settings.has('telegram.ownerId'),false);
-  await panel.receive({type:'saveSetting',key:'tvijo.colorTheme',value:'teal'});assert.equal(app.settings.get('colorTheme'),'teal');
+  await panel.receive({type:'saveSetting',key:'tvijo.agentMaxSteps',value:90,requestId:1});assert.equal(app.settings.get('agentMaxSteps'),90);
+  await panel.receive({type:'saveSetting',key:'tvijo.agentBudgetUsd',value:NaN,requestId:1});assert.equal(app.settings.has('agentBudgetUsd'),false);assert.ok(app.posts.find(x=>x.type==='settingsSaved'&&x.error));
+  await panel.receive({type:'saveSetting',key:'tvijo.telegram.ownerId',value:'123456',requestId:1});assert.equal(app.settings.has('telegram.ownerId'),false);
+  await panel.receive({type:'saveSetting',key:'tvijo.colorTheme',value:'teal',requestId:1});assert.equal(app.settings.get('colorTheme'),'teal');
   await panel.receive({type:'guideAction',id:'configExample'});assert.ok(app.docs.some(d=>d.language==='jsonc'&&d.content.includes('tvijo.agentBudgetUsd')));
   assert.equal(app.requests.filter(r=>r.url.endsWith('/tasks')&&r.method==='POST').length,0);
  }finally{app.close();}
@@ -3101,4 +3113,43 @@ test('host budget warning adds only the chosen increment to this run and preserv
  const grants=app.requests.filter(r=>r.url.endsWith('/tasks')&&r.method==='POST');assert.equal(grants.length,3);assert.equal(Number(grants[0].body.max_usd),0.01);assert.equal(Number(grants[1].body.max_usd),0.006);assert.equal(Number(grants[2].body.max_usd),1);
  assert.equal(app.settings.get('agentBudgetUsd'),0.01);assert.ok(app.warnings.some(w=>w[0].includes('Increase the limit')));assert.equal(app.errors.length,0);
  }finally{app.close();}
+});
+
+
+test('settings lifecycle reads native values after delayed OCR and ignores out-of-order probes',async()=>{
+ const controls=require('../lib/settings-controls'),original=controls.installedOcrLanguages,probes=[];
+ controls.installedOcrLanguages=()=>new Promise(resolve=>probes.push(resolve));
+ const app=host();try{
+  const opening=app.commands.get('tvijo.settings')();assert.equal(probes.length,1);
+  app.settings.set('agentMaxSteps',91);probes[0]({available:false,languages:[]});await opening;
+  const panel=app.panels[0],initial=JSON.parse(panel.webview.html.match(/const initial=(.*);/)[1]);
+  assert.equal(initial.rows.find(row=>row.key==='tvijo.agentMaxSteps').value,91);
+  const requestsBeforeProbes=app.requests.length;
+  app.settings.set('orchestration.enabled',true);app.configurationChanged('tvijo.orchestration.enabled');
+  app.settings.set('orchestration.enabled',false);app.configurationChanged('tvijo.orchestration.enabled');
+  assert.equal(probes.length,3);probes[2]({available:true,languages:['eng']});await new Promise(setImmediate);
+  const snapshots=()=>app.posts.filter(p=>p.type==='settingsValues');assert.equal(snapshots().at(-1).values['tvijo.orchestration.enabled'],false);
+  const count=snapshots().length;probes[1]({available:false,languages:[]});await new Promise(setImmediate);assert.equal(snapshots().length,count);
+  assert.equal(app.requests.slice(requestsBeforeProbes).filter(r=>r.url.endsWith('/packs')||r.url.endsWith('/services')||r.method==='POST').length,0);
+ }finally{controls.installedOcrLanguages=original;app.close();}
+});
+test('settings host serializes actual config writes, correlates errors and keeps server confirmation explicit',async()=>{
+ const controls=require('../lib/settings-controls'),original=controls.installedOcrLanguages;controls.installedOcrLanguages=async()=>({available:false,languages:[]});
+ let release;const calls=[];const gate=new Promise(resolve=>{release=resolve;});
+ const app=host({configurationUpdate:async(key,value,settings)=>{calls.push([key,value]);if(value===90)await gate;settings.set(key,value);}});
+ try{
+  await app.context.secrets.delete('tvijo.auth');await app.commands.get('tvijo.settings')();const panel=app.panels[0];
+  const first=panel.receive({type:'saveSetting',key:'tvijo.agentMaxSteps',value:90,requestId:1});await new Promise(setImmediate);
+  const second=panel.receive({type:'saveSetting',key:'tvijo.agentMaxSteps',value:100,requestId:2});await new Promise(setImmediate);assert.deepEqual(calls,[['agentMaxSteps',90]]);
+  release();await Promise.all([first,second]);assert.equal(app.settings.get('agentMaxSteps'),100);
+  const count=calls.length;await panel.receive({type:'saveSetting',key:'tvijo.agentMaxSteps',value:1,requestId:1});assert.equal(calls.length,count);
+  await panel.receive({type:'saveSetting',key:'tvijo.agentMaxSteps',value:-1,requestId:3});
+  const ack=app.posts.filter(p=>p.type==='settingsSaved'&&p.requestId===3).at(-1);assert.equal(ack.value,100);assert.ok(ack.error);
+  await panel.receive({type:'saveSetting',key:'tvijo.apiBase',value:'https://trusted.example/api',requestId:1});
+  assert.ok(app.warnings.some(args=>args[1]?.modal===true));assert.equal(calls.length,count);
+  assert.match(app.posts.filter(p=>p.type==='settingsSaved'&&p.key==='tvijo.apiBase').at(-1).error,/Server unchanged/);
+  for(const [key,value]of [['tvijo.pack','unknown'],['tvijo.service','unknown']]){
+   await panel.receive({type:'saveSetting',key,value,requestId:1});const failure=app.posts.filter(p=>p.type==='settingsSaved'&&p.key===key).at(-1);assert.match(failure.error,/catalog|workflow picker/);assert.equal(calls.length,count);
+  }
+ }finally{release();controls.installedOcrLanguages=original;app.close();}
 });

@@ -24,7 +24,7 @@ for(const name of ['x.txt','a [*].txt','-dash.txt','nested/code.txt'])test('0.10
  const r=await f.run();assert.equal(r.ok,true,JSON.stringify(r));assert.deepEqual(f.git('diff-tree','--no-commit-id','--name-only','-r','HEAD').split('\n'),[name]);
  assert.equal(f.git('diff','--cached','--name-only'),'user.txt');assert.equal(f.git('diff','--cached','--',name),'');assert.equal(f.git('diff','--name-only'), 'dirty.txt');
  assert.equal(execFileSync('git',['--git-dir='+remote,'rev-parse','HEAD'],{env:f.environment,encoding:'utf8'}).trim(),remoteHead);
- const msg=f.git('show','-s','--format=%B','HEAD');assert.match(msg,/Tvijo-Agent: tvijo-dshrem 0\.10\.10/);assert.match(msg,/Tvijo-Model: served-a, served-b/);assert.match(msg,/Tvijo-Task: fixture-task/);assert.match(msg,/Co-Authored-By: Tvijo Agent \(served-a\)/);assert.equal(f.git('show','-s','--format=%an <%ae>'),'Fixture User <fixture@example.test>');
+ const msg=f.git('show','-s','--format=%B','HEAD');assert.match(msg,/Tvijo-Agent: tvijo-dshrem 0\.10\.11/);assert.match(msg,/Tvijo-Model: served-a, served-b/);assert.match(msg,/Tvijo-Task: fixture-task/);assert.match(msg,/Co-Authored-By: Tvijo Agent \(served-a\)/);assert.equal(f.git('show','-s','--format=%an <%ae>'),'Fixture User <fixture@example.test>');
 });
 test('0.10.8 auto-commit skips mixed authorship and staged paths with reasons',async()=>{
  const f=await fixture();f.writes[0].previous='USER changed before agent\n';let r=await f.run();assert.equal(r.ok,false);assert.equal(r.skipped[0].reason,'mixed_authorship');

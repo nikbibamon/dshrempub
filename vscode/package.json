@@ -2,7 +2,7 @@
   "name": "tvijo-dshrem",
   "displayName": "Tvijo DSHREM",
   "description": "Managed coding and bounded reviews for shared projects with a per-task spending cap. Provider API credentials remain on the service.",
-  "version": "0.10.10",
+  "version": "0.10.11",
   "repository": {
     "type": "git",
     "url": "https://github.com/nikbibamon/dshrempub.git",
@@ -374,6 +374,11 @@
         "command": "tvijo.configExample",
         "title": "Open configuration file example",
         "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.orchestrationReport",
+        "title": "%tvijo.orchestrationReport.title%",
+        "category": "Tvijo"
       }
     ],
     "menus": {
@@ -626,7 +631,11 @@
             "afterTask",
             "off"
           ],
-          "markdownDescription": "%tvijo.autoCommit.description%"
+          "markdownDescription": "%tvijo.autoCommit.description%",
+          "enumDescriptions": [
+            "%tvijo.autoCommit.enum.0%",
+            "%tvijo.autoCommit.enum.1%"
+          ]
         },
         "tvijo.orchestration.enabled": {
           "type": "boolean",
@@ -641,7 +650,10 @@
             "dsh-harness"
           ],
           "markdownDescription": "%tvijo.orchestration.profile.description%",
-          "scope": "machine"
+          "scope": "machine",
+          "enumDescriptions": [
+            "%tvijo.orchestration.profile.enum.0%"
+          ]
         },
         "tvijo.orchestration.workerPolicy": {
           "type": "string",
@@ -652,7 +664,12 @@
             "sol-astra-claude"
           ],
           "markdownDescription": "%tvijo.orchestration.workerPolicy.description%",
-          "scope": "machine"
+          "scope": "machine",
+          "enumDescriptions": [
+            "%tvijo.orchestration.workerPolicy.enum.0%",
+            "%tvijo.orchestration.workerPolicy.enum.1%",
+            "%tvijo.orchestration.workerPolicy.enum.2%"
+          ]
         },
         "tvijo.orchestration.controllerPath": {
           "type": "string",
@@ -683,7 +700,15 @@
             "mono",
             "spectrum"
           ],
-          "markdownDescription": "%tvijo.colorTheme.description%"
+          "markdownDescription": "%tvijo.colorTheme.description%",
+          "enumDescriptions": [
+            "%tvijo.colorTheme.enum.0%",
+            "%tvijo.colorTheme.enum.1%",
+            "%tvijo.colorTheme.enum.2%",
+            "%tvijo.colorTheme.enum.3%",
+            "%tvijo.colorTheme.enum.4%",
+            "%tvijo.colorTheme.enum.5%"
+          ]
         },
         "tvijo.commitIdentity": {
           "type": "string",
@@ -693,7 +718,38 @@
             "private",
             "tvijo"
           ],
-          "markdownDescription": "%tvijo.commitIdentity.description%"
+          "markdownDescription": "%tvijo.commitIdentity.description%",
+          "enumDescriptions": [
+            "%tvijo.commitIdentity.enum.0%",
+            "%tvijo.commitIdentity.enum.1%",
+            "%tvijo.commitIdentity.enum.2%"
+          ]
+        },
+        "tvijo.orchestration.agentCount": {
+          "type": "number",
+          "default": 3,
+          "minimum": 3,
+          "maximum": 6,
+          "scope": "machine",
+          "markdownDescription": "%tvijo.orchestration.agentCount.description%"
+        },
+        "tvijo.orchestration.reportFormat": {
+          "type": "string",
+          "default": "both",
+          "enum": [
+            "light",
+            "dark",
+            "rainbow",
+            "both"
+          ],
+          "scope": "machine",
+          "markdownDescription": "%tvijo.orchestration.reportFormat.description%",
+          "enumDescriptions": [
+            "%tvijo.orchestration.reportFormat.enum.0%",
+            "%tvijo.orchestration.reportFormat.enum.1%",
+            "%tvijo.orchestration.reportFormat.enum.2%",
+            "%tvijo.orchestration.reportFormat.enum.3%"
+          ]
         }
       }
     }

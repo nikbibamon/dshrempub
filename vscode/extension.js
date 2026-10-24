@@ -188,6 +188,10 @@ function activate(context) {
   let lastError = null;
   let lastAgentOutcome = null;
   let settingsPanel = null;
+  const reportPanels=new Set();
+  const settingsWriteQueue = require('./lib/settings-controls').createSettingsWriteQueue();
+  let settingsPackCatalogue = null, settingsServiceCatalogue = null, settingsHostProbe = null;
+  const settingsHostSignature=()=>JSON.stringify(['controllerPath','pythonPath','statePath'].map(key=>vscode.workspace.getConfiguration('tvijo').get('orchestration.'+key,'')));
   let agentAbort = null;
   let agentRunning = false;
   const orchestration = createOrchestrator({state:context.globalState, configuration:()=>vscode.workspace.getConfiguration('tvijo')});
@@ -384,6 +388,7 @@ function activate(context) {
 
   async function currentPack(auth) {
     const catalogue = await packCache.get(auth, core.createClient({ base: auth.api_base }));
+    settingsPackCatalogue = {base:auth.api_base,token:auth.access_token,data:catalogue};
     const selection = await packs.selectPack(catalogue, vscode.workspace.getConfiguration('tvijo').get('pack', ''), permissionFolder()?.uri.fsPath);
     return { catalogue, ...selection };
   }
@@ -531,6 +536,8 @@ function activate(context) {
       customerBot?.stop(); customerBot = null;
       byokSelection.clear();
       packCache.clear();
+      settingsHostProbe=null;
+      for(const panel of reportPanels)panel.dispose();reportPanels.clear();
       updatePackStatus(null, next);
       lastError = null; lastContextSummary = null; lastActivity = '';
     }
@@ -1742,58 +1749,78 @@ function activate(context) {
     return values;
   }
   async function settingsRuntime() {
-    const scope=identity?.scope;
-    const configured=scope ? !!(local.botConfig(scope).ownerId && await context.secrets.get(`tvijo.telegram.token.${scope}`)) : false;
-    return {telegram:{configured,running:!!customerBot?.running},ocr:await require('./lib/settings-controls').installedOcrLanguages()};
+    const current=identity;
+    const configured=current?.scope ? !!(local.botConfig(current.scope).ownerId && await context.secrets.get(`tvijo.telegram.token.${current.scope}`)) : false;
+    const ocr=await require('./lib/settings-controls').installedOcrLanguages();
+    const loaded=cache=>identity && cache?.base===identity.base && cache?.token===identity.token ? cache.data : [];
+    return {telegram:{configured:current===identity&&configured,running:!!customerBot?.running},ocr,sharedProject:!!(identity?.scope&&shared.selection(identity.scope)),
+      orchestration:settingsHostProbe?.signature===settingsHostSignature()?settingsHostProbe.public:null,
+      packs:loaded(settingsPackCatalogue).map(pack=>({id:pack.id,title:pack.title,summary:pack.summary,...(pack.category?{category:pack.category}:{})})),
+      services:loaded(settingsServiceCatalogue).filter(item=>typeof item.id==='string').map(item=>({id:item.id,name:item.name||item.id,description:item.description||''}))};
   }
   command('tvijo.configExample', async () => {
     await showDocument('jsonc', require('node:fs').readFileSync(path.join(__dirname,'settings.example.json'),'utf8'));
   });
   command('tvijo.settings', async () => {
     if (settingsPanel) { settingsPanel.reveal(); return; }
-    const panel = vscode.window.createWebviewPanel('tvijo.settingsGuide', L('Tvijo · Settings & how it works', 'Tvijo · Настройки и как это работает'), vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [] });
+    const panel = vscode.window.createWebviewPanel('tvijo.settingsGuide', L('Tvijo · Your settings', 'Tvijo · Ваши настройки'), vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [] });
     settingsPanel = panel;
-    panel.webview.html = settingsHtml(panel.webview, { locale: uiLocale(), properties: settingProperties(), values: settingsValues(), runtime:await settingsRuntime() });
+    const sync=require('./lib/settings-controls').createSettingsSync({readValues:settingsValues,readRuntime:settingsRuntime,post:message=>panel.webview.postMessage(message),serialize:settingsWriteQueue});
+    let disposed=false;
+    const refresh=()=>sync.snapshot().catch(error=>{if(!disposed)report(error);});
     const listener = panel.webview.onDidReceiveMessage(async message => {
+      if(disposed)return;
       try {
         if(message?.type==='locale' && ['en','ru'].includes(message.value)){await context.globalState.update(UI_LOCALE,message.value);await postChatState();}
         else if (message?.type === 'saveSetting') {
-          ensureIdle();
-          const value=require('./lib/settings-controls').validateSetting(message.key,message.value);
-          if(message.key==='tvijo.telegram.enabled') {
-            if(value) {await vscode.commands.executeCommand('tvijo.startBot');}
-            else await vscode.commands.executeCommand('tvijo.stopBot');
-          } else {
-            if(message.key==='tvijo.apiBase') {
-              const accept=L('Change server','Сменить сервер');
-              if(await vscode.window.showWarningMessage(L('Switch Tvijo to this server and sign in there?','Переключить Tvijo на этот сервер и войти на нём?'),{modal:true},accept)!==accept){await panel.webview.postMessage({type:'settingsSaved',key:message.key,error:L('Server unchanged.','Сервер не изменён.')});return;}
+          await sync.save(message.key,message.requestId,async()=>{
+            ensureIdle();
+            let value;
+            try{value=require('./lib/settings-controls').validateSetting(message.key,message.value);}catch{throw Error(L('Cannot save this value. Check its type, allowed choices and range.','Не удалось сохранить значение. Проверьте тип, допустимые варианты и диапазон.'));}
+            if(message.key==='tvijo.pack' && !['','none'].includes(value) && !(identity && settingsPackCatalogue && settingsPackCatalogue.base===identity.base && settingsPackCatalogue.token===identity.token && settingsPackCatalogue.data.some(pack=>pack.id===value)))throw Error(L('Choose a pack from the loaded catalog. The saved ID is preserved.','Выберите пакет из загруженного каталога. Сохранённый ID сохранён.'));
+            if(message.key==='tvijo.service' && !(identity && settingsServiceCatalogue && settingsServiceCatalogue.base===identity.base && settingsServiceCatalogue.token===identity.token && settingsServiceCatalogue.data.some(item=>item.id===value)))throw Error(L('Load the shared-project services with the chat workflow picker first.','Сначала загрузите сервисы общего проекта через выбор процесса в чате.'));
+            if(message.key==='tvijo.telegram.enabled') {
+              await vscode.commands.executeCommand(value?'tvijo.startBot':'tvijo.stopBot');
+              if(settingsValues()[message.key]!==value)throw Error(L('Telegram connection unchanged. Complete owner and token setup first.','Подключение Telegram не изменено. Сначала завершите настройку владельца и токена.'));
+            } else {
+              if(message.key==='tvijo.apiBase') {
+                const accept=L('Change server','Сменить сервер');
+                if(await vscode.window.showWarningMessage(L('Switch Tvijo to this server and sign in there?','Переключить Tvijo на этот сервер и войти на нём?'),{modal:true},accept)!==accept)throw Error(L('Server unchanged.','Сервер не изменён.'));
+              }
+              const cfg=vscode.workspace.getConfiguration('tvijo');
+              const inspected=cfg.inspect?.(message.key.slice(6));
+              if(inspected?.workspaceValue!==undefined || inspected?.workspaceFolderValue!==undefined) throw Error(L('This value is overridden by workspace settings. Use Edit in VS Code.','Значение переопределено рабочей областью. Используйте «Изменить в VS Code».'));
+              await cfg.update(message.key.slice(6),value,vscode.ConfigurationTarget.Global);
             }
-            const cfg=vscode.workspace.getConfiguration('tvijo');
-            const inspected=cfg.inspect?.(message.key.slice(6));
-            if(inspected?.workspaceValue!==undefined || inspected?.workspaceFolderValue!==undefined) throw Error(L('This value is overridden by workspace settings. Edit it with Advanced · VS Code.','Значение переопределено рабочей областью. Измените его через «Дополнительно · VS Code».'));
-            await cfg.update(message.key.slice(6),value,vscode.ConfigurationTarget.Global);
-          }
-          await panel.webview.postMessage({type:'settingsSaved',key:message.key});
-          await panel.webview.postMessage({type:'settingsValues',values:settingsValues(),runtime:await settingsRuntime()});
+          });
+          await refresh();
           await postChatState();
         } else if (message?.type === 'openSetting' && typeof message.key === 'string' && Object.hasOwn(settingProperties(), message.key)) {
           await vscode.commands.executeCommand(vscode.env.remoteName && settingProperties()[message.key].scope==='machine' ? 'workbench.action.openRemoteSettings' : 'workbench.action.openSettings', '@id:' + message.key);
         } else if (message?.type === 'guideAction' && typeof message.id === 'string' && Object.hasOwn(GUIDE_ACTIONS, message.id)) {
           const target = GUIDE_ACTIONS[message.id];
-          if (target.startsWith('https://')) await vscode.env.openExternal(vscode.Uri.parse(target));
+          if (target.startsWith('https://')) {
+            const link=new URL(target);
+            const localized=link.hostname==='dsh.tvijo.com'&&link.pathname.startsWith('/knowledge');
+            if(localized)link.searchParams.set('lang',uiLocale());
+            await vscode.env.openExternal(vscode.Uri.parse(localized?link.toString():target));
+          }
           else if (target === 'workbench.action.openSettings') await vscode.commands.executeCommand('tvijo.nativeSettings');
           else await vscode.commands.executeCommand(target);
-          await panel.webview.postMessage({type:'settingsValues',values:settingsValues(),runtime:await settingsRuntime()});
+          await refresh();
         } else if (message?.type === 'refresh') {
-          await panel.webview.postMessage({ type: 'settingsValues', values: settingsValues(), runtime:await settingsRuntime() });
+          await refresh();
         }
-      } catch (error) { await panel.webview.postMessage({type:'settingsSaved',key:message?.key,error:error.message}); report(error); }
+      } catch (error) { report(error); }
     });
-    const changed = vscode.workspace.onDidChangeConfiguration(async event => {
-      if (event.affectsConfiguration('tvijo')) void panel.webview.postMessage({ type: 'settingsValues', values: settingsValues(), runtime:await settingsRuntime() });
+    const changed = vscode.workspace.onDidChangeConfiguration(event => {
+      if (event.affectsConfiguration('tvijo')) return refresh();
     });
-    panel.onDidDispose(() => { listener.dispose(); changed.dispose(); if (settingsPanel === panel) settingsPanel = null; });
+    panel.onDidDispose(() => { disposed=true;sync.dispose();listener.dispose();changed.dispose();if (settingsPanel === panel) settingsPanel = null; });
     context.subscriptions.push(panel, listener, changed);
+    // Install listeners before the slow runtime probe, and read configuration last.
+    const runtime=await settingsRuntime();
+    if(!disposed)panel.webview.html = settingsHtml(panel.webview, { locale: uiLocale(), properties: settingProperties(), values: settingsValues(), runtime });
   });
   const publicSite = () => {
     const url = new URL(client().base);
@@ -1870,6 +1897,7 @@ function activate(context) {
     if (shared.selection(auth.scope)) {
       const available = await workspaceClient(client(), auth.access_token).services();
       if (!await isCurrentAuth(auth)) return;
+      settingsServiceCatalogue = {base:auth.api_base,token:auth.access_token,data:available.services||[]};
       const service = await vscode.window.showQuickPick((available.services || []).map(item => ({ label: item.name, id: item.id, description: L('Versioned Tvijo Token quote before reservation', 'Цена в Tvijo Tokens фиксируется до резервирования'), methods: item.methods })), { title: L('Tvijo service', 'Сервис Tvijo') });
       if (!service || !await isCurrentAuth(auth)) return;
       const method = await vscode.window.showQuickPick(service.methods || [], { title: L('Tvijo reasoning method', 'Метод рассуждения Tvijo') });
@@ -2070,11 +2098,24 @@ function activate(context) {
   }
 
   command('tvijo.orchestrationSetup', async () => vscode.env.openExternal(vscode.Uri.parse('https://dsh.tvijo.com/orchestration/setup')));
-  for (const action of ['Doctor','Status','Resume','Stop','OpenTmux','Repair']) command('tvijo.orchestration'+action, async () => {
+  for (const action of ['Doctor','Status','Resume','Stop','OpenTmux','Repair','Report']) command('tvijo.orchestration'+action, async () => {
     const auth=await requireAuth(),folder=await requireWorkspace();
     if(vscode.workspace.isTrusted!==true)throw Error('Trust this workspace before using its orchestration controller.');
     const guard=codingGuard(auth,path.resolve(folder.uri.fsPath),workspaceEpoch);await guard();
-    if(action==='Doctor'){const value=await orchestration.doctor();await guard();return showPrivateDocument('json',JSON.stringify(value,null,2),auth);}
+    if(action==='Doctor'){const signature=settingsHostSignature(),value=await orchestration.doctor();await guard();
+      if(signature===settingsHostSignature())settingsHostProbe={signature,public:{checkedAt:new Date().toISOString(),setupRequired:value.setup_required===true,quotaChecked:value.team_options?.quota_checked===true,policies:(Array.isArray(value.team_options?.policies)?value.team_options.policies:[]).filter(item=>['sol','sol-astra','sol-astra-claude'].includes(item.id)).map(item=>({id:item.id,available:item.available===true}))}};
+      return showPrivateDocument('json',JSON.stringify(value,null,2),auth);}
+    if(action==='Report'){
+      const snapshot=await orchestration.status(auth.scope,folder.uri.fsPath);await guard();
+      const record=orchestration.saved(auth.scope,folder.uri.fsPath),job=snapshot.jobs?.find(item=>item.id===record?.job_id);
+      const files=Array.isArray(job?.report_files)?job.report_files.filter(file=>typeof file==='string'):[];
+      if(!files.length)throw Error(L('No HTML report is available yet. Check the task status.','HTML-отчёт ещё не готов. Проверьте статус задачи.'));
+      const choice=files.length===1?{file:files[0]}:await vscode.window.showQuickPick(files.map(file=>({label:path.basename(file),file})),{title:L('Open private task report','Открыть приватный отчёт задачи')});
+      if(!choice)return;await guard();
+      const html=require('./lib/orchestration-report').readReport(record.config.state,record.job_id,choice.file);
+      const panel=vscode.window.createWebviewPanel('tvijo.orchestrationReport',L('Tvijo · Task report','Tvijo · Отчёт задачи'),vscode.ViewColumn.Active,{enableScripts:false,localResourceRoots:[]});
+      panel.webview.html=html;reportPanels.add(panel);panel.onDidDispose(()=>reportPanels.delete(panel));context.subscriptions.push(panel);return;
+    }
     if(action==='Repair'){const prompt=await vscode.window.showInputBox({prompt:'Describe the authorized repair. It uses the original task budget and limits.'});if(!prompt?.trim())return;await guard();const value=await orchestration.repair(auth.scope,folder.uri.fsPath,prompt.trim());return showPrivateDocument('json',JSON.stringify(value,null,2),auth);}
     if(action==='OpenTmux'){
       const record=orchestration.saved(auth.scope,folder.uri.fsPath);
