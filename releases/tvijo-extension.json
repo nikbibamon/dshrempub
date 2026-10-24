@@ -12,11 +12,11 @@
   "latest_version": "0.10.11",
   "channel": "preview",
   "publication": {
-    "status": "prepared",
-    "published_at": null,
+    "status": "published",
+    "published_at": "2026-10-24",
     "note": {
-      "en": "Verified VSIX prepared for direct and GitHub publication. Marketplace remains deferred. Reload Window activates installation.",
-      "ru": "Проверенный VSIX подготовлен для прямой публикации и GitHub. Marketplace остаётся отложенным. Reload Window активирует установку."
+      "en": "GitHub release and checksum-verified VSIX published. Marketplace remains deferred. Reload Window activates installation.",
+      "ru": "GitHub-релиз и VSIX с проверенной контрольной суммой опубликованы. Marketplace остаётся отложенным. Reload Window активирует установку."
     }
   },
   "package": {
@@ -714,6 +714,8 @@
     },
     "final_affected_tests": 54,
     "settings_browser_flows": 4,
-    "private_report_previews": 2
+    "private_report_previews": 2,
+    "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.11",
+    "tag_commit": "03e1f54141ad799b0f7f0d1d47afd6934ef03807"
   }
 }
