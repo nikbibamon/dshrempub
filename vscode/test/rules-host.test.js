@@ -48,3 +48,16 @@ test('0.10.8 whole-file secrets are scanned before 32 KiB aggregate truncation',
  let r=await f.host.collect({});assert.equal(r.summary.rules.files.find(x=>x.file==='AGENTS.md').reason,'credential-content');assert.doesNotMatch(r.rulesText,/DO_NOT_SEND/);
  await fs.writeFile(path.join(f.root,'AGENTS.md'),'a'.repeat(40000));r=await f.host.collect({});assert.ok(Buffer.byteLength(r.rulesText)<=32768);assert.equal(r.summary.rules.truncated,true);assert.match(r.rulesText,/TRUNCATED/);
 });
+
+test('judgefix task fingerprints quarantine rule changes, creations and deletions across host restarts',async()=>{
+ const f=await fixture();await f.host.collect({});const tracker=f.host.beginTask(f.folder);
+ await fs.writeFile(path.join(f.root,'AGENTS.md'),'COMMAND_INJECTED_RULES');await fs.mkdir(path.join(f.root,'.clinerules'));await fs.writeFile(path.join(f.root,'.clinerules','a.md'),'NESTED_COMMAND_RULES');await fs.unlink(path.join(f.root,'.tvijo','rules.md'));
+ const found=await tracker.check();assert.equal(tracker.approvalRequired,true);for(const name of ['AGENTS.md','.clinerules/a.md','.tvijo/rules.md'])assert.ok(found.some(row=>row.file===name),name);
+ const restarted=createRulesHost(f.options);let next=await restarted.collect({});assert.doesNotMatch(next.rulesText,/COMMAND_INJECTED_RULES|NESTED_COMMAND_RULES/);assert.ok(next.summary.rules.files.some(row=>row.file==='.tvijo/rules.md'&&row.quarantined));
+ for(const row of next.summary.rules.files.filter(row=>row.quarantined))await restarted.reenable(row.id);
+ next=await restarted.collect({});assert.match(next.rulesText,/COMMAND_INJECTED_RULES/);assert.match(next.rulesText,/NESTED_COMMAND_RULES/);assert.equal(next.summary.rules.files.some(row=>row.quarantined),false);
+});
+test('judgefix explicitly approved direct rules writes do not quarantine unrelated files or approve later command writes',async()=>{
+ const f=await fixture();const tracker=f.host.beginTask(f.folder),target=path.join(f.root,'AGENTS.md');await fs.writeFile(target,'APPROVED_DIRECT');assert.deepEqual(await tracker.check({approvedPath:target}),[]);assert.equal(tracker.approvalRequired,false);
+ await fs.writeFile(target,'LATER_COMMAND');assert.ok((await tracker.check()).some(row=>row.file==='AGENTS.md'));assert.equal(tracker.approvalRequired,true);assert.doesNotMatch((await f.host.collect({})).rulesText,/LATER_COMMAND/);
+});

@@ -65,14 +65,49 @@ function createRulesHost({vscode, state, storageRoot, L = en => en, showPreview,
     return rules.inspect({root:folder.uri.fsPath, knownSecrets:knownSecrets()});
   }
   let lastLoaded=[];
+  const QUARANTINE='tvijo.quarantinedRules.v1';
+  const quarantine=()=>state.get(QUARANTINE) || {};
+  function projectOptions(folder=selectedFolder() || vscode.workspace.workspaceFolders?.[0]){
+    if(!folder || folder.uri.scheme!=='file')return null;
+    try{const checked=require('./active-workspace').resolveFolder(vscode,folder);return {root:checked.canonicalRoot,boundary:checked.owner.canonicalRoot,resolveDirectory:dir=>require('./active-workspace').resolveFolder(vscode,{uri:vscode.Uri.file?vscode.Uri.file(dir):{scheme:'file',fsPath:dir}})};}catch{return null;}
+  }
   function snapshot(options={}){
-    const folder=options.folder || selectedFolder() || vscode.workspace.workspaceFolders?.[0];
-    if(!folder || folder.uri.scheme!=='file')return {text:'',status:'unsupported',files:[]};
-    let root,boundary;
-    try{root=fs.realpathSync(folder.uri.fsPath);const checked=require('./active-workspace').resolveFolder(vscode,folder);boundary=checked.owner.canonicalRoot;}catch{return {text:'',status:'unavailable',files:[]};}
-    const result=rules.collectProject({root,boundary,resolveDirectory:dir=>require('./active-workspace').resolveFolder(vscode,{uri:vscode.Uri.file?vscode.Uri.file(dir):{scheme:'file',fsPath:dir}}),
-      knownSecrets:[...knownSecrets(),...(options.knownSecrets || [])],knownPaths:options.knownPaths,contextMode:options.contextMode,workspaceTrusted:vscode.workspace.isTrusted===true,disabled:state.get('tvijo.disabledRules.v1') || []});
+    const project=projectOptions(options.folder);if(!project){lastLoaded=[];return {text:'',status:'unavailable',files:[]};}
+    const quarantined=quarantine();
+    const result=rules.collectProject({...project,knownSecrets:[...knownSecrets(),...(options.knownSecrets || [])],knownPaths:options.knownPaths,contextMode:options.contextMode,workspaceTrusted:vscode.workspace.isTrusted===true,disabled:state.get('tvijo.disabledRules.v1') || [],quarantined:Object.keys(quarantined)});
+    const dirs=rules.ruleDirectories(project);
+    for(const entry of Object.values(quarantined)){
+      if(!dirs.some(dir=>rules.RULE_FILES.some(file=>path.join(dir,file)===entry.absolute) || path.dirname(entry.absolute)===path.join(dir,'.clinerules')&&entry.absolute.endsWith('.md')))continue;
+      if(!result.files.some(row=>row.id===entry.id))result.files.push({...entry,file:path.relative(project.root,entry.absolute).split(path.sep).join('/'),status:'quarantined',quarantined:true});
+    }
     lastLoaded=result.files;return result;
+  }
+  function beginTask(folder){
+    const project=projectOptions(folder);let baseline=project?rules.fingerprintProject(project):new Map();
+    const changed=new Map();let approvalRequired=false;
+    async function check({approvedPath}={}){
+      if(!project)return [];
+      const current=rules.fingerprintProject(project),found=[];
+      for(const absolute of new Set([...baseline.keys(),...current.keys()])){
+        const before=baseline.get(absolute),after=current.get(absolute);
+        if((before?.fingerprint || 'missing')===(after?.fingerprint || 'missing'))continue;
+        const accepted=approvedPath && (absolute===path.resolve(approvedPath) || absolute===path.dirname(path.resolve(approvedPath)) && path.basename(absolute)==='.clinerules' && before?.fingerprint==='missing' && after?.fingerprint==='directory');
+        if(accepted)continue;
+        const entry=after || {...before,fingerprint:'missing',bytes:0};changed.set(absolute,entry);found.push(entry);
+      }
+      baseline=current;
+      if(found.length){
+        approvalRequired=true;const stored={...quarantine()};for(const entry of found)stored[entry.id]={...entry,quarantined:true,status:'quarantined'};await state.update(QUARANTINE,stored);
+        for(const entry of found){const row=lastLoaded.find(r=>r.id===entry.id);if(row)Object.assign(row,{quarantined:true,status:'quarantined'});else lastLoaded.push({...entry,quarantined:true,status:'quarantined'});}
+      }
+      return found;
+    }
+    return {check,get approvalRequired(){return approvalRequired;},changed:()=>[...changed.values()]};
+  }
+  async function reenable(id){
+    if(!lastLoaded.some(row=>row.id===id && row.quarantined))return;
+    const stored={...quarantine()};delete stored[id];await state.update(QUARANTINE,stored);
+    await state.update('tvijo.disabledRules.v1',(state.get('tvijo.disabledRules.v1') || []).filter(value=>value!==id));
   }
   async function collect(options={}){
     const context=await require('./workspace-context').collect(vscode,options),collected=snapshot(options);
@@ -80,6 +115,6 @@ function createRulesHost({vscode, state, storageRoot, L = en => en, showPreview,
   }
   function assertCurrent(grants=[]){if(grants.length && vscode.workspace.isTrusted!==true)throw Error('Workspace trust changed.');}
   async function toggle(id){if(!lastLoaded.some(row=>row.id===id))return;const disabled=state.get('tvijo.disabledRules.v1') || [];await state.update('tvijo.disabledRules.v1',disabled.includes(id)?disabled.filter(x=>x!==id):[...disabled,id]);}
-  return {scope,chooseFolder,inspect,collect,assertCurrent,snapshot,toggle,loaded:()=>lastLoaded};
+  return {scope,chooseFolder,inspect,collect,assertCurrent,snapshot,toggle,beginTask,reenable,quarantinedPaths:()=>Object.values(quarantine()).map(row=>row.absolute),loaded:()=>lastLoaded};
 }
 module.exports={createRulesHost};

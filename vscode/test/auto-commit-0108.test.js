@@ -120,3 +120,20 @@ test('0.10.8 executable mode survives the isolated index commit',async()=>{
 test('0.10.8 foreign real-index lock is preserved and reconciliation failure is reported',async()=>{
  const f=await fixture();fs.writeFileSync(path.join(f.root,'.git/hooks/pre-commit'),'#!/bin/sh\nprintf USER_LOCK > .git/index.lock\n',{mode:0o755});const r=await f.run();assert.equal(r.ok,true);assert.equal(r.indexWarning,true);assert.equal(fs.readFileSync(path.join(f.root,'.git/index.lock'),'utf8'),'USER_LOCK');
 });
+
+test('judgefix hook formatting reconciles the actual committed blob without phantom staging',async()=>{
+ const f=await fixture();fs.writeFileSync(path.join(f.root,'.git/hooks/pre-commit'),'#!/bin/sh\nprintf "50 formatted\\n" > x.txt\ngit add -- x.txt\n',{mode:0o755});
+ const r=await f.run();assert.equal(r.ok,true,JSON.stringify(r));assert.equal(f.git('show','HEAD:x.txt'),'50 formatted');assert.equal(fs.readFileSync(f.file,'utf8'),'50 formatted\n');assert.equal(f.git('diff','--cached','--','x.txt'),'');assert.equal(f.git('diff','--','x.txt'),'');
+});
+test('judgefix hook-added paths are explicitly reported and their real index entries are untouched',async()=>{
+ const f=await fixture();const before=f.git('ls-files','--stage','--','user.txt');
+ fs.writeFileSync(path.join(f.root,'.git/hooks/pre-commit'),'#!/bin/sh\nprintf "hook extra\\n" > user.txt\ngit add -- user.txt\n',{mode:0o755});
+ const r=await f.run();assert.equal(r.ok,true,JSON.stringify(r));assert.deepEqual(r.hookAddedPaths,['user.txt']);assert.deepEqual(r.paths,['user.txt','x.txt']);assert.equal(f.git('ls-files','--stage','--','user.txt'),before);assert.equal(f.git('diff','--cached','--','x.txt'),'');assert.equal(f.git('show','HEAD:user.txt'),'hook extra');
+});
+test('judgefix any Git ref change refuses auto-commit even if HEAD stayed put',async()=>{
+ const f=await fixture();f.git('tag','created-through-command');assert.equal(await api().refsChanged(f.start),true);assert.equal((await f.run()).reason,'refs_changed');assert.equal(f.git('rev-list','--count','HEAD'),'1');
+ f.git('tag','-d','created-through-command');assert.equal(await api().refsChanged(f.start),false);assert.equal((await f.run({refChanged:true})).reason,'refs_changed');
+});
+test('judgefix quarantined rules are never selected for auto-commit',async()=>{
+ const f=await fixture();const r=await f.run({excludedPaths:[f.file]});assert.equal(r.ok,false);assert.equal(r.skipped[0].reason,'rules_quarantined');assert.equal(f.git('rev-list','--count','HEAD'),'1');
+});

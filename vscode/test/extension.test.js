@@ -2892,11 +2892,49 @@ test('0.10.8 a task keeps its rules snapshot when a rule changes between model s
  let x,changed=false;x=await savedAgentFixture({auto:true,defaultAuto:true,contextMode:'on',actions:[{tool:'read_file',path:'code.txt'},{tool:'finish',status:'done',answer:'Read the project'}],onRequest:async({url,method})=>{
   if(x && !changed && url.endsWith('/tasks') && method==='POST'){changed=true;await fs.writeFile(path.join(x.root,'AGENTS.md'),'NEXT_TASK_RULE_CANARY');}
  }});
- try{await fs.writeFile(path.join(x.root,'AGENTS.md'),'CURRENT_TASK_RULE_CANARY');await x.run();assert.equal(x.calls().length,2);for(const call of x.calls()){assert.match(JSON.stringify(call.body),/CURRENT_TASK_RULE_CANARY/);assert.doesNotMatch(JSON.stringify(call.body),/NEXT_TASK_RULE_CANARY/);}assert.equal(x.app.feedback.length,0);}
+ try{await fs.writeFile(path.join(x.root,'AGENTS.md'),'CURRENT_TASK_RULE_CANARY');await x.run();assert.equal(x.calls().length,2);for(const call of x.calls()){assert.match(JSON.stringify(call.body),/CURRENT_TASK_RULE_CANARY/);assert.doesNotMatch(JSON.stringify(call.body),/NEXT_TASK_RULE_CANARY/);}assert.ok(x.app.feedback.every(text=>/Quarantined rules/.test(text)));assert.equal(x.app.posts.filter(p=>p.type==='state').at(-1).loadedRules.find(row=>row.file==='AGENTS.md').quarantined,true);}
  finally{x.close();}
 });
 test('0.10.8 approved rules-file write saves only after its native confirmation',async()=>{
  const x=await savedAgentFixture({auto:true,actions:[{tool:'replace_in_file',path:'.tvijo/rules.md',old:'old advice',new:'new advice'},{tool:'finish',status:'done',answer:'Updated project advice'}]});
  try{await fs.mkdir(path.join(x.root,'.tvijo'));await fs.writeFile(path.join(x.root,'.tvijo/rules.md'),'old advice');const n=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,n+1);assert.equal(await fs.readFile(path.join(x.root,'.tvijo/rules.md'),'utf8'),'new advice');assert.equal(x.results()[0].saved,true);assert.equal(x.app.feedback.length,0);}
  finally{x.close();}
+});
+
+for(const method of ['literal-copy','npm-directory'])test('judgefix Full access command rules quarantine and explicit settings re-enable: '+method,async()=>{
+ const command=method==='literal-copy'?'cp advice.txt AGENTS.md':'npm run change-rules';
+ const target=method==='literal-copy'?'AGENTS.md':'.clinerules/a.md';
+ const x=await savedAgentFixture({contextMode:'on',actions:[{tool:'run_command',command},{tool:'run_command',command:'printf checked'},{tool:'finish',status:'done',answer:'Commands completed'},{tool:'finish',status:'done',answer:'Second task'},{tool:'finish',status:'done',answer:'Third task'}]});
+ try{
+  await fs.writeFile(path.join(x.root,'advice.txt'),'COMMAND_RULE_CANARY');await fs.writeFile(path.join(x.root,'AGENTS.md'),'ORIGINAL_RULE_CANARY');
+  await fs.writeFile(path.join(x.root,'package.json'),JSON.stringify({scripts:{'change-rules':'mkdir -p .clinerules && cp advice.txt .clinerules/a.md'}}));await fs.writeFile(path.join(x.root,'.npmrc'),'cache='+path.join(x.root,'npm-cache')+'\n');
+  x.app.warning('Run command');const n=x.app.warnings.length;await x.run();assert.equal(x.results()[0].ok,true,JSON.stringify(x.results()));assert.equal(x.results()[1].ok,true);
+  assert.equal(x.app.warnings.length-n,method==='literal-copy'?2:1,'literal rule operands ask; every command after a rules mutation asks');
+  let state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.error.action,'rulesSettings');const row=state.loadedRules.find(row=>row.file===target);assert.equal(row.quarantined,true);
+  assert.match(state.messages.at(-1).content,/quarantined/);const oldCalls=x.calls().length;await x.run();assert.doesNotMatch(JSON.stringify(x.calls().slice(oldCalls)),/COMMAND_RULE_CANARY/);
+  state=x.app.posts.filter(p=>p.type==='state').at(-1);const {sidebar}=require('./helpers/sidebar');
+  for(const locale of ['en','ru']){const view=sidebar({}, {...state,locale});assert.equal(view.element('settings-drawer').hidden,true);view.element('notice-action').click();assert.equal(view.element('settings-drawer').hidden,false);const button=view.created.find(node=>node.tag==='button'&&node.textContent.includes(target)&&/re-enable|включить снова/.test(node.textContent));assert.ok(button);button.click();assert.equal(view.outgoing.at(-1).type,'reenableRule');if(locale==='en')await x.app.receive(view.outgoing.at(-1));}
+  const count=x.calls().length;await x.run();assert.match(JSON.stringify(x.calls().slice(count)),/COMMAND_RULE_CANARY/);assert.ok(x.app.feedback.every(text=>/Quarantined rules/.test(text)));assert.equal(x.app.errors.length,0);
+ }finally{x.close();}
+});
+
+test('judgefix indirect Python commit is reported in the final answer and blocks host auto-commit',async()=>{
+ const {execFileSync}=require('node:child_process');
+ const x=await savedAgentFixture({actions:[{tool:'write_file',path:'code.txt',content:'agent changed'},{tool:'run_command',command:'python3 -c "import subprocess,sys; sys.exit(subprocess.run([\'git\',\'commit\',\'-am\',\'Indirect command commit\']).returncode)"'},{tool:'finish',status:'done',answer:'Finished'}]});
+ const git=(...args)=>execFileSync('git',args,{cwd:x.root,env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'},encoding:'utf8',stdio:'pipe'}).trim();
+ try{git('init','-b','work');git('config','user.name','Judge Host');git('config','user.email','judge@example.test');git('add','--','code.txt');git('commit','-m','Base');const n=x.app.warnings.length;
+  await x.run();assert.equal(x.results()[1].ok,true,JSON.stringify(x.results()));assert.equal(x.app.warnings.length,n,'indirect local commit demonstrates detection after an auto-approved command');assert.equal(git('rev-list','--count','HEAD'),'2');assert.equal(git('show','-s','--format=%s'),'Indirect command commit');
+  const state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.match(state.messages.at(-1).content,/HEAD or Git refs changed/);assert.match(state.messages.at(-1).content,/Auto-commit refused/);assert.equal(state.messages.at(-1).autoCommit,undefined);assert.doesNotMatch(git('show','-s','--format=%B'),/Tvijo-Agent:/);assert.equal(x.app.feedback.length,0);
+ }finally{x.close();}
+});
+
+test('judgefix Full access Python and npm pushes fail at Git layer, direct push still asks, bare remote unchanged',async()=>{
+ const {execFileSync}=require('node:child_process');
+ const x=await savedAgentFixture({actions:[{tool:'run_command',command:'python3 -c "import subprocess,sys; sys.exit(subprocess.run([\'git\',\'push\',\'origin\',\'HEAD\']).returncode)"'},{tool:'run_command',command:'npm test'},{tool:'run_command',command:'git push origin HEAD'},{tool:'finish',status:'blocked',answer:'Push refused'}]});
+ const env={...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'},git=(...args)=>execFileSync('git',args,{cwd:x.root,env,encoding:'utf8',stdio:'pipe'}).trim();
+ try{
+  git('init','-b','work');git('config','user.name','Judge Host');git('config','user.email','judge@example.test');git('add','--','code.txt');git('commit','-m','Base');const remote=x.root+'-bare.git';execFileSync('git',['clone','--bare',x.root,remote],{env,stdio:'pipe'});git('remote','add','origin',remote);const before=git('rev-parse','HEAD');git('commit','--allow-empty','-m','Ahead');
+  await fs.writeFile(path.join(x.root,'package.json'),JSON.stringify({scripts:{test:'git push origin HEAD'}}));await fs.writeFile(path.join(x.root,'.npmrc'),'cache='+path.join(x.root,'npm-cache')+'\n');
+  x.app.warning('Cancel');const n=x.app.warnings.length;await x.run();const results=x.results();for(const r of results.slice(0,2)){assert.equal(r.ok,false);assert.match(r.stderr,/transport .* not allowed/);}assert.equal(results[2].refused,true);assert.equal(x.app.warnings.length,n+1);assert.equal(execFileSync('git',['--git-dir='+remote,'rev-parse','HEAD'],{env,encoding:'utf8'}).trim(),before);assert.equal(x.app.feedback.length,0);
+ }finally{x.close();}
 });

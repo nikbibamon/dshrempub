@@ -627,7 +627,7 @@ function activate(context) {
       try { options = chatOptions(auth, selection.pack); } catch { options = null; }
     } else updatePackStatus(null, null);
     if(view!==chatView || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
-    await view.webview.postMessage({ type: 'state', orchestration:{enabled:orchestration.enabled(),coordinator:'ds41f',policy:vscode.workspace.getConfiguration('tvijo').get('orchestration.workerPolicy','sol')}, autoCommit:vscode.workspace.getConfiguration('tvijo').get('autoCommit','afterTask'), loadedRules:projectRulesHost.loaded?.() || [], runtimeVersion:context.extension?.packageJSON?.version || require('./package.json').version, composerMode:scope ? composerMode({scope}) : null, workspacePath:permissionFolder()?.uri.fsPath || refusedCandidate?.fsPath || '', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length || !!(scope && local.history(scope).length), account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : refusedCandidate ? path.basename(refusedCandidate.fsPath) : L('Choose project','Выбрать проект'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
+    await view.webview.postMessage({ type: 'state', orchestration:{enabled:orchestration.enabled(),coordinator:'ds41f',policy:vscode.workspace.getConfiguration('tvijo').get('orchestration.workerPolicy','sol')}, autoCommit:vscode.workspace.getConfiguration('tvijo').get('autoCommit','afterTask'), loadedRules:projectRulesHost.loaded?.() || [], runtimeVersion:context.extension?.packageJSON?.version || require('./package.json').version, composerMode:scope ? composerMode({scope}) : null, workspacePath:permissionFolder()?.uri.fsPath || refusedCandidate?.fsPath || '', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length || !!(scope && local.history(scope).length), account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError || ((projectRulesHost.loaded?.() || []).some(row=>row.quarantined)?{text:L('Rules changed outside an approved direct edit. Quarantined rules are excluded from future requests until you re-enable them in ⚙.','Правила изменены вне одобренной прямой правки. Правила в карантине исключены из следующих запросов до повторного включения в ⚙.'),action:'rulesSettings'}:null), authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : refusedCandidate ? path.basename(refusedCandidate.fsPath) : L('Choose project','Выбрать проект'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'coding') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
       status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
@@ -750,6 +750,9 @@ function activate(context) {
     const abort = new AbortController();
     let diagnosticsTracker = null;
     agentAbort = abort; agentRunning = true; busy = true; lastError = null; lastAgentOutcome = null;
+    const rulesTracker=projectRulesHost.beginTask(folder);
+    let taskRefsChanged=false;
+    const taskEffectsText=()=>[taskRefsChanged?L('HEAD or Git refs changed during this task through a command or another writer. Auto-commit refused.','HEAD или ссылки Git изменились во время задачи командой или другим процессом. Автокоммит отклонён.'):'',rulesTracker.changed().length?L('Rules changed outside an approved direct edit and were quarantined: ','Правила изменены вне одобренной прямой правки и помещены в карантин: ')+rulesTracker.changed().map(row=>row.file).join(', '):''].filter(Boolean).join('\n');
     const localAgentRunId = randomUUID();
     const recoveryKey = recoveryScope(auth);
     beginMap(auth, goal.trim(), localAgentRunId);
@@ -822,7 +825,8 @@ function activate(context) {
         confirmRun: async info => {
           if (planMode) return false;
           await guard();
-          const approved = !require('./lib/command-policy').analyzeCommand(info.command).requiresApproval && (fullGrant || (autoRun && safeAutoCommand(info.command))) ? true : await confirmAgentRun(info);
+          const namesRule=info.decision.args.some(arg=>require('./lib/project-rules').isRulesPath(arg.split('=').at(-1)));
+          const approved = !rulesTracker.approvalRequired && !namesRule && !require('./lib/command-policy').analyzeCommand(info.command).requiresApproval && (fullGrant || (autoRun && safeAutoCommand(info.command))) ? true : await confirmAgentRun(info);
           await guard(); return approved;
         },
         confirmWrite: async info => {
@@ -837,6 +841,7 @@ function activate(context) {
           const autoSafe = autoApply && autoRun && modePresets.autoWritePolicy(info.operation, info.previous, info.matchKind);
           const rulesWrite = require('./lib/project-rules').isRulesPath(info.path);
           const approved = rulesWrite ? await confirmAgentWrite(info) : fullGrant ? true : info.matchKind && info.matchKind !== 'exact' ? await confirmAgentWrite(info) : autoSafe ? true : autoRun ? await confirmAgentWrite(info) : autoApply ? (await showProposedWrite(info.path, info.previous, info.content), true) : await confirmAgentWrite(info);
+          if(rulesWrite && approved)approvedRulePath=info.absolute;
           await guard(); return approved;
         },
         applyWrite: async ({ absolute, previous, content, diskIdentity }) => {
@@ -890,10 +895,18 @@ function activate(context) {
           expectedWriteHashes.set(path.resolve(absolute),createHash('sha256').update(content,'utf8').digest('hex'));
         }
       });
+      let approvedRulePath=null;
       const executeTool = tools.execute.bind(tools);
       tools.execute = async (action, toolContext = {}) => {
-        verifyAgentSaves();
-        const result = await executeTool(action, toolContext);
+        await rulesTracker.check();
+        verifyAgentSaves();approvedRulePath=null;
+        let result;
+        try{result = await executeTool(action, toolContext);}
+        finally{
+          const changed=await rulesTracker.check({approvedPath:result?.ok && !result.unchanged ? approvedRulePath : null});
+          if(action?.tool==='run_command' && await autoCommit.refsChanged(commitStart))taskRefsChanged=true;
+          if(changed.length)await postChatState();
+        }
         if (!result?.ok || result.unchanged || !['write_file', 'replace_in_file'].includes(action?.tool) || typeof result.path !== 'string') return result;
         await guard();
         if (abort.signal.aborted) return result;
@@ -1004,13 +1017,16 @@ function activate(context) {
         }
       });
       await guard();
-      const committed=await autoCommit.commitTask({start:commitStart,writes:savedWrites,result,aborted:abort.signal.aborted,events:commitEvents,models:[...servedModels],taskId:localAgentRunId,guard,enabled:config.get('autoCommit','afterTask')==='afterTask'});
+      await rulesTracker.check();if(await autoCommit.refsChanged(commitStart))taskRefsChanged=true;
+      const committed=await autoCommit.commitTask({refChanged:taskRefsChanged,excludedPaths:projectRulesHost.quarantinedPaths(),start:commitStart,writes:savedWrites,result,aborted:abort.signal.aborted,events:commitEvents,models:[...servedModels],taskId:localAgentRunId,guard,enabled:config.get('autoCommit','afterTask')==='afterTask'});
       let commitText='';const hasCommandEffects=commitEvents.some(e=>e.action?.tool==='run_command' && e.result?.ok);
       if(committed.ok){await context.globalState.update('tvijo.committedRun.'+rewindRunId,committed.hash);const key='tvijo.firstAutoCommit.'+createHash('sha256').update(committed.root).digest('hex'),first=!context.globalState.get(key);await context.globalState.update(key,true);
         commitText=L('Tvijo committed ','Tvijo закоммитил ')+committed.hash.slice(0,12)+(first?L(' · turn off in ⚙',' · выключить в ⚙'):'');
       }else if((savedWrites.size || hasCommandEffects) && committed.reason!=='off')commitText=L('No auto-commit: ','Без автокоммита: ')+autoCommit.describe(committed.reason,uiLocale());
       if(committed.skipped.length)commitText+='\n'+committed.skipped.map(f=>f.path+': '+autoCommit.describe(f.reason,uiLocale())).join('\n');
       if(savedWrites.size || hasCommandEffects)commitText+='\n'+L('Command side effects (rm/mv and other tool writes) are not tracked or committed.','Побочные эффекты команд (rm/mv и другие записи инструментов) не отслеживаются и не коммитятся.');
+      if(taskEffectsText())commitText+='\n'+taskEffectsText();
+      if(committed.hookAddedPaths?.length)commitText+='\n'+L('Git hook added paths to the commit; their user index entries were left untouched: ','Git-хук добавил пути в коммит; их записи пользовательского индекса не изменены: ')+committed.hookAddedPaths.join(', ');
       if(committed.indexWarning)commitText+='\n'+L('Commit created; check the Git index before continuing.','Коммит создан; проверьте индекс Git перед продолжением.');
       const finalText=result.text+(commitText?'\n\n'+commitText:'');
       await finishMap(auth, 'completed');
@@ -1023,11 +1039,12 @@ function activate(context) {
         : L('Agent finished in ' + result.steps + ' steps.', 'Агент завершил за ' + result.steps + ' шагов.') };
       await postChatState(lastAgentOutcome.text);
     } catch (error) {
+      if(taskEffectsText())error.tvijoAgentEffects=taskEffectsText();
       await finishMap(auth, abort.signal.aborted ? 'cancelled' : 'failed');
       if (!local.pending(auth.scope) && error?.code !== 'usage_unknown') runJournals.finish(recoveryKey,localAgentRunId);
       if (abort.signal.aborted) {
         lastError = null;
-        await postChatState(L('Agent stopped.', 'Агент остановлен.'));
+        await postChatState(L('Agent stopped.', 'Агент остановлен.')+(taskEffectsText()?'\n'+taskEffectsText():''));
         return;
       }
       await metrics.record({ event: 'agent', outcome: 'error', mode: planMode ? 'plan' : 'agent', model: vscode.workspace.getConfiguration('tvijo').get('agentModel', 'ds41f'), error_code: error?.code || 'unknown', duration_ms: Date.now() - startedAt });
@@ -1089,7 +1106,8 @@ function activate(context) {
     } finally { if (activeAbort === abort) activeAbort = null; busy = false; await postActivity('done', ''); await postChatState(); }
   }
 
-  function localizedMessage(error) {
+  function localizedMessage(error,includeEffects=true) {
+    if(includeEffects && error?.tvijoAgentEffects)return localizedMessage(error,false)+'\n'+error.tvijoAgentEffects;
     const scopeNotice=require('./lib/scope-notices').notice(error?.code,uiLocale());
     if(scopeNotice){if(error.scopeUri)pendingScopeUri=error.scopeUri;return scopeNotice.text;}
     const code = error?.serverCode || (typeof error?.code === 'string' ? error.code : '');
@@ -2480,6 +2498,8 @@ function activate(context) {
             if(vscode.workspace.workspaceFolders.some(f=>f.uri.fsPath===canonical)){await activeWorkspace.select(uri);pendingScopeUri=null;lastError=null;await postChatState();}
           } else if (message?.type === 'signout') {
             await handlers.get('tvijo.signOut')();
+          } else if (message?.type === 'reenableRule') {
+            ensureIdle();const auth=await requireAuth();if(message.scopeKey!==currentViewScope(auth.scope))return;await projectRulesHost.reenable(message.id);projectRulesHost.snapshot({folder:permissionFolder(),contextMode:vscode.workspace.getConfiguration('tvijo').get('workspaceContext','ask')});await postChatState();
           } else if (message?.type === 'toggleRule') {
             ensureIdle();await projectRulesHost.toggle(message.id);projectRulesHost.snapshot({folder:permissionFolder(),contextMode:vscode.workspace.getConfiguration('tvijo').get('workspaceContext','ask')});await postChatState();
           } else if (message?.type === 'toggleAutoCommit') {
