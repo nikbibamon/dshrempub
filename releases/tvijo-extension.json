@@ -25,7 +25,7 @@
     "bytes": 1029148,
     "editor_requirement": "^1.90.0",
     "source_commit": "cc67128eb95c3596ea93b81852734c51e762c550",
-    "verified_environment": "850 extension checks passed; final affected checks54 passed after shared-service UI clarification; EN/RU Chromium920/3604flows; two actual private runtime report previews. Interactive installed editor not observed."
+    "verified_environment": "Final tag CI:851 extension checks,7 runner checks and10 CLI checks passed; independently rebuilt VSIX matches published SHA256. EN/RU Chromium920/3604flows and two actual private runtime report previews. Interactive installed editor not observed."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
@@ -707,7 +707,7 @@
   ],
   "verification": {
     "date": "2026-10-24",
-    "extension_tests": 850,
+    "extension_tests": 851,
     "native_gui": {
       "en": "Interactive installed editor not observed. Production host integration, real native subscription receipts and synthetic EN/RU desktop/mobile Chromium are separate evidence layers.",
       "ru": "Интерактивная сессия установленного редактора не наблюдалась. Рабочие обработчики, реальные квитанции нативных подписок и синтетический Chromium EN/RU desktop/mobile — отдельные уровни доказательств."
@@ -716,6 +716,7 @@
     "settings_browser_flows": 4,
     "private_report_previews": 2,
     "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.11",
-    "tag_commit": "03e1f54141ad799b0f7f0d1d47afd6934ef03807"
+    "tag_commit": "03e1f54141ad799b0f7f0d1d47afd6934ef03807",
+    "github_ci": "https://github.com/nikbibamon/dshrempub/actions/runs/40109919542"
   }
 }
