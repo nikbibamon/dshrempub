@@ -55,7 +55,7 @@ function buildMessage({summary,paths,checks,models,taskId}){
  const title=clean(String(summary||'Update project files').split(/[\r\n]/)[0]).slice(0,72)||'Update project files';
  const served=[...new Set((models||[]).map(clean).filter(Boolean))].map(x=>x.replace(/[<>()]/g,'_').slice(0,160));
  const safeModels=served.length?served:['unknown'];
- return title+'\n\nSaved Tvijo edits:\n'+paths.map(p=>'- '+clean(p)).join('\n')+'\n\nChecks:\n'+(checks.length?checks.map(c=>'- '+clean(c.command)+': '+(c.ok?'ok':'failed')).join('\n'):'- No command checks recorded.')+'\nCommand side effects (including removals and renames) are not tracked or committed.\n\nTvijo-Agent: tvijo-dshrem 0.10.8\nTvijo-Model: '+safeModels.join(', ')+'\nTvijo-Task: '+clean(taskId).slice(0,160)+'\n'+safeModels.map(model=>'Co-Authored-By: Tvijo Agent ('+model+') <noreply@tvijo.com>').join('\n')+'\n';
+ return title+'\n\nSaved Tvijo edits:\n'+paths.map(p=>'- '+clean(p)).join('\n')+'\n\nChecks:\n'+(checks.length?checks.map(c=>'- '+clean(c.command)+': '+(c.ok?'ok':'failed')).join('\n'):'- No command checks recorded.')+'\nCommand side effects (including removals and renames) are not tracked or committed.\n\nTvijo-Agent: tvijo-dshrem '+require('../package.json').version+'\nTvijo-Model: '+safeModels.join(', ')+'\nTvijo-Task: '+clean(taskId).slice(0,160)+'\n'+safeModels.map(model=>'Co-Authored-By: Tvijo Agent ('+model+') <noreply@tvijo.com>').join('\n')+'\n';
 }
 async function unchangedHead(start){return output(await git(start,['rev-parse','HEAD']))===start.head && output(await git(start,['symbolic-ref','-q','HEAD']))===start.branch;}
 async function reconcileIndex(start,selected){

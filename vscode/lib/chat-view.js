@@ -68,6 +68,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   const activityDetail = document.getElementById('activity-detail');
   const activityTime = document.getElementById('activity-time');
   let optionState = null;
+  let orchestrationState = {enabled:false};
   let fullAccess = null;
   let currentNotice = null;
   let lastQuote = null;
@@ -229,6 +230,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     }
   }
   function updateWorkflowLabel() {
+    if (orchestrationState.enabled && uiMode !== 'chat') { document.getElementById('workflow-label').textContent = 'DSH · ds41f + ' + orchestrationState.policy; return; }
     if (!optionState) { document.getElementById('workflow-label').textContent = t('options'); return; }
     const selected = uiMode === 'chat' ? optionState.model : optionState.agentModel;
     const model = (optionState.models || []).find(item => item.id === selected) || { id: selected, name: selected };
@@ -304,7 +306,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       }
     };
     group('modelSection', optionState.models.map(item => ({ key: 'model', value: item.id, current: optionState.model, label: modelLabel(item), hint: modelHint(item) })));
-    group('agentModelSection', optionState.models.filter(item => item.id !== 'auto').map(item => ({ key: 'agentModel', value: item.id, current: optionState.agentModel, label: modelLabel(item), hint: modelHint(item) })));
+    if (!orchestrationState.enabled) group('agentModelSection', optionState.models.filter(item => item.id !== 'auto').map(item => ({ key: 'agentModel', value: item.id, current: optionState.agentModel, label: modelLabel(item), hint: modelHint(item) })));
     group('workflowSection', [
       { key: 'agentMode', value: 'single', current: optionState.agentMode, label: t('workflowSingle'), hint: t('workflowSingleHint') },
       { key: 'agentMode', value: 'auto', current: optionState.agentMode, label: t('workflowAuto'), hint: t('workflowAutoHint') },
@@ -738,6 +740,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       return;
     }
     if (data.type === 'state') {
+      orchestrationState = data.orchestration || {enabled:false};
       lastQuote = null;
       const nextScope = typeof data.scopeKey === 'string' ? data.scopeKey : null;
       const nextComposerScope = typeof data.composerScope === 'string' ? data.composerScope : nextScope;

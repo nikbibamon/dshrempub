@@ -26,6 +26,7 @@ const {createSyntaxHost} = require('./lib/syntax-host');
 const planInspection = require('./lib/plan-inspect');
 const quickEdit = require('./lib/quick-edit');
 const { runAgent } = require('./lib/agent');
+const { createOrchestrator } = require('./lib/orchestration');
 const modePresets = require('./lib/modes');
 const agentSave = require('./lib/agent-save');
 const captures = require('./lib/context-captures');
@@ -189,6 +190,7 @@ function activate(context) {
   let settingsPanel = null;
   let agentAbort = null;
   let agentRunning = false;
+  const orchestration = createOrchestrator({state:context.globalState, configuration:()=>vscode.workspace.getConfiguration('tvijo')});
   const terminalCaptures = terminalContext.createTerminalCapture();
   context.subscriptions.push({ dispose: () => terminalCaptures.invalidate() });
   if (typeof vscode.window.onDidStartTerminalShellExecution === 'function') {
@@ -208,7 +210,7 @@ function activate(context) {
     }));
   }
   const customCommands = new Map();
-  if (vscode.workspace.onDidChangeWorkspaceFolders) context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { if(pendingScopeUri && vscode.workspace.workspaceFolders.some(f=>f.uri.fsPath===pendingScopeUri.fsPath)){const uri=pendingScopeUri;pendingScopeUri=null;void activeWorkspace.select(uri).then(()=>{lastError=null;return postChatState();}).catch(report);} workspaceEpoch++; fullAccess.invalidate(); syntaxChecks.invalidate(); terminalCaptures.invalidate(); codingReview = null; agentMaps.clear(); refreshStatus(); }));
+  if (vscode.workspace.onDidChangeWorkspaceFolders) context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { if(pendingScopeUri && vscode.workspace.workspaceFolders.some(f=>f.uri.fsPath===pendingScopeUri.fsPath)){const uri=pendingScopeUri;pendingScopeUri=null;void activeWorkspace.select(uri).then(()=>{lastError=null;return postChatState();}).catch(report);} workspaceEpoch++; void orchestration.invalidate().catch(()=>{}); fullAccess.invalidate(); syntaxChecks.invalidate(); terminalCaptures.invalidate(); codingReview = null; agentMaps.clear(); refreshStatus(); }));
   const handlers = new Map();
   let customerBot = null;
   let accountSnapshot = null;
@@ -522,6 +524,7 @@ function activate(context) {
   function switchIdentity(next) {
     if (identity?.scope !== next?.scope || identity?.token !== next?.token) {
       if (identity) tenantAttachments.set(currentViewScope(identity.scope), attachments);
+      if (identity) void orchestration.invalidate().catch(()=>{});
       syntaxChecks.cancelActive();
       terminalCaptures.invalidate();
       attachments = next ? (tenantAttachments.get(currentViewScope(next.scope)) || []) : [];
@@ -624,7 +627,7 @@ function activate(context) {
       try { options = chatOptions(auth, selection.pack); } catch { options = null; }
     } else updatePackStatus(null, null);
     if(view!==chatView || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
-    await view.webview.postMessage({ type: 'state', autoCommit:vscode.workspace.getConfiguration('tvijo').get('autoCommit','afterTask'), loadedRules:projectRulesHost.loaded?.() || [], runtimeVersion:context.extension?.packageJSON?.version || require('./package.json').version, composerMode:scope ? composerMode({scope}) : null, workspacePath:permissionFolder()?.uri.fsPath || refusedCandidate?.fsPath || '', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length || !!(scope && local.history(scope).length), account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : refusedCandidate ? path.basename(refusedCandidate.fsPath) : L('Choose project','Выбрать проект'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
+    await view.webview.postMessage({ type: 'state', orchestration:{enabled:orchestration.enabled(),coordinator:'ds41f',policy:vscode.workspace.getConfiguration('tvijo').get('orchestration.workerPolicy','sol')}, autoCommit:vscode.workspace.getConfiguration('tvijo').get('autoCommit','afterTask'), loadedRules:projectRulesHost.loaded?.() || [], runtimeVersion:context.extension?.packageJSON?.version || require('./package.json').version, composerMode:scope ? composerMode({scope}) : null, workspacePath:permissionFolder()?.uri.fsPath || refusedCandidate?.fsPath || '', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length || !!(scope && local.history(scope).length), account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : refusedCandidate ? path.basename(refusedCandidate.fsPath) : L('Choose project','Выбрать проект'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'coding') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
       status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
@@ -689,6 +692,31 @@ function activate(context) {
     return !!autoCommand(command);
   }
 
+  async function runHarnessFlow({goal,modelGoal,auth,folder,agentScope,planMode,guard,fullGrant,config}) {
+    if (vscode.workspace.isTrusted !== true) throw Error('Trust this workspace before using DSH Harness.');
+    if (!planMode && !fullGrant && !(config.get('agentAutoApply',true) && config.get('agentAutoRun',true))) throw Error('DSH implementation requires the Auto permission preset or Full Access. Plan remains read-only.');
+    if ((vscode.workspace.textDocuments || []).some(d=>d.isDirty && d.uri.scheme==='file' && (d.uri.fsPath===folder.uri.fsPath || d.uri.fsPath.startsWith(folder.uri.fsPath+path.sep)))) throw Error('Save or close unsaved project buffers before delegating to DSH Harness.');
+    const rules=projectRulesHost.snapshot({folder,knownSecrets:[auth.access_token,auth.refresh_token].filter(Boolean),contextMode:config.get('workspaceContext','ask')});
+    const checked=async()=>{await guard();if(vscode.workspace.isTrusted!==true)throw Error('Workspace trust was revoked.');if(!orchestration.enabled())throw Error('Orchestration was disabled.');projectRulesHost.assertCurrent(rules.text?[{}]:[]);};
+    const abort=new AbortController();agentAbort=abort;agentRunning=true;busy=true;lastError=null;
+    const runId=randomUUID();beginMap(auth,goal.trim(),runId);
+    const autoCommit=require('./lib/auto-commit');
+    const commitStart=await autoCommit.capture({root:folder.uri.fsPath,workspaceRoot:folder.owner?.canonicalRoot||folder.uri.fsPath,storageRoot:context.globalStorageUri?.fsPath});
+    try {
+      await postChatState();
+      const result=await orchestration.run({scope:auth.scope,tenant:auth.tenant_id,account:createHash('sha256').update(auth.scope).digest('hex'),project:folder.uri.fsPath,prompt:(rules.text?rules.text+'\n\n':'')+modelGoal,goalRef:'editor-'+runId,planMode,budgetUsd:config.get('agentBudgetUsd',2),maxSteps:config.get('agentMaxSteps',30),guard:checked,signal:abort.signal,onStatus:async state=>{await postActivity('model','DSH Harness · ds41f + '+config.get('orchestration.workerPolicy','sol')+' · '+state.status);}});
+      await checked();
+      const report=JSON.parse(result.job.report || '{}');
+      const evidence=require('./lib/orchestration').commitEvidence(report,commitStart);
+      const committed=await autoCommit.commitTask({start:commitStart,writes:evidence.writes,events:evidence.events,result:{reason:'finish',status:result.job.status==='quality_pending'||result.job.status==='completed'?'done':'failed'},aborted:abort.signal.aborted,models:['ds41f',config.get('orchestration.workerPolicy','sol')],taskId:runId,guard:checked,enabled:!planMode&&config.get('autoCommit','afterTask')==='afterTask'});
+      const commitNote=committed.ok?'\nLocal commit: '+committed.hash:'\nAuto-commit: '+autoCommit.describe(committed.reason,uiLocale());
+      const answer=report.text || 'DSH Harness: '+result.job.status+'. Inspect Orchestration status for provider and quality receipts.';
+      await local.saveHistory(agentScope,[...local.history(agentScope),{role:'user',content:goal.trim()},{role:'assistant',content:answer+commitNote+'\n\nQuality and publication: '+result.job.status+'.',orchestration:{rootId:result.record.root_id,jobId:result.record.job_id}}].slice(-40));
+      await finishMap(auth,result.job.status==='quality_pending'?'quality_pending':result.job.status);
+      lastAgentOutcome={scope:currentViewScope(auth.scope),text:'DSH Harness · '+result.job.status};
+    } finally {agentAbort=null;agentRunning=false;busy=false;await postActivity('done','');await postChatState();}
+  }
+
   async function runAgentFlow(goal, { planMode = false } = {}) {
     ensureIdle();
     if (!goal?.trim()) return;
@@ -712,6 +740,7 @@ function activate(context) {
     if (attachmentScope !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account or thread changed before the agent started.');
     const api = core.createClient({ base: auth.api_base });
     const config = vscode.workspace.getConfiguration('tvijo');
+    if (orchestration.enabled()) return runHarnessFlow({goal,modelGoal,auth,folder,agentScope,planMode,guard,fullGrant,config});
     const maxSteps = config.get('agentMaxSteps', 30);
     const budgetUsd = config.get('agentBudgetUsd', 2);
     const autoRun = !!config.get('agentAutoRun', true);
@@ -1959,8 +1988,23 @@ function activate(context) {
     }
   }
 
+  command('tvijo.orchestrationSetup', async () => vscode.env.openExternal(vscode.Uri.parse('https://dsh.tvijo.com/orchestration/setup')));
+  for (const action of ['Doctor','Status','Resume','Stop','OpenTmux','Repair']) command('tvijo.orchestration'+action, async () => {
+    const auth=await requireAuth(),folder=await requireWorkspace();
+    if(vscode.workspace.isTrusted!==true)throw Error('Trust this workspace before using its orchestration controller.');
+    const guard=codingGuard(auth,path.resolve(folder.uri.fsPath),workspaceEpoch);await guard();
+    if(action==='Doctor'){const value=await orchestration.doctor();await guard();return showPrivateDocument('json',JSON.stringify(value,null,2),auth);}
+    if(action==='Repair'){const prompt=await vscode.window.showInputBox({prompt:'Describe the authorized repair. It uses the original task budget and limits.'});if(!prompt?.trim())return;await guard();const value=await orchestration.repair(auth.scope,folder.uri.fsPath,prompt.trim());return showPrivateDocument('json',JSON.stringify(value,null,2),auth);}
+    if(action==='OpenTmux'){
+      const record=orchestration.saved(auth.scope,folder.uri.fsPath);
+      if(!record?.tmux || !/^tvijo-[a-f0-9]+$/.test(record.tmux))throw Error('No owned tmux session for this account and project.');
+      const terminal=vscode.window.createTerminal({name:'Tvijo DSH Harness',cwd:folder.uri.fsPath,shellPath:'tmux',shellArgs:['attach-session','-t',record.tmux],env:{OPENAI_API_KEY:null,ANTHROPIC_API_KEY:null}});terminal.show();return;
+    }
+    const value=await orchestration[action.toLowerCase()](auth.scope,folder.uri.fsPath);await guard();
+    if(value)return showPrivateDocument('json',JSON.stringify(value,null,2),auth);
+  });
   command('tvijo.cancelPending', async () => {
-    activeAbort?.abort();
+    activeAbort?.abort(); agentAbort?.abort(); await orchestration.invalidate();
     const auth = await requireAuth();
     const api = core.createClient({ base: auth.api_base });
     let pending = local.pending(auth.scope);

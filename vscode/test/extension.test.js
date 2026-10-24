@@ -2632,7 +2632,7 @@ test('0.10.7 Explorer folder command has no authentication or picker prerequisit
  const app=host({root,secrets:memory(),pick:()=>{throw Error('QuickPick forbidden');},openFiles:()=>{throw Error('OpenDialog forbidden');}});
  try{
   await app.receive({type:'ready'});await app.commands.get('tvijo.workInFolder')(app.Uri.file(child));
-  let state=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.workspacePath,child);assert.equal(state.signedIn,false);assert.equal(state.fullAccess.enabled,false);assert.equal(state.runtimeVersion,'0.10.8');
+  let state=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.workspacePath,child);assert.equal(state.signedIn,false);assert.equal(state.fullAccess.enabled,false);assert.equal(state.runtimeVersion,require('../package.json').version);
   assert.ok(app.executed.some(e=>e.id==='tvijo.chat.focus'));assert.equal(app.warnings.length,0);
   await app.receive({type:'folderList',requestId:'roots'});const listing=app.posts.find(p=>p.type==='folderList');assert.equal(listing.folders[0].path,root);
   await app.receive({type:'selectFolder',uri:{scheme:'file',path:path.dirname(root)},requestId:'forged'});
@@ -2865,10 +2865,10 @@ test('0.10.8 release gate G: symlink volume, default Auto, saved edit, test and 
   const beforeWarnings=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,beforeWarnings,'ZERO approvals during default Auto task');assert.equal(x.app.posts.find(p=>p.type==='agent' && p.event?.type==='start').event.maxSteps,30);
   assert.equal(await fs.readFile(x.file,'utf8'),'50\n');const check=x.results().find(r=>r.stdout?.includes('GATE_TEST_GREEN'));assert.equal(check?.ok,true,JSON.stringify(x.results()));
   assert.equal(git('rev-list','--count','HEAD'),'2');assert.equal(git('diff-tree','--no-commit-id','--name-only','-r','HEAD'),'x.txt');assert.equal(git('diff','--cached','--name-only'),'user-staged.txt');assert.equal(git('diff','--cached','--','x.txt'),'');assert.equal(git('diff','--name-only'),'dirty.txt');
-  const msg=git('show','-s','--format=%B');assert.match(msg,/Tvijo-Agent: tvijo-dshrem 0\.10\.8/);assert.match(msg,/Tvijo-Model: served-gate-model/);assert.match(msg,/Co-Authored-By:/);
+  const msg=git('show','-s','--format=%B');assert.match(msg,/Tvijo-Agent: tvijo-dshrem 0\.10\.9/);assert.match(msg,/Tvijo-Model: served-gate-model/);assert.match(msg,/Co-Authored-By:/);
   assert.equal(execFileSync('git',['--git-dir='+remote,'rev-parse','HEAD'],{env,encoding:'utf8'}),remoteBefore);
   const calls=x.calls();assert.match(JSON.stringify(calls),/CANARY_B_FOLLOW_STYLE/);assert.doesNotMatch(JSON.stringify(calls),/CANARY_A_MUST_NOT_LOAD/);
-  state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.account.identity.email,'gate@example.test');assert.equal(state.runtimeVersion,'0.10.8');assert.ok(state.loadedRules.some(r=>r.file==='AGENTS.md'));
+  state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.account.identity.email,'gate@example.test');assert.equal(state.runtimeVersion,require('../package.json').version);assert.ok(state.loadedRules.some(r=>r.file==='AGENTS.md'));
   const {sidebar}=require('./helpers/sidebar'),view=sidebar({},state);assert.equal(view.element('settings-drawer').hidden,true);assert.equal(view.element('workspace-choice').textContent,path.basename(x.root));assert.equal(view.element('workspace-choice').title,x.root);assert.equal(view.element('account-identity').textContent,'gate@example.test');view.element('settings').click();assert.equal(view.element('settings-drawer').hidden,false);
   const rereads=calls.map(r=>require('../lib/agent').parseAction(r.body.messages.at(-1)?.content)).filter(Boolean);const readCount=x.app.posts.filter(p=>p.type==='agent'&&p.event?.type==='action'&&p.event.action.tool==='read_file').length;
   await fs.writeFile(path.join(process.env.TVIJO_TEST_ARTIFACTS,'gate-G-0108.json'),JSON.stringify({passed:true,modelCalls:calls.length,readFileCalls:readCount,reReads:Math.max(0,readCount-1),approvals:x.app.warnings.length-beforeWarnings,commit:git('rev-parse','HEAD'),paths:['x.txt'],remoteUnchanged:true,rules:state.loadedRules,knownLimit:'Agent retains roughly four recent exchanges; this synthetic four-step task did not require re-reads.'},null,2));

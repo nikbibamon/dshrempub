@@ -2,7 +2,7 @@
   "name": "tvijo-dshrem",
   "displayName": "Tvijo DSHREM",
   "description": "Managed coding and bounded reviews for shared projects with a per-task spending cap. Provider API credentials remain on the service.",
-  "version": "0.10.8",
+  "version": "0.10.9",
   "repository": {
     "type": "git",
     "url": "https://github.com/nikbibamon/dshrempub.git",
@@ -334,6 +334,41 @@
         "title": "Open chat settings",
         "category": "Tvijo",
         "icon": "$(settings-gear)"
+      },
+      {
+        "command": "tvijo.orchestrationDoctor",
+        "title": "Orchestration doctor",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.orchestrationStatus",
+        "title": "Orchestration status and repair queue",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.orchestrationResume",
+        "title": "Resume orchestration task",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.orchestrationStop",
+        "title": "Stop orchestration task",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.orchestrationOpenTmux",
+        "title": "Open orchestration tmux",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.orchestrationSetup",
+        "title": "Set up orchestration",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.orchestrationRepair",
+        "title": "Repair with original orchestration budget",
+        "category": "Tvijo"
       }
     ],
     "menus": {
@@ -587,6 +622,50 @@
             "off"
           ],
           "markdownDescription": "Commit only Tvijo-owned saved edits after an Agent task finishes successfully, on the current local branch. Hooks run; user-staged and mixed-authorship files are skipped. Never pushes. Turn off here or in chat Settings."
+        },
+        "tvijo.orchestration.enabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Opt in to DSH Harness on the selected local/SSH project host. Existing engine remains the default. Requires explicit host setup; never installs packages or shares the operator subscription with website accounts.",
+          "scope": "machine"
+        },
+        "tvijo.orchestration.profile": {
+          "type": "string",
+          "default": "dsh-harness",
+          "enum": [
+            "dsh-harness"
+          ],
+          "markdownDescription": "Fixed ds41f coordinator using the existing AIOS metered route. Chat model choices do not override this engine.",
+          "scope": "machine"
+        },
+        "tvijo.orchestration.workerPolicy": {
+          "type": "string",
+          "default": "sol",
+          "enum": [
+            "sol",
+            "sol-astra",
+            "sol-astra-claude"
+          ],
+          "markdownDescription": "Subscription Codex GPT-6.1 Sol; optionally GPT-6 Astra/high for complex advice. Claude requires a separately verified native provider and quota. No paid API fallback.",
+          "scope": "machine"
+        },
+        "tvijo.orchestration.controllerPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Advanced override. Normally discovered from your trusted host installation; use Set up orchestration when missing.",
+          "scope": "machine"
+        },
+        "tvijo.orchestration.pythonPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Installed Python executable with the AIOS runtime dependencies. No shell arguments.",
+          "scope": "machine"
+        },
+        "tvijo.orchestration.statePath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Advanced override for the private durable state directory. Normally discovered from your trusted host installation.",
+          "scope": "machine"
         }
       }
     }
