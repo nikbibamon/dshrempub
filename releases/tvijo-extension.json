@@ -9,31 +9,43 @@
       "ru": "Помощь с кодом: выбранный контекст, проверяемые правки и задачи с лимитом."
     }
   },
-  "latest_version": "0.10.9",
+  "latest_version": "0.10.11",
   "channel": "preview",
   "publication": {
-    "status": "published",
-    "published_at": "2026-10-24",
+    "status": "prepared",
+    "published_at": null,
     "note": {
-      "en": "Direct VSIX and GitHub release. Marketplace is deferred by the operator. Reload Window after installation.",
-      "ru": "Прямой выпуск VSIX и GitHub. Marketplace отложен оператором. После установки выполните Reload Window."
+      "en": "Verified VSIX prepared for direct and GitHub publication. Marketplace remains deferred. Reload Window activates installation.",
+      "ru": "Проверенный VSIX подготовлен для прямой публикации и GitHub. Marketplace остаётся отложенным. Reload Window активирует установку."
     }
   },
   "package": {
-    "filename": "tvijo-dshrem-0.10.9.vsix",
-    "sha256": "6425ab5f18761a0c46c6715c4d5ce5e819ad562fb5130101494854cc6355e370",
-    "bytes": 922450,
+    "filename": "tvijo-dshrem-0.10.11.vsix",
+    "sha256": "59e8b2d3bc9857c7fdd62724d893d1decc92e5f7bbde7d462c8d8cbd9157c97b",
+    "bytes": 1029148,
     "editor_requirement": "^1.90.0",
-    "source_commit": "bd343712da96c745a359360c536d008a5180b1bb",
-    "verified_environment": "821 deterministic extension checks; synthetic EN/RU desktop/mobile Chromium; production extension-host/controller integration; actual subscription-native Sol/Astra/Opus receipts on configured Linux host. Interactive installed editor and native Windows were not observed."
+    "source_commit": "cc67128eb95c3596ea93b81852734c51e762c550",
+    "verified_environment": "850 extension checks passed; final affected checks54 passed after shared-service UI clarification; EN/RU Chromium920/3604flows; two actual private runtime report previews. Interactive installed editor not observed."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
-    "source": "https://github.com/nikbibamon/dshrempub/tree/bd343712da96c745a359360c536d008a5180b1bb",
-    "changelog": "https://github.com/nikbibamon/dshrempub/blob/bd343712da96c745a359360c536d008a5180b1bb/vscode/CHANGELOG.md",
+    "source": "https://github.com/nikbibamon/dshrempub/tree/cc67128eb95c3596ea93b81852734c51e762c550",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/cc67128eb95c3596ea93b81852734c51e762c550/vscode/CHANGELOG.md",
     "issues": "https://github.com/nikbibamon/dshrempub/issues"
   },
   "features": [
+    {
+      "id": "reactive-settings-private-reports",
+      "since": "0.10.11",
+      "title": {
+        "en": "Understandable live settings and private reports",
+        "ru": "Понятные живые настройки и приватные отчёты"
+      },
+      "description": {
+        "en": "Settings save automatically, preserve drafts and focus, reject stale replies and show failures. EN/RU examples explain reasoning methods, ordinary chat review and persistent host teams.",
+        "ru": "Настройки сохраняются автоматически, сохраняют ввод и фокус, отклоняют устаревшие ответы и показывают ошибки. Примеры EN/RU объясняют методы рассуждения, обзор в чате и постоянные команды на хосте."
+      }
+    },
     {
       "id": "dsh-harness-orchestration",
       "since": "0.10.9",
@@ -132,6 +144,58 @@
     }
   ],
   "releases": [
+    {
+      "version": "0.10.11",
+      "date": "2026-10-24",
+      "title": {
+        "en": "Clear settings and verified host team reports",
+        "ru": "Понятные настройки и проверенные отчёты команд хоста"
+      },
+      "changes": [
+        {
+          "en": "Settings save automatically, preserve drafts and focus, reject stale replies and show failures. EN/RU examples explain reasoning methods, ordinary chat review and persistent host teams.",
+          "ru": "Настройки сохраняются автоматически, сохраняют ввод и фокус, отклоняют устаревшие ответы и показывают ошибки. Примеры EN/RU объясняют методы рассуждения, обзор в чате и постоянные команды на хосте."
+        },
+        {
+          "en": "Skill packs and shared services use real loaded catalogs. Technical paths are under Advanced; configuration discovery and private host storage are explained with learning links.",
+          "ru": "Пакеты навыков и сервисы общего проекта используют загруженные каталоги. Технические пути находятся в дополнительных параметрах; автоматическое обнаружение и приватное хранилище объяснены со ссылками на инструкции."
+        },
+        {
+          "en": "Supported hosts offer 3–6 team participants including the coordinator, sequential worker slots and light/dark/rainbow/both report preferences. Unavailable subscriptions do not silently become paid API calls.",
+          "ru": "Поддерживаемые хосты предлагают 3–6 участников с координатором, последовательные роли исполнителей и светлые, тёмные, радужные или оба отчёта. Недоступная подписка не подменяется платным вызовом API."
+        },
+        {
+          "en": "Completed private HTML reports open inside VS Code with scripts and external resources disabled. Account changes close report previews.",
+          "ru": "Готовые приватные HTML-отчёты открываются внутри VS Code без скриптов и внешних ресурсов. Смена аккаунта закрывает предпросмотр."
+        },
+        {
+          "en": "Includes the anchored dismissible + menu, six accent palettes, OCR language choices, 60-step local Agent default, explicit budget extensions and private automatic-commit attribution from the preceding local update.",
+          "ru": "Включены исправленное меню +, шесть цветовых палитр, выбор языков OCR, 60 шагов локального Agent по умолчанию, явное увеличение бюджета и приватная подпись автокоммитов из предыдущего локального обновления."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Team preferences require a host controller advertising supported counts, report formats and an available selected policy. Update the configured host before using the new team options.",
+          "ru": "Для параметров команды нужен контроллер, объявляющий поддерживаемое число участников, оформление отчётов и доступный выбранный состав. Обновите настроенный хост перед использованием новых параметров."
+        },
+        {
+          "en": "DSH execution requires a configured Linux local or Remote SSH extension host. Other users must use their own host subscriptions; browser metadata events cannot run the operator shell.",
+          "ru": "Для DSH нужен настроенный Linux-хост расширения, локальный или Remote SSH. Другие пользователи используют свои подписки на хосте; события браузера не запускают оболочку оператора."
+        },
+        {
+          "en": "Model finish is quality_pending until task-specific checks, commit and required publications have receipts. External completion hooks are explicit opt-ins. No unattended paid repair loop is enabled.",
+          "ru": "Ответ модели остаётся quality_pending, пока нет квитанций проверок, коммита и нужных публикаций задачи. Внешние hooks включаются явно. Фоновый платный цикл исправлений не включён."
+        },
+        {
+          "en": "Full access runs commands with the user rights and is not an operating-system sandbox. Inherited environment controls and rules quarantine have the boundaries documented in README.",
+          "ru": "Полный доступ запускает команды с правами пользователя и не создаёт изоляцию ОС. Границы контроля окружения и карантина правил описаны в README."
+        },
+        {
+          "en": "Direct VSIX and GitHub are this release channel. Marketplace is deferred by the operator. Reload Window activates the installed extension; native Windows and an interactive installed editor session were not observed.",
+          "ru": "Каналы этого выпуска — прямой VSIX и GitHub. Marketplace отложен оператором. Reload Window активирует установленное расширение; нативный Windows и интерактивная сессия установленного редактора не наблюдались."
+        }
+      ]
+    },
     {
       "version": "0.10.9",
       "date": "2026-10-24",
@@ -605,6 +669,10 @@
   ],
   "limits": [
     {
+      "en": "Team preferences require a host controller advertising supported counts, report formats and an available selected policy. Update the configured host before using the new team options.",
+      "ru": "Для параметров команды нужен контроллер, объявляющий поддерживаемое число участников, оформление отчётов и доступный выбранный состав. Обновите настроенный хост перед использованием новых параметров."
+    },
+    {
       "en": "DSH execution requires a configured Linux local or Remote SSH extension host. Other users must use their own host subscriptions; browser metadata events cannot run the operator shell.",
       "ru": "Для DSH нужен настроенный Linux-хост расширения, локальный или Remote SSH. Другие пользователи используют свои подписки на хосте; события браузера не запускают оболочку оператора."
     },
@@ -639,10 +707,13 @@
   ],
   "verification": {
     "date": "2026-10-24",
-    "extension_tests": 821,
+    "extension_tests": 850,
     "native_gui": {
       "en": "Interactive installed editor not observed. Production host integration, real native subscription receipts and synthetic EN/RU desktop/mobile Chromium are separate evidence layers.",
       "ru": "Интерактивная сессия установленного редактора не наблюдалась. Рабочие обработчики, реальные квитанции нативных подписок и синтетический Chromium EN/RU desktop/mobile — отдельные уровни доказательств."
-    }
+    },
+    "final_affected_tests": 54,
+    "settings_browser_flows": 4,
+    "private_report_previews": 2
   }
 }
