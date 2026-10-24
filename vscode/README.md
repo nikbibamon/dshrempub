@@ -1,16 +1,15 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.10.7. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.8. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
 ## Compact chat
 
-The editor opens in the simple view: project title, conversation history and a new
-chat button above the transcript; attachments, permission mode, model, settings
-and Send/Stop stay beside the composer. Settings holds interrupted runs, account
-usage, connections and an optional Engineering view. Failed requests keep your
-draft and show one actionable message in the chat.
+The conversation fills the view. Folder, permission mode, model and Settings sit
+below the input. New chat, history and Settings are available from the native
+view title. Settings holds account details, allowance, runtime version and Reload,
+loaded rules with per-file switches, auto-commit and sign-out.
 
 Use **Settings → Select project context** to choose top-level folders and files.
 The preview is a bounded local summary with bytes and an approximate token count;
@@ -36,24 +35,27 @@ browser has no roots. Restricted Mode requires workspace trust before browsing.
 The folder browser reads one level per expansion, up to 500 entries and 100
 folder rows, omitting generated/cache folders. For a directory beyond those
 limits, use Explorer → **Work in Tvijo**. Canonical volume symlink workspace
-roots are supported; symlinks that escape their owning workspace are refused.
+roots are supported. For a child symlink beyond its open parent, use the refusal
+message’s **Add as workspace folder** action; then select that exact folder.
 A containing root and an open nested project may both be selected explicitly.
 Tools, terminal cwd, context, local history and permissions use the same selected
 canonical folder. Editor focus does not change it; switching is blocked during
 active work. Selecting a folder does not grant Full access.
 
-New simple sessions use **Manual** Agent mode: the selected model can read,
-propose edits and run tests, with confirmations for edits and commands. Selecting
-**Full access** changes the next Send to the Agent loop only after host approval.
-Cancellation or failure keeps the previous mode. An explicitly selected **Chat**
-remains questions and answers without the Agent loop, including after reconnect.
-Mode intent is saved per account and selected folder; old fallback Chat drafts
-are preserved as text but no longer suppress tools after reconnect.
+New sessions use **Auto** Agent mode with up to 30 steps and the existing $2
+session budget. In a trusted workspace, Auto can start with bounded project
+context without another confirmation; Context Off disables both context and
+rules. An explicitly selected **Chat** remains questions and answers. When Chat
+offers to change files in Agent mode, **Make it an agent** resends the original
+request through the Agent loop.
 
-The account row shows the **running Tvijo version**. After installing an update,
-click its version/reload button or run **Tvijo: Reload window**. Help also shows
-the runtime version. A downloaded or installed VSIX version does not prove which
-extension process is currently loaded.
+The default folder is the nearest repository above the active file within its
+owning workspace root, or the first workspace folder. It stays fixed through the
+conversation, persists on first send and is guessed again on New chat. Send never
+opens a folder picker. A refused guess stays visible with a recovery action.
+
+The running version and Reload live in **Settings**. After installing an update,
+reload the window to activate the new extension process.
 
 ## Permission presets
 
@@ -63,8 +65,8 @@ whitespace fallback replacements, and supported commands without further prompts
 Enable it for the explicitly selected execution folder through the native modal. It requires a trusted workspace and a permission record
 bound to this host's local folder identity; workspace settings cannot enable it.
 
-A compact permission indicator shows the active selected folder grant. **Revert** stops active work using
-that permission and removes it in one click. Full access leaves normal preset
+The mode chip shows the active permission. **Revert** in its menu stops active work
+using that permission and removes it. The menu remains available while running. Full access leaves normal preset
 settings unchanged, so reverting restores their behavior. Explicitly choosing
 another Agent preset also revokes Full access for the current folder.
 
@@ -74,6 +76,42 @@ before applying edits. In Full access and Auto, Agent edits are saved to disk
 before later reads or tests. Quick Edit and review modes retain buffer review
 semantics. Commands use local host permissions; this preset
 does not provide an operating-system sandbox. Restricted Mode cannot enable it.
+
+## Project rules
+
+Workspace Trust enables automatic project advice from `AGENTS.md`, `CLAUDE.md`,
+`.clinerules` (a file or a directory of Markdown files), `.cursorrules`,
+`.windsurfrules`, `.github/copilot-instructions.md` and `.tvijo/rules.md`.
+Rules inherit nearest first, stopping at the nearest repository or owning workspace
+root. A task uses one snapshot. Rules have a separate 32 KiB budget, are removed
+last when a request needs compaction, and appear in Settings with file sizes,
+truncation indicators and per-file switches. Context Off disables them.
+
+Symlinks, hard links, invalid UTF-8 and files over 256 KiB are refused. Credential
+scanning covers the complete read before truncation. Rules are quoted project
+advice and cannot grant permissions. Agent file-tool writes to every rules file
+always ask, including in Full access. Git commands that change state also always
+ask; hard command denials still apply.
+
+## Local auto-commit
+
+`tvijo.autoCommit` defaults to `afterTask`; switch it off in Settings. After a
+successful `finish` with status `done`, Auto and Full access can commit their saved
+editor edits on the current local branch. A failed or stale last command check,
+cancellation, blocked answer or step limit prevents the commit. Tvijo never pushes.
+
+Only files whose original bytes match HEAD are eligible. User-staged files,
+mixed-authorship files, ignored files, submodules, detached or unborn branches,
+active Git operations, moved HEAD and missing Git identity are reported and skipped.
+The host uses an isolated index, runs hooks and signing, and preserves the user's
+staging. Commit messages identify the editor, served models, task and checks.
+Shell side effects, including removals and renames, are not tracked or committed.
+
+The answer shows the commit hash and **Undo commit**. Undo uses a soft reset only
+while that commit is still HEAD and no remote-tracking branch contains it; otherwise
+it attempts a revert. Hooks have a 120-second limit and are interrupted before
+termination. A hook, signing or index reconciliation failure is reported; review
+preserved files and the Git index before continuing.
 
 ## Agent saves before disk checks
 
@@ -168,7 +206,7 @@ the exported document before sharing it.
 
 ## Rewind (local checkpoints)
 
-Open the header **… → Rewind…**, run **Tvijo: Rewind**, or type `/rewind`.
+Open **+ → Rewind…**, run **Tvijo: Rewind**, or type `/rewind`.
 Choose a recent run, then a step: its time, files and requested model are shown.
 **Rewind to before step N** undoes that step and every later edit in the same run.
 Files changed by later runs are treated as conflicts; those runs are not silently undone.
@@ -196,7 +234,8 @@ exports or usage logs. Rewind works locally without signing in; its note is disp
 
 This is file-edit recovery, not a full filesystem transaction: shell-command side effects,
 external tool writes and files outside Tvijo’s Apply paths are not checkpointed. The
-first workspace folder is used, as in the existing Agent flow. No new settings are added.
+selected execution folder is used. Rewind warns when a run has been committed;
+use **Undo commit** to undo its Git commit.
 
 ## Markdown answers
 
@@ -209,7 +248,7 @@ answer in an editor to read longer replies. The strict content security policy i
 
 ## Agent map
 
-Click **⑂ Agent map** (**Карта агентов**) in the header. The current request is on the
+Click **⑂ Agent map** (**Карта агентов**) in Settings. The current request is on the
 left; executed tasks, Agent model steps/tools and available council or coding
 review/swarm execution records extend right. Select a node for task ID, route, receipt
 fields and a short last message. Arrow keys move between nodes; Enter/Space select;
@@ -225,7 +264,7 @@ appear when supplied. Local execution trees are kept in host memory for the sess
 
 ## Skill packs
 
-Choose a skill pack from the compact chat-header button or the Tvijo status bar.
+Choose a skill pack from the Settings pack button or the Tvijo status bar.
 Packs come from your signed-in service and stay in memory for the session. If the
 service has no packs or cannot be reached, these controls stay hidden.
 
@@ -254,7 +293,7 @@ No pack contents are bundled with the extension.
 - Agent still ends every run with an answer: at the step limit one extra call without
   tools writes the reply, and a raw `TOOL_RESULT` is never shown as the answer.
 - Large files are read from the start up to 64 KiB with an explicit truncation note;
-  step limit is 12 by default (`tvijo.agentMaxSteps`, up to 30).
+  step limit is 30 by default (`tvijo.agentMaxSteps`, up to 30).
 - A project is chosen before a payer, settings are searchable in EN/RU, sign-in state is
   consistent, and money never renders as nine decimals.
 

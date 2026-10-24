@@ -339,7 +339,7 @@ test('mode menu supports keyboard navigation and Shift+Tab remains ordinary focu
   assert.equal(view.element('mode').textContent,selected);
 });
 
-test('Full access is host-gated, waits for acknowledgement, and warning stays until host state clears it',()=>{
+test('0.10.8 Full access is host-gated with revoke in its menu and no path banner',()=>{
   const view=sidebar({}, {composerMode:'chat'});
   const options={models:[{id:'coding',name:'Coding'}],model:'coding',agentPreset:'manual'};
   view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',signedIn:true,options}});
@@ -361,23 +361,13 @@ test('Full access is host-gated, waits for acknowledgement, and warning stays un
   const folder='<img src=x onerror="alert(1)">';
   const fullAccess={available:true,enabled:true,folder,scopeKey:'b'.repeat(64),active:[{folder,scopeKey:'b'.repeat(64)}]};
   view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',options:{...options,agentPreset:'full'},fullAccess,busy:true}});
-  const warning=view.element('full-access-warning');
-  assert.equal(warning.hidden,false);
-  assert.ok(warning.children[1].children.some(node=>node.textContent===folder));
-  assert.equal(warning.children[1].children.some(node=>node.tag==='img'),false);
-  assert.match(warning.children[0].textContent,/Full access is active/);
-  assert.notEqual(warning.children[1].children[1].disabled,true,'revert stays usable while running');
-  view.element('tab-context').click();
-  assert.equal(warning.hidden,false);
-  view.element('tab-chat').click();
-  assert.equal(warning.hidden,false);
-  warning.children[1].children[1].click();
+  assert.equal(view.element('mode').disabled,false,'Full access menu remains available to revoke while busy');
+  const cancel=view.element('mode-menu').children.find(node=>node.attributes['data-mode']==='revoke');assert.ok(cancel);assert.notEqual(cancel.disabled,true);cancel.click();
   assert.deepEqual({...view.outgoing.at(-1)},{type:'fullAccessRevert',fullAccessScope:'b'.repeat(64),scopeKey:'tenant-a'});
-  assert.equal(warning.hidden,false,'revert waits for host state');
   view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',options,fullAccess:{available:true,enabled:false,folder,scopeKey:'b'.repeat(64),active:[]}}});
-  assert.equal(warning.hidden,true);
+  assert.equal(view.element('mode-menu').children.some(node=>node.attributes['data-mode']==='revoke'),false);
   view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',options}});
-  assert.equal(warning.hidden,true,'missing state hides the warning');
+  assert.equal(view.element('mode-menu').children.some(node=>node.attributes['data-mode']==='revoke'),false);
 });
 
 test('external non-preset flags display Custom and failed preset update does not change mode',()=>{
@@ -590,9 +580,9 @@ test('compact settings preserve host controls and persist engineering preference
   view.emit('context-select:click',{});
   assert.equal(view.outgoing.at(-1).type,'contextSelect');
   assert.equal(view.element('settings-drawer').hidden,true);
-  view.emit('history:click',{});
-  assert.equal(view.element('settings-drawer').hidden,true);
-  assert.equal(view.outgoing.at(-1).type,'history');
+  view.emit('window:message',{data:{type:'openSettings'}});
+  assert.equal(view.element('settings-drawer').hidden,false);
+  view.emit('drawer-close:click',{});
   view.emit('settings:click',{});
   view.emit('drawer-close:click',{});
   assert.equal(view.element('settings-drawer').hidden,true);
@@ -600,7 +590,7 @@ test('compact settings preserve host controls and persist engineering preference
 
 test('compact view has localized privacy, scoped project title and an always accessible running Stop', () => {
   const view = sidebar({}, {projectLabel:'My project',legacyHistory:true,busy:true});
-  assert.equal(view.element('brand').textContent,'My project');
+  assert.equal(view.element('workspace-choice').textContent,'My project');
   assert.equal(view.element('cancel').hidden,false);
   assert.equal(view.element('send').hidden,true);
   view.emit('cancel:click',{});
@@ -610,7 +600,7 @@ test('compact view has localized privacy, scoped project title and an always acc
   assert.equal(view.element('context-select').textContent,'Выбрать контекст проекта…');
   assert.equal(view.element('settings').attributes['aria-label'],'Настройки');
   view.emit('window:message',{data:{type:'state',scopeKey:'tenant-b',busy:false}});
-  assert.equal(view.element('brand').textContent,'Tvijo');
+  assert.equal(view.element('workspace-choice').textContent,'Выбрать проект…');
   assert.equal(view.element('send').hidden,false);
   assert.equal(view.element('cancel').hidden,true);
 });

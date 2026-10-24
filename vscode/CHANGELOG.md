@@ -1,8 +1,10 @@
 # 0.10.8
 
-- Start in Auto mode with up to 30 steps; saved Agent edits are ready for tests.
+- Start in Auto mode with up to 30 steps; saved Agent edits are ready for tests. The task budget stays $2.
 - Keep the conversation clear with folder, mode and model controls below the composer; account details live in Settings.
-- Load project rules automatically in trusted workspaces and commit successful Agent changes locally, with model attribution. Never push automatically.
+- Load project rules automatically in trusted workspaces, with per-file controls and visible truncation.
+- Commit successful saved Agent changes locally with model attribution; preserve user staging and offer Undo commit. Never push automatically.
+- Recover folder refusals with Choose folder or Add as workspace folder, and turn Chat requests into Agent tasks in one click.
 
 ## 0.10.7 — 2026-10-24
 

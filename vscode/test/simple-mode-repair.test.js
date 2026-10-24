@@ -11,7 +11,7 @@ test('multi-root selection is explicit, persistent and unaffected by editor focu
  const data=new Map(),state={get:k=>data.get(k),update:async(k,v)=>data.set(k,v)};
  const vscode={Uri,workspace:{workspaceFolders:[parent,a,b]},window:{showQuickPick:async rows=>rows.find(r=>r.folder===a)}};
  let changed=0;const active=createActiveWorkspace({vscode,state,onChange:()=>changed++});
- assert.equal(active.current(),null);assert.equal((await active.ensure()).uri.fsPath,a.uri.fsPath);assert.equal(changed,1);
+ assert.equal(active.current().uri.fsPath,parent.uri.fsPath);assert.equal((await active.choose()).uri.fsPath,a.uri.fsPath);assert.equal(changed,1);
  vscode.workspace.workspaceFolders=[b,parent,a];assert.equal(createActiveWorkspace({vscode,state}).current().uri.fsPath,a.uri.fsPath);
  assert.equal(active.hasNested(a),false);assert.equal(active.hasNested(parent),true);
  vscode.workspace.workspaceFolders=[parent,b];assert.equal(active.current(),null);assert.ok(data.get(KEY));
@@ -19,7 +19,7 @@ test('multi-root selection is explicit, persistent and unaffected by editor focu
 test('cancelled workspace choice does not infer parent or silently change consent',async()=>{
  const data=new Map(),state={get:k=>data.get(k),update:async(k,v)=>data.set(k,v)};
  const vscode={Uri,workspace:{workspaceFolders:[folder('/projects'),folder('/projects/a')]},window:{showQuickPick:async()=>undefined}};
- const active=createActiveWorkspace({vscode,state});assert.equal(await active.ensure(),null);assert.equal(data.size,0);
+ const active=createActiveWorkspace({vscode,state});assert.equal(await active.choose(),null);assert.equal(data.size,0);assert.equal(active.current().uri.fsPath,vscode.workspace.workspaceFolders[0].uri.fsPath);
 });
 test('short prompt survives huge historical multilingual context without mutating history',()=>{
  const messages=[{role:'user',content:'старый '.repeat(20000)},{role:'assistant',content:'answer '.repeat(9000)},{role:'user',content:'List this folder'}];

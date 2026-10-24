@@ -108,3 +108,15 @@ test('0.10.8 post-commit index reconciliation preserves concurrent user staging'
  fs.writeFileSync(path.join(f.root,'.git/hooks/pre-commit'),'#!/bin/sh\nunset GIT_INDEX_FILE\ngit add -- user.txt\n',{mode:0o755});
  const r=await f.run();assert.equal(r.ok,true,JSON.stringify(r));assert.equal(f.git('diff','--cached','--name-only'),'user.txt');assert.equal(f.git('diff','--cached','--','x.txt'),'');
 });
+test('0.10.8 partial commit excludes saved mixed-authorship and staged files',async()=>{
+ const f=await fixture();const dirty=path.join(f.root,'dirty.txt'),staged=path.join(f.root,'user.txt');
+ fs.writeFileSync(dirty,'USER plus agent');fs.writeFileSync(staged,'USER staging');f.git('add','--','user.txt');fs.writeFileSync(staged,'USER staging plus agent');
+ const r=await f.run({writes:[...f.writes,{absolute:dirty,previous:'USER earlier',content:'USER plus agent'},{absolute:staged,previous:'user base\n',content:'USER staging plus agent'}]});
+ assert.equal(r.ok,true);assert.deepEqual(r.paths,['x.txt']);assert.deepEqual(r.skipped.map(f=>f.reason).sort(),['mixed_authorship','user_staged']);assert.equal(f.git('diff','--cached','--name-only'),'user.txt');assert.equal(f.git('show',':user.txt'),'USER staging');assert.equal(f.git('diff-tree','--no-commit-id','--name-only','-r','HEAD'),'x.txt');
+});
+test('0.10.8 executable mode survives the isolated index commit',async()=>{
+ const f=await fixture();fs.chmodSync(f.file,0o755);f.git('add','--','x.txt');f.git('commit','-m','Executable baseline');const start=await api().capture({...f.start});fs.writeFileSync(f.file,'next\n');const r=await f.run({start,writes:[{absolute:f.file,previous:'50\n',content:'next\n'}]});assert.equal(r.ok,true);assert.match(f.git('ls-tree','HEAD','--','x.txt'),/^100755 blob/);
+});
+test('0.10.8 foreign real-index lock is preserved and reconciliation failure is reported',async()=>{
+ const f=await fixture();fs.writeFileSync(path.join(f.root,'.git/hooks/pre-commit'),'#!/bin/sh\nprintf USER_LOCK > .git/index.lock\n',{mode:0o755});const r=await f.run();assert.equal(r.ok,true);assert.equal(r.indexWarning,true);assert.equal(fs.readFileSync(path.join(f.root,'.git/index.lock'),'utf8'),'USER_LOCK');
+});

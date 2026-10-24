@@ -149,7 +149,7 @@ function host(options = {}) {
       if (blockGrant) await new Promise((resolve) => { release = resolve; });
       if (grantError?.network) throw new Error('Lost synthetic response');
       if (grantError) return Response.json(grantError.body, { status: grantError.status });
-      return Response.json({ id: 'task-test' });
+      return Response.json({ id: 'task-test',model:optionsHost.grantModel });
     }
     if (url.endsWith('/tasks') && options.method === 'GET') return Response.json({ tasks: optionsHost.tasks || [{ title: 'Account A private server task' }] });
     if (url.includes('/tasks/by-idempotency/')) return Response.json(lookup);
@@ -304,13 +304,13 @@ test('pack header/status hide on 404 and sign-out, cache once, and never expose 
       assert.equal(app.requests.filter(item => item.url.endsWith('/packs')).length, 1);
       assert.deepEqual(state.pack, catalogue ? { label: 'auto: TEST PACK', summary: 'Synthetic summary' } : null);
       assert.equal(app.status.command, catalogue ? 'tvijo.choosePack' : 'tvijo.account');
-      assert.deepEqual(app.executed.filter(item => item.id === 'setContext').at(-1).args, ['tvijo.hasPacks', !!catalogue]);
+      assert.deepEqual(app.executed.filter(item => item.id === 'setContext' && item.args[0]==='tvijo.hasPacks').at(-1).args, ['tvijo.hasPacks', !!catalogue]);
       if (catalogue) assert.equal(app.status.text, 'Tvijo · auto: TEST PACK · —');
       assert.ok(!JSON.stringify(app.posts).includes('SYNTHETIC_PACK_SENTINEL'));
       await app.commands.get('tvijo.signOut')();
       assert.equal(app.posts.filter(item => item.type === 'state').at(-1).pack, null);
       assert.equal(app.status.command, 'tvijo.signIn');
-      assert.deepEqual(app.executed.filter(item => item.id === 'setContext').at(-1).args, ['tvijo.hasPacks', false]);
+      assert.deepEqual(app.executed.filter(item => item.id === 'setContext' && item.args[0]==='tvijo.hasPacks').at(-1).args, ['tvijo.hasPacks', false]);
       assert.equal(app.requests.filter(item => item.url.endsWith('/packs')).length, 1);
       assert.equal(app.feedback.length, 0);
     } finally { app.close(); }
@@ -328,7 +328,7 @@ test('pack chat requests have one leading system message across turns and preser
     assert.equal(chats.length, 2);
     for (const chat of chats) {
       assert.equal(chat.body.messages[0].role, 'system');
-      assert.equal(chat.body.messages[0].content, 'SYNTHETIC_PACK_SENTINEL');
+      assert.match(chat.body.messages[0].content, /^SYNTHETIC_PACK_SENTINEL/);assert.match(chat.body.messages[0].content,/Chat mode/);
       assert.equal(chat.body.messages.filter(item => item.role === 'system').length, 1);
     }
     const grants = app.requests.filter(item => item.url.endsWith('/tasks') && item.method === 'POST');
@@ -628,7 +628,7 @@ test('native pack picker writes only tvijo.pack and localized header/status show
     assert.equal(choices[1].label, 'No pack');
     assert.equal(choices[1].id, 'none');
     assert.equal(choices[2].label, 'TEST PACK');
-    assert.deepEqual([...app.settings], [['pack', 'engineer']]);
+    assert.deepEqual([...app.settings].filter(([key])=>key==='pack'), [['pack', 'engineer']]);
     assert.equal(app.status.text, 'Tvijo · TEST PACK · $0.95 left today');
     await app.receive({ type: 'locale', value: 'ru' });
     assert.equal(app.status.text, 'Tvijo · ТЕСТ ПАКЕТ · осталось $0.95 сегодня');
@@ -643,7 +643,7 @@ test('No pack picker persists none, localizes labels and sends Chat and Agent wi
   try {
     await app.receive({ type: 'ready' });
     await app.receive({ type: 'choosePack' });
-    assert.deepEqual([...app.settings], [['pack', 'none']]);
+    assert.deepEqual([...app.settings].filter(([key])=>key==='pack'), [['pack', 'none']]);
     assert.equal(app.status.text, 'Tvijo · No pack · $0.95 left today');
     assert.deepEqual(app.posts.filter(item => item.type === 'state').at(-1).pack, { label: 'No pack', summary: '' });
     await app.receive({ type: 'locale', value: 'ru' });
@@ -656,7 +656,7 @@ test('No pack picker persists none, localizes labels and sends Chat and Agent wi
     app.settings.set('workspaceContext', 'off');
     await app.receive({ type: 'ask', question: 'SYNTHETIC_CHAT' });
     const chat = app.requests.filter(item => item.url.endsWith('/chat')).at(-1);
-    assert.ok(chat.body.messages.every(item => item.role !== 'system'));
+    assert.ok(chat.body.messages.filter(item => item.role === 'system').every(item=>item.content.includes('Chat mode')));
     app.chat('{"tool":"finish","answer":"SYNTHETIC_FINISH"}');
     await app.receive({ type: 'ask', question: 'SYNTHETIC_AGENT', agent: true });
     const agent = app.requests.filter(item => item.url.endsWith('/chat')).at(-1);
@@ -975,8 +975,8 @@ test('a deferred preset update detects workspace change and returns a scoped fai
     await pending;
     const result=app.posts.filter(item=>item.type==='presetResult').at(-1);
     assert.deepEqual({ok:result.ok,requestId:result.requestId},{ok:false,requestId:'workspace-change'});
-    assert.equal(app.settings.get('agentAutoApply'),undefined);
-    assert.equal(app.settings.get('agentAutoRun'),undefined);
+    assert.equal(app.settings.get('agentAutoApply'),false);
+    assert.equal(app.settings.get('agentAutoRun'),false);
   } finally { finish(); app.close(); }
 });
 
@@ -1014,8 +1014,8 @@ test('a busy Agent cannot be escalated to another preset', async () => {
     await app.receive({type:'agentPreset',preset:'auto',scopeKey,requestId:'busy'});
     const result=app.posts.filter(item=>item.type==='presetResult').at(-1);
     assert.deepEqual({scopeKey:result.scopeKey,requestId:result.requestId,ok:result.ok},{scopeKey:app.folderScope(scopeKey),requestId:'busy',ok:false});
-    assert.equal(app.settings.get('agentAutoApply'),undefined);
-    assert.equal(app.settings.get('agentAutoRun'),undefined);
+    assert.equal(app.settings.get('agentAutoApply'),false);
+    assert.equal(app.settings.get('agentAutoRun'),false);
     app.releaseResponse(); await running;
   } finally { app.releaseResponse(); app.close(); }
 });
@@ -1075,7 +1075,7 @@ test('account switch never renders or resends another account history, attachmen
     await app.receive({ type: 'ask', question: 'Account B question', scopeKey: app.scope('tenant-b') });
     const request = app.requests.filter(r => r.url.endsWith('/chat')).at(-1);
     assert.equal(request.token, 'Bearer account-b');
-    assert.equal(request.body.messages.length, 1);
+    assert.equal(request.body.messages.filter(m=>m.role!=='system').length, 1);
     assert.doesNotMatch(JSON.stringify(request.body.messages), /Account A/);
     assert.equal(app.local.pending(app.scope('tenant-a')).idempotencyKey, 'A-unresolved');
     await app.commands.get('tvijo.signOut')();
@@ -1522,7 +1522,7 @@ test('agent stops after account change while the model is working and keeps orig
     app.settings.set('agentAutoRun', true);
     app.blockResponse('/chat', 'POST');
     const running = app.commands.get('tvijo.agent')();
-    for (let i = 0; i < 50 && !app.responseWaiting(); i++) await new Promise(resolve => setImmediate(resolve));
+    for (let i = 0; i < 200 && !app.responseWaiting(); i++) await new Promise(resolve => setTimeout(resolve,5));
     assert.ok(app.responseWaiting());
     const original = app.posts.find(p => p.type === 'agent' && p.event.goal === 'Account A editor question').scopeKey;
     await app.context.secrets.store('tvijo.auth', JSON.stringify({ access_token: 'account-b', api_base: app.base }));
@@ -1532,7 +1532,7 @@ test('agent stops after account change while the model is working and keeps orig
     const privateEvents = app.posts.filter(p => p.type === 'agent' && p.event.goal === 'Account A editor question');
     assert.ok(privateEvents.every(p => p.scopeKey === original));
     assert.ok(app.posts.some(p => p.type === 'agent' && p.event.type === 'reset'));
-  } finally { app.close(); }
+  } finally { app.releaseResponse();app.close(); }
 });
 
 test('definitive pregrant refusal in agent mode leaves no phantom journal', async () => {
@@ -1818,12 +1818,12 @@ test('project rules are frozen untrusted user data and cannot override Plan, sec
       const chats=app.requests.filter(x=>x.url.endsWith('/chat'));
       assert.equal(chats.length,2);
       for(const chat of chats){
-        assert.ok(!chat.body.messages.filter(m=>m.role==='system').some(m=>m.content.includes('RULES_HOST_CANARY')));
-        assert.ok(!JSON.stringify(chat.body.messages).includes('RULES_HOST_CANARY'));
+        assert.ok(chat.body.messages.filter(m=>m.role==='system').some(m=>m.content.includes('RULES_HOST_CANARY')));
+        assert.ok(JSON.stringify(chat.body.messages).includes('RULES_HOST_CANARY'));
         assert.ok(!JSON.stringify(chat.body).includes('PRIVATE_CONTENT_CANARY'));
       }
       assert.equal(await fs.readFile(path.join(root,'kept.txt'),'utf8'),'original');
-      assert.equal(app.settings.get('agentAutoRun'),undefined);
+      assert.equal(app.settings.get('agentAutoRun'),false);
       assert.ok(app.requests.filter(x=>x.url.endsWith('/tasks')).every(x=>Number(x.body.max_usd)<=2));
       assert.equal(app.feedback.length,0);
     }finally{app.close();}
@@ -2445,7 +2445,7 @@ test('context selection ignores stale account scope and persists local selected 
   await app.commands.get('tvijo.contextPreview')();
   assert.match(app.shown.at(-1).content,/bytes.*tokens/);
   assert.doesNotMatch(app.shown.at(-1).content,/src\/|--- package.json/);
-  assert.match(app.shown.at(-1).content,/does not grant tool permissions/);
+  assert.match(app.shown.at(-1).content,/Rules:/);
  }finally{app.close();}
 });
 
@@ -2530,7 +2530,7 @@ test('simple multi-root Full access uses only selected ai-os folder, never edito
   app.vscode.workspace.getWorkspaceFolder=uri=>app.vscode.workspace.workspaceFolders.filter(f=>uri.fsPath.startsWith(f.uri.fsPath+'/')).sort((x,y)=>y.uri.fsPath.length-x.uri.fsPath.length)[0];
   app.editor({document:{uri:app.Uri.file(path.join(b,'private.txt')),getText:()=> 'OTHER_FOLDER_SENTINEL'},selection:{isEmpty:true}});
   app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);app.settings.set('agentModel','ds41f');
-  await app.receive({type:'ready'});assert.equal(app.posts.filter(p=>p.type==='state').at(-1).workspaceSelected,false);
+  await app.receive({type:'ready'});assert.equal(app.posts.filter(p=>p.type==='state').at(-1).workspaceSelected,true);
   await app.receive({type:'chooseWorkspace'});
   await enableFullAccess(app);
   await app.receive({type:'ask',agent:true,question:'Read selected.txt'});
@@ -2632,11 +2632,11 @@ test('0.10.7 Explorer folder command has no authentication or picker prerequisit
  const app=host({root,secrets:memory(),pick:()=>{throw Error('QuickPick forbidden');},openFiles:()=>{throw Error('OpenDialog forbidden');}});
  try{
   await app.receive({type:'ready'});await app.commands.get('tvijo.workInFolder')(app.Uri.file(child));
-  let state=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.workspacePath,child);assert.equal(state.signedIn,false);assert.equal(state.fullAccess.enabled,false);assert.equal(state.runtimeVersion,'0.10.7');
+  let state=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.workspacePath,child);assert.equal(state.signedIn,false);assert.equal(state.fullAccess.enabled,false);assert.equal(state.runtimeVersion,'0.10.8');
   assert.ok(app.executed.some(e=>e.id==='tvijo.chat.focus'));assert.equal(app.warnings.length,0);
   await app.receive({type:'folderList',requestId:'roots'});const listing=app.posts.find(p=>p.type==='folderList');assert.equal(listing.folders[0].path,root);
   await app.receive({type:'selectFolder',uri:{scheme:'file',path:path.dirname(root)},requestId:'forged'});
-  assert.match(app.posts.find(p=>p.type==='folderSelected'&&p.requestId==='forged').error,/inside/);
+  assert.match(app.posts.find(p=>p.type==='folderSelected'&&p.requestId==='forged').error,/workspace/);
   state=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.workspacePath,child);
   await app.receive({type:'selectFolder',uri:{scheme:'file',path:root},requestId:'root'});assert.equal(app.posts.filter(p=>p.type==='state').at(-1).workspacePath,root);
  }finally{app.close();}
@@ -2718,8 +2718,8 @@ async function savedAgentFixture(options={}) {
  }
  const changed=options.content??'agent changed';
  const actions=options.actions??[{tool:'write_file',path:relative,content:changed},{tool:'read_file',path:relative},{tool:'run_command',command:'cat '+relative},{tool:'finish',answer:'Disk verified'}];
- app=host({root,checkpointFailure:options.checkpointFailure,chatSequence:actions.map(JSON.stringify),onRequest:options.onRequest,
-  onWarning:async(_message,_opts,button)=>{if(options.auto)app.warning(button);},
+ app=host({root,defaultAuto:options.defaultAuto,account:options.account,grantModel:options.grantModel,checkpointFailure:options.checkpointFailure,chatSequence:actions.map(JSON.stringify),onRequest:options.onRequest,
+  onWarning:async(_message,_opts,button)=>{if(options.auto && !options.denyApproval)app.warning(button);},
   documentFor,syntaxHost:{newRun:()=>({}),check:async()=>null,dispose(){},invalidate(){},cancelActive(){}},
   applyEdit:async edit=>{
    for(const op of edit.operations){
@@ -2735,12 +2735,12 @@ async function savedAgentFixture(options={}) {
  Object.defineProperty(app.vscode.workspace,'textDocuments',{get:()=>[...documents.values()]});
  const document=options.newFile?null:documentFor(app.Uri.file(file));
  if(document){if(options.dirty){document.isDirty=true;document.text=options.dirtyText??document.text;}app.editor({document});}
- app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',actions.length);if(options.eol)app.settings.set('eol',options.eol===2?'\r\n':'\n');
+ app.settings.set('workspaceContext',options.contextMode || 'off');if(!options.defaultAuto)app.settings.set('agentMaxSteps',actions.length);if(options.eol)app.settings.set('eol',options.eol===2?'\r\n':'\n');
  let grant;
- if(options.auto){app.settings.set('agentAutoApply',true);app.settings.set('agentAutoRun',true);await app.receive({type:'ready'});app.warning('Write file');}
+ if(options.auto){if(!options.defaultAuto){app.settings.set('agentAutoApply',true);app.settings.set('agentAutoRun',true);}await app.receive({type:'ready'});if(!options.defaultAuto)app.warning('Write file');}
  else grant=await enableFullAccess(app);
  return {app,root,file,document,documents,saves,applies,unrelated,grant,
-  run:()=>app.receive({type:'ask',agent:true,question:'Edit and verify disk'}),
+  run:()=>app.receive({type:'ask',agent:true,question:options.goal || 'Edit and verify disk'}),
   results:()=>app.posts.filter(p=>p.type==='agent'&&p.event?.type==='result').map(p=>p.event.result),
   calls:()=>app.requests.filter(r=>r.url.endsWith('/chat')),
   close:()=>app.close()};
@@ -2837,4 +2837,66 @@ for(const kind of ['existing','new','repeat'])test(`autosave production CRLF ${k
   const records=require('../lib/checkpoints').createCheckpoints(x.app.storage).list(x.root);assert.equal(records.length,1);assert.equal(records[0].steps.length,kind==='repeat'?2:1);
   const dir=path.join(x.app.storage,'rewind-v1');const captures=await Promise.all((await fs.readdir(dir)).filter(n=>n.endsWith('.json')).map(async n=>JSON.parse(await fs.readFile(path.join(dir,n),'utf8'))));captures.sort((a,b)=>a.step-b.step);assert.equal(captures.at(-1).files[0].afterHash,require('node:crypto').createHash('sha256').update(expected).digest('hex'));if(kind==='new')assert.equal(captures[0].files[0].before,null);
  }finally{x.close();}
+});
+
+
+test('0.10.8 release gate G: symlink volume, default Auto, saved edit, test and isolated local commit with zero approvals',async()=>{
+ const sync=require('node:fs'),{execFileSync}=require('node:child_process');
+ const x=await savedAgentFixture({relative:'x.txt',before:'45\n',goal:'Replace 45 with 50 in x.txt and run npm test',auto:true,defaultAuto:true,contextMode:'ask',account:{identity:{email:'gate@example.test',email_verified:true}},grantModel:'served-gate-model',actions:[
+  {tool:'read_file',path:'x.txt'},{tool:'replace_in_file',path:'x.txt',old:'45',new:'50'},{tool:'run_command',command:'npm test'},{tool:'finish',status:'done',answer:'Replace 45 with 50; npm test passed'}]});
+ const oldHome=process.env.HOME,oldGlobal=process.env.GIT_CONFIG_GLOBAL;
+ try{
+  const fixture=path.dirname(x.root),a=await fs.mkdtemp(path.join(fixture,'workspace-A-')),home=await fs.mkdtemp(path.join(fixture,'git-home-'));process.env.HOME=home;process.env.GIT_CONFIG_GLOBAL='/dev/null';
+  const env={...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'};
+  const git=(...args)=>execFileSync('git',['--literal-pathspecs',...args],{cwd:x.root,env,encoding:'utf8',stdio:'pipe'}).trim();
+  await fs.writeFile(path.join(a,'AGENTS.md'),'CANARY_A_MUST_NOT_LOAD');
+  await fs.writeFile(path.join(x.root,'AGENTS.md'),'CANARY_B_FOLLOW_STYLE');
+  await fs.writeFile(path.join(x.root,'.npmrc'),'cache='+path.join(fixture,'npm-cache-'+path.basename(x.root))+'\n');
+  await fs.writeFile(path.join(x.root,'package.json'),JSON.stringify({scripts:{test:'node check.cjs'}}));
+  await fs.writeFile(path.join(x.root,'check.cjs'),"require('node:assert/strict').equal(require('node:fs').readFileSync('x.txt','utf8'),'50\\n');console.log('GATE_TEST_GREEN');");
+  await fs.writeFile(path.join(x.root,'user-staged.txt'),'user base');await fs.writeFile(path.join(x.root,'dirty.txt'),'dirty base');
+  git('init','-b','operator-work');git('config','user.name','Gate Operator');git('config','user.email','gate@example.test');git('add','--','x.txt','unrelated.txt','AGENTS.md','package.json','check.cjs','user-staged.txt','dirty.txt');git('commit','-m','Gate baseline');
+  await fs.writeFile(path.join(x.root,'user-staged.txt'),'USER STAGED');git('add','--','user-staged.txt');await fs.writeFile(path.join(x.root,'dirty.txt'),'USER DIRTY');
+  const remote=path.join(fixture,'gate-remote-'+path.basename(x.root)+'.git');execFileSync('git',['clone','--bare',x.root,remote],{env,stdio:'pipe'});git('remote','add','origin',remote);const remoteBefore=execFileSync('git',['--git-dir='+remote,'rev-parse','HEAD'],{env,encoding:'utf8'});
+  const link=path.join(a,'B');await fs.symlink(x.root,link,'dir');x.app.vscode.workspace.workspaceFolders=[{uri:x.app.Uri.file(a),name:'A'}];x.app.workspaceChanged();
+  x.app.vscode.workspace.updateWorkspaceFolders=(at,count,...added)=>{x.app.vscode.workspace.workspaceFolders.splice(at,count,...added);x.app.workspaceChanged();return true;};
+  await x.app.commands.get('tvijo.workInFolder')(x.app.Uri.file(link));let state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.error.action,'addWorkspaceFolder');
+  await x.app.receive({type:'addWorkspaceFolder'});state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.workspacePath,x.root);assert.equal(state.options.agentPreset,'auto');
+  const beforeWarnings=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,beforeWarnings,'ZERO approvals during default Auto task');assert.equal(x.app.posts.find(p=>p.type==='agent' && p.event?.type==='start').event.maxSteps,30);
+  assert.equal(await fs.readFile(x.file,'utf8'),'50\n');const check=x.results().find(r=>r.stdout?.includes('GATE_TEST_GREEN'));assert.equal(check?.ok,true,JSON.stringify(x.results()));
+  assert.equal(git('rev-list','--count','HEAD'),'2');assert.equal(git('diff-tree','--no-commit-id','--name-only','-r','HEAD'),'x.txt');assert.equal(git('diff','--cached','--name-only'),'user-staged.txt');assert.equal(git('diff','--cached','--','x.txt'),'');assert.equal(git('diff','--name-only'),'dirty.txt');
+  const msg=git('show','-s','--format=%B');assert.match(msg,/Tvijo-Agent: tvijo-dshrem 0\.10\.8/);assert.match(msg,/Tvijo-Model: served-gate-model/);assert.match(msg,/Co-Authored-By:/);
+  assert.equal(execFileSync('git',['--git-dir='+remote,'rev-parse','HEAD'],{env,encoding:'utf8'}),remoteBefore);
+  const calls=x.calls();assert.match(JSON.stringify(calls),/CANARY_B_FOLLOW_STYLE/);assert.doesNotMatch(JSON.stringify(calls),/CANARY_A_MUST_NOT_LOAD/);
+  state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.account.identity.email,'gate@example.test');assert.equal(state.runtimeVersion,'0.10.8');assert.ok(state.loadedRules.some(r=>r.file==='AGENTS.md'));
+  const {sidebar}=require('./helpers/sidebar'),view=sidebar({},state);assert.equal(view.element('settings-drawer').hidden,true);assert.equal(view.element('workspace-choice').textContent,path.basename(x.root));assert.equal(view.element('workspace-choice').title,x.root);assert.equal(view.element('account-identity').textContent,'gate@example.test');view.element('settings').click();assert.equal(view.element('settings-drawer').hidden,false);
+  const rereads=calls.map(r=>require('../lib/agent').parseAction(r.body.messages.at(-1)?.content)).filter(Boolean);const readCount=x.app.posts.filter(p=>p.type==='agent'&&p.event?.type==='action'&&p.event.action.tool==='read_file').length;
+  await fs.writeFile(path.join(process.env.TVIJO_TEST_ARTIFACTS,'gate-G-0108.json'),JSON.stringify({passed:true,modelCalls:calls.length,readFileCalls:readCount,reReads:Math.max(0,readCount-1),approvals:x.app.warnings.length-beforeWarnings,commit:git('rev-parse','HEAD'),paths:['x.txt'],remoteUnchanged:true,rules:state.loadedRules,knownLimit:'Agent retains roughly four recent exchanges; this synthetic four-step task did not require re-reads.'},null,2));
+ }finally{if(oldHome===undefined)delete process.env.HOME;else process.env.HOME=oldHome;if(oldGlobal===undefined)delete process.env.GIT_CONFIG_GLOBAL;else process.env.GIT_CONFIG_GLOBAL=oldGlobal;x.close();}
+});
+
+test('0.10.8 Chat handoff survives production state projection and reuses the exact original request',async()=>{
+ const app=host({chatSequence:['I will make that change in Agent mode.',JSON.stringify({tool:'finish',status:'blocked',answer:'Synthetic handoff'})]});
+ try{app.settings.set('workspaceContext','off');await app.receive({type:'ask',question:'Replace 45 with 50'});let state=app.posts.filter(p=>p.type==='state').at(-1);const index=state.messages.findIndex(m=>m.agentRequest);assert.ok(index>=0);assert.equal(state.messages[index].agentRequest,'Replace 45 with 50');
+ const {sidebar}=require('./helpers/sidebar');const view=sidebar({},state);view.created.find(n=>n.textContent==='Make it an agent').click();await app.receive(view.outgoing.at(-1));assert.ok(app.posts.some(p=>p.type==='agent'&&p.event?.type==='start'&&p.event.goal==='Replace 45 with 50'));
+ }finally{app.close();}
+});
+
+for(const preset of ['auto','full'])for(const relative of ['AGENTS.md','CLAUDE.md','.clinerules','.cursorrules','.windsurfrules','.github/copilot-instructions.md','.tvijo/rules.md','.clinerules/style.md'])test('0.10.8 rules file write requires approval in '+preset+': '+relative,async()=>{
+ const x=await savedAgentFixture({relative:'code.txt',auto:preset==='auto',denyApproval:true,actions:[{tool:'replace_in_file',path:relative,old:'old advice',new:'new advice'},{tool:'finish',status:'blocked',answer:'Declined'}]});
+ try{const file=path.join(x.root,relative);await fs.mkdir(path.dirname(file),{recursive:true});await fs.writeFile(file,'old advice');x.app.warning('Cancel');const n=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,n+1);assert.equal(await fs.readFile(file,'utf8'),'old advice');assert.equal(x.results()[0].ok,false);}
+ finally{x.close();}
+});
+
+test('0.10.8 a task keeps its rules snapshot when a rule changes between model steps',async()=>{
+ let x,changed=false;x=await savedAgentFixture({auto:true,defaultAuto:true,contextMode:'on',actions:[{tool:'read_file',path:'code.txt'},{tool:'finish',status:'done',answer:'Read the project'}],onRequest:async({url,method})=>{
+  if(x && !changed && url.endsWith('/tasks') && method==='POST'){changed=true;await fs.writeFile(path.join(x.root,'AGENTS.md'),'NEXT_TASK_RULE_CANARY');}
+ }});
+ try{await fs.writeFile(path.join(x.root,'AGENTS.md'),'CURRENT_TASK_RULE_CANARY');await x.run();assert.equal(x.calls().length,2);for(const call of x.calls()){assert.match(JSON.stringify(call.body),/CURRENT_TASK_RULE_CANARY/);assert.doesNotMatch(JSON.stringify(call.body),/NEXT_TASK_RULE_CANARY/);}assert.equal(x.app.feedback.length,0);}
+ finally{x.close();}
+});
+test('0.10.8 approved rules-file write saves only after its native confirmation',async()=>{
+ const x=await savedAgentFixture({auto:true,actions:[{tool:'replace_in_file',path:'.tvijo/rules.md',old:'old advice',new:'new advice'},{tool:'finish',status:'done',answer:'Updated project advice'}]});
+ try{await fs.mkdir(path.join(x.root,'.tvijo'));await fs.writeFile(path.join(x.root,'.tvijo/rules.md'),'old advice');const n=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,n+1);assert.equal(await fs.readFile(path.join(x.root,'.tvijo/rules.md'),'utf8'),'new advice');assert.equal(x.results()[0].saved,true);assert.equal(x.app.feedback.length,0);}
+ finally{x.close();}
 });

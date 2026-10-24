@@ -41,16 +41,16 @@ test('SPEC-053 400 KiB read returns first 64 KiB and a usable late line range', 
   assert.ok(late.content.startsWith('a'.repeat(99)));
 });
 
-test('SPEC-053 question with default twelve steps finishes in first half', async () => {
+test('SPEC-053 question with default thirty steps finishes in first half', async () => {
   let calls = 0;
   const result = await runAgent({ goal: 'Как дела в проекте?',
     tools: { execute: async () => ({ ok: true, content: 'Progress' }) },
     ask: async req => {
       calls++;
-      assert.match(req.messages[0].content, /finish by half the step limit \(step 6\)/);
+      assert.match(req.messages[0].content, /finish by half the step limit \(step 15\)/);
       return { content: calls === 1 ? '{"tool":"read_file","path":"progress.md"}' : '{"tool":"finish","answer":"Прогресс прочитан; дальше проверка."}' };
     }
   });
   assert.equal(result.reason, 'finish');
-  assert.ok(calls <= 6);
+  assert.ok(calls <= 15);
 });

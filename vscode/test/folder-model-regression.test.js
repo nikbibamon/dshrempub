@@ -39,8 +39,8 @@ test('folder-model: real symlink parser, overlap parent consent, browsed non-wor
 });
 test('folder-model: picker refuses outside and remote authority without rebinding current folder',async()=>{
  const x=fixture();await x.choose('docs');const before=x.active.current().uri.fsPath;
- await assert.rejects(x.browse(Uri.file(x.base)),/inside/);
- await assert.rejects(x.browse(new Uri(path.join(x.parent,'docs'),'vscode-remote','ssh-remote+elsewhere')),/inside|remote/);
+ await assert.rejects(x.browse(Uri.file(x.base)),{code:'scope_outside'});
+ await assert.rejects(x.browse(new Uri(path.join(x.parent,'docs'),'vscode-remote','ssh-remote+elsewhere')),{code:'scope_uri'});
  assert.equal(x.active.current().uri.fsPath,before);
 });
 test('folder-model: 60KB Cyrillic log fits UTF8 hard cap for admin; optional context is removed first',()=>{
@@ -61,7 +61,7 @@ test('folder-model: canonical dialog path within symlink workspace accepted; lex
  const x=fixture();x.vscode.workspace.workspaceFolders=x.vscode.workspace.workspaceFolders.filter(f=>f.name==='parser');
  const selected=await x.browse(Uri.file(path.join(x.parser,'project')));assert.equal(selected.uri.fsPath,path.join(x.parser,'project'));
  fs.symlinkSync(path.join(x.parent,'docs'),path.join(x.parser,'outside'));
- await assert.rejects(x.browse(Uri.file(path.join(x.parent,'parser','outside'))),/escape|inside/);
+ await assert.rejects(x.browse(Uri.file(path.join(x.parent,'parser','outside'))),{code:'scope_outside'});
  assert.equal(x.active.current().uri.fsPath,selected.uri.fsPath);
 });
 
@@ -76,7 +76,7 @@ test('0.10.7 Explorer selection consumes clicked URI directly, canonicalizes nes
  await active.select(Uri.file(path.join(x.parent,'parser','project')));assert.equal(changes,1);
  await active.select(Uri.file(x.parent));assert.equal(active.hasNested(),true);assert.equal(changes,2);
  fs.symlinkSync(x.parser,path.join(x.parent,'escape'));
- await assert.rejects(active.select(Uri.file(path.join(x.parent,'escape'))),/escape/);
+ await assert.rejects(active.select(Uri.file(path.join(x.parent,'escape'))),{code:'scope_outside'});
  assert.equal(active.current().uri.fsPath,x.parent);
 });
 
@@ -93,8 +93,8 @@ test('0.10.7 visual browser lists only explicit expansions, skips generated fold
   await x.active.select(folderUri(x.vscode,children.folders[0].uri));assert.equal(x.active.current().uri.fsPath,path.join(x.parser,'project'));
   for(let n=0;n<120;n++)fs.mkdirSync(path.join(x.parser,'project','dir'+n));
   const bounded=await listFolders(x.vscode,children.folders[0].uri);assert.equal(bounded.folders.length,100);assert.equal(bounded.truncated,true);assert.equal(reads.length,2);
-  await assert.rejects(listFolders(x.vscode,{scheme:'file',path:x.base}),/inside/);
-  await assert.rejects(listFolders(x.vscode,{scheme:'file',path:path.join(x.parent,'parser','escape')}),/escape/);
+  await assert.rejects(listFolders(x.vscode,{scheme:'file',path:x.base}),{code:'scope_outside'});
+  await assert.rejects(listFolders(x.vscode,{scheme:'file',path:path.join(x.parent,'parser','escape')}),{code:'scope_outside'});
   assert.throws(()=>folderUri(x.vscode,{scheme:'vscode-remote',authority:'other',path:x.parser}),/workspace/);
   assert.throws(()=>folderUri(x.vscode,{scheme:'file',path:'../elsewhere'}),/workspace/);
   x.vscode.workspace.isTrusted=false;await assert.rejects(listFolders(x.vscode,null),/Trust/);
