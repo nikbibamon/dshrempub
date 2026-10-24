@@ -2882,7 +2882,7 @@ test('0.10.8 Chat handoff survives production state projection and reuses the ex
  }finally{app.close();}
 });
 
-for(const preset of ['auto','full'])for(const relative of ['AGENTS.md','CLAUDE.md','.clinerules','.cursorrules','.windsurfrules','.github/copilot-instructions.md','.tvijo/rules.md','.clinerules/style.md'])test('0.10.8 rules file write requires approval in '+preset+': '+relative,async()=>{
+for(const preset of ['auto','full'])for(const relative of ['AGENTS.md','CLAUDE.md','.clinerules','.cursorrules','.windsurfrules','.github/copilot-instructions.md','.tvijo/rules.md','.clinerules/style.md','.tvijo/alias/../rules.md','.github/alias/../copilot-instructions.md'])test('0.10.8 rules file write requires approval in '+preset+': '+relative,async()=>{
  const x=await savedAgentFixture({relative:'code.txt',auto:preset==='auto',denyApproval:true,actions:[{tool:'replace_in_file',path:relative,old:'old advice',new:'new advice'},{tool:'finish',status:'blocked',answer:'Declined'}]});
  try{const file=path.join(x.root,relative);await fs.mkdir(path.dirname(file),{recursive:true});await fs.writeFile(file,'old advice');x.app.warning('Cancel');const n=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,n+1);assert.equal(await fs.readFile(file,'utf8'),'old advice');assert.equal(x.results()[0].ok,false);}
  finally{x.close();}

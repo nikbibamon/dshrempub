@@ -144,25 +144,22 @@ Real merchant payment and customer-provider activation remain unavailable until 
 
 ## Project rules (0.8.0)
 
-The optional root-local .tvijo/rules.md file is read only under project context consent or explicit local Preview. It is at most16KiB, scope-filtered against known workspace paths and refused for unsafe links, invalid encoding or detected credential content. Included project context is quoted user data; its snapshot is frozen for the run and cannot modify host permissions, model, endpoint, payer or budgets. Off excludes it. Rejected content is not echoed in the summary. Export uses visible conversation fields and excludes hidden project data. Credential detection is conservative, not a guarantee that arbitrary project text is secret-free.
+Project rules load automatically in trusted workspaces, nearest first up to the repository or owning workspace root. Supported files include AGENTS.md, CLAUDE.md, .clinerules, .cursorrules, .windsurfrules, .github/copilot-instructions.md and .tvijo/rules.md. A separate 32 KiB aggregate limit applies. Each file is read safely up to 256 KiB and checked for unsafe links, invalid UTF-8 and credential content before truncation. Rules are quoted project advice, snapshotted once per task and cannot grant permissions or change endpoints, payer or budgets. Context Off disables them. Settings lists files, size, truncation and per-file switches. Old hash approvals no longer authorize inclusion. Rejected content is not echoed; secret detection remains conservative.
 
 
-## Folder rules trust (0.8.1)
+## Workspace Trust and project advice (0.10.8)
 
-Project context consent and rules approval are separate. Use **Preview project context**, then
-**Review and trust folder rules**, or the command palette. Approval covers a local canonical
-folder and the SHA-256 of the complete rules file, including glob metadata and line endings.
-The host stores the approval in local extension state, without Settings Sync. A changed file
-requires another native confirmation. Restricted Mode, unsupported URI authorities and unsafe
-paths deny rules inclusion. Previewing alone grants nothing; unapproved rules remain out of the
-ordinary preview payload. The approval flow shows the validated rules locally before asking.
+VS Code Workspace Trust authorizes automatic rules. Per-hash approval commands and
+records no longer grant permission. Rule changes affect the next task and do not
+invalidate the current snapshot. A loss of workspace trust still blocks use.
+Previously sent messages remain in the conversation; later requests use visible
+user messages rather than replaying hidden generated rules.
 
-**Revoke folder rules trust** stops active requests and invalidates prepared rule context.
-Previously sent messages and model answers remain in the conversation. Future history uses
-visible user messages rather than hidden generated context. Explicit pasted text and separately
-approved local commands remain the user's responsibility; this is not a sandbox for arbitrary
-project commands. Rule text cannot authorize tools, change budgets or alter provider key custody.
-Private `.tvijo` files are not ordinary attachments or Agent file-tool targets.
+Rules cannot authorize tools, change budgets or alter provider key custody. Every
+Agent file-tool write to a rules file requires confirmation in every preset,
+including normalized path aliases. Other private `.tvijo` files remain excluded.
+Explicit pasted text and approved programs remain the user’s responsibility;
+local command execution is not an operating-system sandbox.
 
 
 ## Approved syntax tools (0.8.2)
@@ -214,6 +211,18 @@ continue to apply. No additional automatic model request is introduced.
 
 Full access consent is stored locally per workspace folder in extension global
 state, bound to a host-local identity marker. It is not a model instruction or
-workspace setting and is not sent with requests. The warning provides a one-click
+workspace setting and is not sent with requests. The mode menu provides a one-click
 revert. Commands still run with local host permissions; file-tool boundaries and
 hard command/budget checks remain in force.
+
+
+## Local Agent commits (0.10.8)
+
+Successful saved Agent edits can be committed locally on the current branch. Git
+identity, hooks and signing remain under the user’s configuration. Messages include
+the editor version, served models, local task identifier, saved paths and checks.
+The temporary index and message are stored in extension-host global storage; they
+are not model context. User-staged and mixed-authorship files are excluded. Command
+side effects are not tracked. Tvijo never pushes these commits. Disable this in
+Settings using autoCommit Off. Undo uses a soft reset only for the current commit
+without a containing remote-tracking branch; otherwise it attempts a revert.

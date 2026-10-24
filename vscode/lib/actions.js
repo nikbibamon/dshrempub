@@ -31,8 +31,7 @@ const ACTIONS = [
   ['tvijo.agent', 'Run an agent task with file and command tools', '/agent'],
   ['tvijo.agentPlan', 'Run the agent in read-only plan mode', '/plan'],
   ['tvijo.contextPreview', 'Preview bounded project context', '/context'],
-  ['tvijo.trustProjectRules', 'Review and trust folder rules', '/rules'],
-  ['tvijo.revokeProjectRules', 'Revoke folder rules trust', '/rules-revoke'],
+  ['tvijo.openChatSettings', 'Chat settings and loaded project rules', '/rules'],
   ['tvijo.configureAutoLint', 'Approve automatic syntax checks', '/syntax'],
   ['tvijo.disableAutoLint', 'Disable automatic syntax checks', '/syntax-off'],
   ['tvijo.clearAttachments', 'Clear attachments', '/clear'],
@@ -64,7 +63,7 @@ const SLASH = {
   metrics: 'tvijo.metrics', метрики: 'tvijo.metrics',
   start: 'tvijo.startFirstTask', старт: 'tvijo.startFirstTask',
   syntax:'tvijo.configureAutoLint', 'syntax-off':'tvijo.disableAutoLint',
-  rules: 'tvijo.trustProjectRules', 'rules-revoke': 'tvijo.revokeProjectRules',
+  rules: 'tvijo.openChatSettings',
   context: 'tvijo.contextPreview', edit: 'tvijo.quickEdit',
   agent: 'tvijo.agent', plan: 'tvijo.agentPlan',
   модель: 'tvijo.chooseWorkflow', контекст: 'tvijo.contextPreview', правка: 'tvijo.quickEdit', агент: 'tvijo.agent', план: 'tvijo.agentPlan', помощь: 'tvijo.help', новая: 'tvijo.newConversation'

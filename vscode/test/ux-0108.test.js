@@ -61,3 +61,7 @@ test('0.10.8 Chat explains Agent handoff in English and Russian',()=>{
  const view=require('./helpers/sidebar').sidebar({}, {messages:[{role:'assistant',content:'Agent mode',agentRequest:'Edit file'}]});
  const button=view.created.find(b=>b.textContent==='Make it an agent');assert.ok(button);button.click();assert.equal(view.outgoing.at(-1).type,'makeAgent');
 });
+
+test('0.10.8 rule path normalization prevents aliased approval bypass',()=>{
+ const {isRulesPath}=require('../lib/project-rules');for(const p of ['.tvijo/alias/../rules.md','.github/alias/../copilot-instructions.md','src/../AGENTS.md','.GITHUB/COPILOT-INSTRUCTIONS.MD','CLAUDE.MD'])assert.equal(isRulesPath(p),true,p);assert.equal(isRulesPath('.clinerules/../src/app.js'),false);
+});

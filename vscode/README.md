@@ -532,7 +532,7 @@ workspace are unavailable. Ordinary-chat routing in `tvijo.agentMode` is unchang
 Quick Edit continues to use the separate `tvijo.autoApply` setting.
 
 Settings: `tvijo.agentModel` (default `ds41f`), `tvijo.agentMaxSteps`
-(default 6), `tvijo.agentBudgetUsd` (default 2), `tvijo.agentAutoRun` and
+(default 30), `tvijo.agentBudgetUsd` (default 2), `tvijo.agentAutoRun` and
 `tvijo.agentAutoApply` (both off by default). The step limit returns a partial
 report instead of an error, and one malformed model turn is retried once.
 
@@ -670,16 +670,16 @@ are capped at 50 MiB; atomic staging can temporarily require another 50 MiB. A f
 capture blocks the edit and preserves previous recovery points. Other processes can still
 change files during recovery; detected conflicts stop recovery and are reported.
 
-The run header uses host session timestamps and observed agent identities. Unknown observations show —; the agent-count button opens Agent Map with separate bounded command lifecycle rows. Stop requests are shown until a child exit is observed; descendant process status remains unknown after cancellation/timeout.
+The Settings run indicators use host session timestamps and observed agent identities. Unknown observations show —; the agent-count button opens Agent Map with separate bounded command lifecycle rows. Stop requests are shown until a child exit is observed; descendant process status remains unknown after cancellation/timeout.
 
 
 ## Scoped project rules and literal commands
 
-Optional `.tvijo/rules.md` contributes untrusted project context under the existing
-context consent, Off and Preview controls. The entire file is limited to 16 KiB.
-An optional first line `<!-- tvijo-globs: ["src/**/*.js"] -->` scopes it to known
-workspace paths. The context summary shows included, unmatched, rejected or omitted
-rules. Rules cannot change tool permissions, budgets, service endpoints or credentials.
+Rules are loaded automatically using Workspace Trust, with a separate 32 KiB
+budget. See **Project rules** above. The optional first line
+`<!-- tvijo-globs: ["src/**/*.js"] -->` scopes advice to known workspace paths.
+The complete file is scanned before its excerpt is included. Rules cannot change
+tool permissions, budgets, service endpoints or credentials.
 
 Commands accept one executable and literal arguments with quotes and escapes.
 Pipelines, redirects, substitutions, environment assignments and shell wrappers are
@@ -694,15 +694,12 @@ Indentation differences produce a reread hint; the extension does not normalize 
 Edit proposals also bind the original disk identity and editor version. Binary, invalid UTF-8, oversized and hard-linked write targets are refused. A concurrent change invalidates the proposal. Explicit local commands appear in the same observed session and command map without creating a model task.
 
 
-### Review project rules before sharing
+### Review loaded rules
 
-Global context consent does not approve `.tvijo/rules.md`. Run **Tvijo: Review and trust folder
-rules** to review one local folder and confirm its exact rules snapshot in a native dialog.
-**Preview bounded project context** also offers review/trust and revoke actions. Changes to the
-file require new approval; Restricted Mode denies inclusion. Use **Tvijo: Revoke folder rules
-trust** to stop current use. Already sent conversation messages remain available. Rules are
-quoted project data and do not grant command, write or budget permissions.
-
+Open Settings or `/rules` to review loaded file names, sizes, truncation and per-file
+switches. Use **Preview bounded project context** for a local preview. Workspace
+Trust authorizes inclusion; old per-hash approvals are ignored. Context Off disables
+all automatic rules. Changes take effect for the next task.
 
 ### Automatic syntax checks (Linux extension hosts)
 
@@ -718,8 +715,8 @@ Checks have a two-second process limit, bounded output and four checks per run. 
 run project configuration, plugins, tests or automatic fixes. They are syntax checks, not
 full project lint. Mac/Windows automatic checks await executable and process-tree support.
 
-Folder rule approvals now also bind to a host-local identity. Review earlier approved rules
-again after upgrading; global context consent continues to be separate.
+Full access and interpreter approvals bind to a host-local folder identity. Project
+rules follow Workspace Trust and do not grant tool access.
 
 
 ## Plan inspection (0.8.3)

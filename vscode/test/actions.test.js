@@ -25,3 +25,8 @@ test('slice 3 actions share command identities across menu and slash registry', 
   assert.match(html, /role="menu" aria-label="Actions"/);
   assert.match(html, /event\.key==='Home'/);
 });
+
+test('0.10.8 rules action opens Settings and has no hash-trust commands',()=>{
+ for(const id of ['tvijo.trustProjectRules','tvijo.revokeProjectRules'])assert.equal(ACTIONS.some(row=>row[0]===id),false);
+ assert.equal(slashAction('/rules').command,'tvijo.openChatSettings');assert.equal(slashAction('/rules-revoke').command,null);
+});

@@ -154,10 +154,11 @@ test('only localized public pack labels and summaries reach the webview selectio
   assert.ok(!JSON.stringify(result).includes('SYNTHETIC_ENGINEER'));
 });
 
-test('0.6 adds exactly one setting, tvijo.pack, with empty-string automatic default', () => {
+test('0.10.8 settings retain automatic pack selection and add local auto-commit only', () => {
   const properties = require('../package.json').contributes.configuration.properties;
   const original = ['service', 'model', 'agentMode', 'reasoningMethod', 'workspaceContext', 'workspaceContextMaxBytes', 'autoApply', 'agentModel', 'agentMaxSteps', 'agentBudgetUsd', 'agentAutoRun', 'agentAutoApply', 'telegram.enabled', 'telegram.ownerId', 'ocrLanguages', 'apiBase', 'telegram.allowedServices'].map(key => 'tvijo.' + key);
-  assert.deepEqual(Object.keys(properties).filter(key => !original.includes(key)), ['tvijo.pack']);
+  assert.deepEqual(Object.keys(properties).filter(key => !original.includes(key)), ['tvijo.pack','tvijo.autoCommit']);
+  assert.equal(properties['tvijo.autoCommit'].default,'afterTask');assert.deepEqual(properties['tvijo.autoCommit'].enum,['afterTask','off']);
   assert.ok(original.every(key => Object.hasOwn(properties, key)));
   assert.equal(properties['tvijo.pack'].type, 'string');
   assert.equal(properties['tvijo.pack'].default, '');

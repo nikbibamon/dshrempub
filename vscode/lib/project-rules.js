@@ -1,7 +1,7 @@
 'use strict';
 
-// Reads one optional, root-local rules file. It is always returned as quoted
-// project data; it never participates in host policy or tool authorization.
+// Safely reads individual rules and aggregates nearest-first project advice.
+// Quoted rules never participate in host policy or tool authorization.
 const fs = require('node:fs');
 const path = require('node:path');
 const { TextDecoder } = require('node:util');
@@ -174,7 +174,7 @@ function collect({ root, knownPaths = [], knownSecrets = [], contextMode = 'on',
 
 
 const RULE_FILES=['AGENTS.md','CLAUDE.md','.clinerules','.cursorrules','.windsurfrules','.github/copilot-instructions.md','.tvijo/rules.md'];
-function isRulesPath(value){const parts=String(value).replace(/\\/g,'/').split('/');const base=parts.at(-1);return ['AGENTS.md','CLAUDE.md','.clinerules','.cursorrules','.windsurfrules'].includes(base) || parts.includes('.clinerules') || /(?:^|\/)(?:\.github\/copilot-instructions\.md|\.tvijo\/rules\.md)$/.test(parts.join('/'));}
+function isRulesPath(value){const parts=path.posix.normalize(String(value).replace(/\\/g,'/')).toLowerCase().split('/');const base=parts.at(-1);return ['agents.md','claude.md','.clinerules','.cursorrules','.windsurfrules'].includes(base) || parts.includes('.clinerules') || /(?:^|\/)(?:\.github\/copilot-instructions\.md|\.tvijo\/rules\.md)$/.test(parts.join('/'));}
 function clip(text,max){const chars=Array.from(text);let lo=0,hi=chars.length;while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(Buffer.byteLength(chars.slice(0,mid).join(''))<=max)lo=mid;else hi=mid-1;}return chars.slice(0,lo).join('');}
 function collectProject({root,boundary,resolveDirectory=()=>true,knownPaths=[],knownSecrets=[],contextMode='on',workspaceTrusted=false,disabled=[]}={}){
  if(contextMode==='off' || !workspaceTrusted)return {text:'',status:contextMode==='off'?'disabled':'untrusted',files:[]};
