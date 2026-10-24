@@ -1,3 +1,13 @@
+## 0.10.7 — 2026-10-24
+
+- Add Explorer **Work in Tvijo**: select the clicked folder canonically and focus chat without a picker, path input, sign-in prerequisite or implicit permission grant.
+- Add an English/Russian folder browser directly in chat. Expand open roots and subdirectories lazily; select a row to use that exact folder. Bound each listing, skip generated/cache folders and refuse forged paths and symlink escapes using host workspace ownership checks.
+- Default new simple sessions to Agent with confirmations. Persist explicit Chat/Agent/Plan intent per account and canonical folder, separate from legacy fallback drafts. Successful Full access approval activates Agent dispatch; failed or cancelled presets keep the prior mode.
+- Display the running extension version with a reload action beside account status and in help/service status. Keep the selected canonical path in the folder tooltip.
+- Preserve 0.10.6 scope, rules, Full access boundaries, model synchronization, history/draft isolation, native tools and request byte limits. No model routes or spending caps changed.
+
+Validation: production webview-to-extension dispatch harness with synthetic service responses and real filesystem/shell tools; bounded folder and mode regressions; EN/RU desktop/mobile rendered Chromium checks. Native Windows and live paid models are not exercised. Source only; packaging and installation are separate.
+
 ## 0.10.5 — 2026-10-23
 
 - Keep a verified account identity and sign-in/loading/error state visible in simple chat.

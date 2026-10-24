@@ -5,41 +5,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const { chatHtml } = require('../lib/chat-view');
 
-function sidebar(initialState = {}, initialHostState = {}) {
-  const listeners = new Map();
-  const elements = new Map();
-  const created = [];
-  const outgoing = [];
-  const document = { activeElement: null };
-  let savedState = initialState;
-  function element(id) {
-    if (!elements.has(id)) elements.set(id, {
-      value: '', disabled: false, textContent: '',
-      attributes: {},
-      addEventListener(type, fn) { (this.handlers ||= {})[type] = fn; if (id) listeners.set(`${id}:${type}`, fn); },
-      focus() { document.activeElement = this; }, replaceChildren(...nodes) { this.children = nodes; }, append(...nodes) { this.children = [...(this.children || []), ...nodes]; }, requestSubmit() {},
-      querySelectorAll(selector) { const nodes=this.children||[]; return selector.includes(':not(:disabled)') ? nodes.filter(node=>!node.disabled) : nodes; },
-      querySelector(selector) { const nodes=this.children||[]; return nodes.find(node=>selector.includes('aria-checked') ? node.attributes['aria-checked']==='true' : true); },
-      setAttribute(name, value) { this.attributes[name] = value; }, getAttribute(name) { return this.attributes[name]; }, click() { this.clicks=(this.clicks||0)+1; this.handlers?.click?.({target:this}); }
-    });
-    return elements.get(id);
-  }
-  document.getElementById = element; document.body = element('body'); document.documentElement = element('html');
-  document.createElement = tag => { const node = { tag, textContent: '', children: [], attributes:{}, append(...nodes) { this.children.push(...nodes); }, addEventListener(type,fn) { (this.handlers ||= {})[type]=fn; }, setAttribute(name,value) { this.attributes[name]=value; }, getAttribute(name) { return this.attributes[name]; }, focus(){document.activeElement=this;}, click(){this.handlers?.click?.({target:this});} }; created.push(node); return node; };
-  const window = { addEventListener(type, fn) { listeners.set(`window:${type}`, fn); } };
-  const html = chatHtml({ cspSource: 'vscode-webview:' });
-  element('plus-menu').querySelectorAll = selector => selector.includes('[data-action-id]')
-    ? ['attach','mention-file','attach-problems','attach-terminal','clear-conversation','rewind-action','export-conversation','switch-model'].map(id=>{const node=element(id);node.dataset={actionId:{attach:'tvijo.attachFile','mention-file':'tvijo.mentionFile','attach-problems':'tvijo.attachProblems','attach-terminal':'tvijo.attachTerminal','clear-conversation':'tvijo.newConversation','rewind-action':'tvijo.rewind','export-conversation':'tvijo.export','switch-model':'tvijo.chooseWorkflow'}[id]};return node;})
-    : selector.includes('[role="menuitem"]') ? ['attach','mention-file','attach-problems','attach-terminal','workspace','selection','path','clear-conversation','rewind-action','export-conversation','switch-model','all-actions'].map(element) : [];
-  const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
-  assert.ok(script, 'webview script exists');
-  vm.runInNewContext(script, { document, window, URL, acquireVsCodeApi: () => ({ postMessage: (message) => outgoing.push(message), getState: () => savedState, setState: (next) => { savedState = next; } }) });
-  listeners.get('window:message')({ data: { type: 'state', scopeKey: 'tenant-a', messages: [], signedIn: true, attachments: [], ...initialHostState } });
-  return { element, outgoing, created, document, state: () => savedState, emit: (key, event) => {
-    if (event?.data?.type === 'state' && event.data.scopeKey === undefined) event = { data: { ...event.data, scopeKey: 'tenant-a' } };
-    return listeners.get(key)(event);
-  } };
-}
+const {sidebar} = require('./helpers/sidebar');
 
 test('sidebar keeps a rejected question and prevents a duplicate submit', () => {
   const view = sidebar();
@@ -255,7 +221,7 @@ test('draft ownership follows verified service-tenant scope and legacy draft is 
 });
 
 test('sidebar shows localized model, workflow and method choices in its own menu', () => {
-  const view = sidebar();
+  const view = sidebar({}, {composerMode:'chat'});
   view.emit('window:message', { data: { type: 'state', locale: 'ru', messages: [], signedIn: true, options: {
     models: [{ id: 'auto', name: 'Automatic' }, { id: 'coding', name: 'DSHREM Coding' }, { id: 'ds41f', name: 'DeepSeek V4.1 Flash' }],
     model: 'ds41f', agentMode: 'single', reasoningMethod: 'evidence-first'
@@ -281,7 +247,7 @@ test('sidebar shows one actionable error card instead of repeating it in the sta
 });
 
 test('language toggle reaches the extension host', () => {
-  const view = sidebar();
+  const view = sidebar({}, {composerMode:'chat'});
   view.emit('lang:click', {});
   assert.equal(view.outgoing.at(-1).type, 'locale');
   assert.equal(view.outgoing.at(-1).value, 'ru');
@@ -314,7 +280,7 @@ test('sidebar offers project-context and apply settings in its own menu', () => 
 });
 
 test('explicit mode menu submits Chat, Agent presets and per-run Plan separately', () => {
-  const view = sidebar();
+  const view = sidebar({}, {composerMode:'chat'});
   const scopeKey='tenant-a';
   const options={models:[{id:'coding',name:'DSHREM Coding'}],model:'coding',agentModel:'coding',agentMode:'council',agentPreset:'manual',agentAutoApply:false,agentAutoRun:false,reasoningMethod:'evidence-first'};
   view.emit('window:message',{data:{type:'state',scopeKey,signedIn:true,messages:[],options}});
@@ -344,7 +310,7 @@ test('explicit mode menu submits Chat, Agent presets and per-run Plan separately
 });
 
 test('mode menu supports keyboard navigation and Shift+Tab remains ordinary focus navigation', () => {
-  const view = sidebar();
+  const view = sidebar({}, {composerMode:'chat'});
   view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',signedIn:true,options:{models:[{id:'coding',name:'DSHREM Coding'}],model:'coding',agentPreset:'manual'}}});
   view.emit('mode:click', {});
   const menu=view.element('mode-menu'), before=view.document.activeElement;
@@ -374,7 +340,7 @@ test('mode menu supports keyboard navigation and Shift+Tab remains ordinary focu
 });
 
 test('Full access is host-gated, waits for acknowledgement, and warning stays until host state clears it',()=>{
-  const view=sidebar();
+  const view=sidebar({}, {composerMode:'chat'});
   const options={models:[{id:'coding',name:'Coding'}],model:'coding',agentPreset:'manual'};
   view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',signedIn:true,options}});
   view.element('mode').click();
@@ -456,7 +422,7 @@ test('agent reset clears stale output and incomplete starts omit missing counter
 });
 
 test('agent and plan labels use the configured agent model while chat shows model and method', () => {
-  const view = sidebar();
+  const view = sidebar({}, {composerMode:'chat'});
   view.emit('window:message', { data: { type: 'state', locale: 'en', messages: [], signedIn: true, options: {
     models: [{ id: 'coding', name: 'DSHREM Coding' }, { id: 'ds41f', name: 'DeepSeek V4.1 Flash' }],
     model: 'coding', agentModel: 'ds41f', agentMode: 'single', reasoningMethod: 'plan-check'
@@ -470,6 +436,7 @@ test('agent and plan labels use the configured agent model while chat shows mode
   view.emit('window:message',{data:{type:'presetResult',scopeKey:'tenant-a',requestId:view.outgoing.at(-1).requestId,preset:'plan',ok:true}});
   assert.equal(view.element('workflow-label').textContent, 'DeepSeek V4.1 Flash');
   assert.match(view.element('mode-help').textContent, /cannot write files/);
+  view.emit('engineering:click',{});
   assert.match(view.element('mode-help').textContent, /local shell command directly/);
 });
 
@@ -503,7 +470,7 @@ test('delayed preset acknowledgement locks duplicate mode clicks and sending, th
   assert.equal(view.element('send').disabled,false,'scope changes clear the local pending lock');
   assert.equal(view.element('question').value,'');
   view.emit('window:message',{data:{type:'presetResult',scopeKey:'tenant-a',requestId:stale.requestId,preset:'auto',ok:true}});
-  assert.equal(view.element('mode').textContent,'Chat','the stale result cannot alter the new scope');
+  assert.equal(view.element('mode').textContent,'Manual','the stale result cannot alter the new scope');
   view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',signedIn:true,messages:[],options}});
   assert.equal(view.element('question').value,'Keep this draft');
 });
@@ -649,7 +616,7 @@ test('compact view has localized privacy, scoped project title and an always acc
 });
 
 test('simple model label expands to method in engineering view only', () => {
-  const view = sidebar({}, {options:{models:[{id:'test',name:'Test model'}],model:'test',reasoningMethod:'plan-check'}});
+  const view = sidebar({}, {composerMode:'chat',options:{models:[{id:'test',name:'Test model'}],model:'test',reasoningMethod:'plan-check'}});
   assert.equal(view.element('workflow-label').textContent,'Test model');
   view.emit('engineering:click',{});
   assert.equal(view.element('workflow-label').textContent,'Test model · Plan, then check');
@@ -686,4 +653,41 @@ test('quote state is concise and localized in simple view, detailed only in engi
   assert.equal(view.element('state').textContent,'До 1,5 TT');
   view.emit('window:message',{data:{type:'state',messages:[],status:'Ready'}});
   assert.equal(view.element('state').textContent,'Ready');
+});
+
+test('0.10.7 new and legacy fallback Chat drafts use agent; explicit Chat survives reconnect in its own account and folder',()=>{
+ const options={models:[{id:'ds41f',name:'DeepSeek'}],agentModel:'ds41f',model:'ds41f',agentPreset:'full'};
+ const host={scopeKey:'a',composerScope:'folder-a',options,fullAccess:{enabled:true,available:true}};
+ const legacy={drafts:{'folder-a':'keep draft'},draftModes:{'folder-a':'chat'},composerScope:'folder-a',mode:'chat'};
+ const fresh=sidebar(legacy,host);assert.equal(fresh.element('mode').textContent,'Full access');assert.equal(fresh.element('question').value,'keep draft');
+ fresh.element('mode-menu').children.find(n=>n.attributes['data-mode']==='chat').click();
+ assert.equal(fresh.outgoing.at(-1).modeExplicit,true);
+ const again=sidebar(fresh.state(),host);assert.equal(again.element('mode').textContent,'Chat');
+ again.emit('window:message',{data:{type:'state',scopeKey:'b',composerScope:'folder-b',options:{...options,agentPreset:'manual'},signedIn:true}});
+ assert.equal(again.element('mode').textContent,'Manual');assert.equal(again.element('question').value,'');
+ const durable=sidebar({}, {...host,composerMode:'chat'});assert.equal(durable.element('mode').textContent,'Chat');
+ const newView=sidebar();newView.element('question').value='Inspect';newView.emit('form:submit',{preventDefault(){}});assert.equal(newView.outgoing.at(-1).agent,true);
+});
+
+test('0.10.7 folder browser separates disclosure from selection, is available without auth and ignores stale responses',()=>{
+ const view=sidebar({}, {signedIn:false,workspaceSelected:false});
+ view.element('workspace-choice').click();const roots=view.outgoing.at(-1);assert.equal(roots.type,'folderList');assert.equal(roots.uri,null);
+ const folder={name:'parser',path:'/volume/parser',uri:{scheme:'file',path:'/workspace/parser'}};
+ view.emit('window:message',{data:{type:'folderList',requestId:roots.requestId,folders:[folder]}});
+ const item=view.element('folder-rows').children[0],row=item.children[0];assert.equal(view.outgoing.at(-1),roots);
+ row.children[0].click();assert.equal(view.outgoing.at(-1).type,'folderList');assert.equal(view.outgoing.at(-1).uri.path,'/workspace/parser');
+ row.children[1].click();const selection=view.outgoing.at(-1);assert.equal(selection.type,'selectFolder');assert.equal(selection.uri.path,'/workspace/parser');
+ view.emit('window:message',{data:{type:'folderSelected',requestId:selection.requestId}});assert.equal(view.element('folder-browser').hidden,true);
+ view.emit('window:message',{data:{type:'folderList',requestId:roots.requestId,folders:[]}});assert.equal(view.element('folder-rows').children.length,1);
+});
+
+
+test('0.10.7 locale changes preserve the transcript and empty folder Send opens the visual browser with draft intact',()=>{
+ const view=sidebar({}, {workspaceSelected:false});
+ view.element('question').value='Keep task';view.emit('form:submit',{preventDefault(){}});
+ assert.equal(view.outgoing.at(-1).type,'folderList');assert.equal(view.outgoing.some(m=>m.type==='ask'),false);assert.equal(view.element('question').value,'Keep task');
+ view.emit('folder-browser:keydown',{key:'Escape',preventDefault(){}});assert.equal(view.element('folder-browser').hidden,true);
+ view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',workspaceSelected:true,projectLabel:'project',messages:[{role:'user',content:'TRANSCRIPT_SENTINEL'}]}});
+ view.emit('lang:click',{});assert.ok(view.created.filter(n=>n.textContent==='TRANSCRIPT_SENTINEL').length>=2);
+ assert.equal(view.element('messages').children.length,1);
 });

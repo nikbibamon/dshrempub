@@ -1,6 +1,6 @@
 # Tvijo DSHREM for VS Code
 
-Version 0.10.4. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.7. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
@@ -23,16 +23,47 @@ quoted ceiling and actual receipt for each task. Pro orchestration, configurable
 worker teams and research integrations are a planned managed service, not an
 active subscription included with this extension. See the [workspace guide](https://dsh.tvijo.com/workspace-guide#product-value).
 
+## Choose the execution folder
+
+Right-click a **folder** in Explorer and choose **Work in Tvijo**. That exact
+folder becomes the execution folder and chat opens immediately: no second picker
+or path entry. Alternatively, click the folder button in chat (or **Choose
+project** in the empty state). Click an arrow to browse subfolders; click a name
+to select it. The button shows the selected folder name and its canonical path
+on hover. This also works before sign-in. Open a folder in VS Code first if the
+browser has no roots. Restricted Mode requires workspace trust before browsing.
+
+The folder browser reads one level per expansion, up to 500 entries and 100
+folder rows, omitting generated/cache folders. For a directory beyond those
+limits, use Explorer → **Work in Tvijo**. Canonical volume symlink workspace
+roots are supported; symlinks that escape their owning workspace are refused.
+A containing root and an open nested project may both be selected explicitly.
+Tools, terminal cwd, context, local history and permissions use the same selected
+canonical folder. Editor focus does not change it; switching is blocked during
+active work. Selecting a folder does not grant Full access.
+
+New simple sessions use **Manual** Agent mode: the selected model can read,
+propose edits and run tests, with confirmations for edits and commands. Selecting
+**Full access** changes the next Send to the Agent loop only after host approval.
+Cancellation or failure keeps the previous mode. An explicitly selected **Chat**
+remains questions and answers without the Agent loop, including after reconnect.
+Mode intent is saved per account and selected folder; old fallback Chat drafts
+are preserved as text but no longer suppress tools after reconnect.
+
+The account row shows the **running Tvijo version**. After installing an update,
+click its version/reload button or run **Tvijo: Reload window**. Help also shows
+the runtime version. A downloaded or installed VSIX version does not prove which
+extension process is currently loaded.
+
 ## Permission presets
 
 Plan is read-only. Manual, Edit automatically and Auto retain their existing
 approval behavior. **Full access** approves edits, including whole-file and
 whitespace fallback replacements, and supported commands without further prompts.
-Enable it for the active editor's workspace folder (or the first open folder)
-through the native modal. It requires a trusted workspace and a permission record
+Enable it for the explicitly selected execution folder through the native modal. It requires a trusted workspace and a permission record
 bound to this host's local folder identity; workspace settings cannot enable it.
 
-A compact permission indicator lists enabled folders. **Revert** stops active work using
+A compact permission indicator shows the active selected folder grant. **Revert** stops active work using
 that permission and removes it in one click. Full access leaves normal preset
 settings unchanged, so reverting restores their behavior. Explicitly choosing
 another Agent preset also revokes Full access for the current folder.

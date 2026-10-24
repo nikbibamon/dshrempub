@@ -40,6 +40,7 @@ const { createRunJournal } = require('./lib/run-journal');
 const { createFullAccess } = require('./lib/full-access');
 const {createActiveWorkspace} = require('./lib/active-workspace');
 const {fitContext} = require('./lib/context-budget');
+const {listFolders,folderUri} = require('./lib/folder-browser');
 const AUTH_KEY = 'tvijo.auth';
 const CONTEXT_CONSENT = 'tvijo.contextConsent';
 
@@ -246,6 +247,13 @@ function activate(context) {
     if (!folder) throw new core.ServiceError('no_workspace',L('Choose a local workspace folder to continue.','Выберите локальную папку проекта.'));
     return folder;
   }
+  command('tvijo.workInFolder', async uri => {
+    ensureIdle();
+    await activeWorkspace.select(uri);
+    await postChatState();
+    await vscode.commands.executeCommand('tvijo.chat.focus');
+  });
+  command('tvijo.reloadWindow', () => vscode.commands.executeCommand('workbench.action.reloadWindow'));
   command('tvijo.chooseWorkspace', async () => { ensureIdle(); await activeWorkspace.choose(); await postChatState(); });
   function fullAccessState() {
     const status = fullAccess.status(permissionFolder());
@@ -313,12 +321,18 @@ function activate(context) {
       }
     } finally { busy = false; await postChatState(); }
   }
+  const composerModeKey = auth => 'tvijo.composerMode.v1.' + recoveryScope(auth);
+  function composerMode(auth) {
+    const mode = context.globalState.get(composerModeKey(auth));
+    return ['chat','agent','plan'].includes(mode) ? mode : null;
+  }
   async function saveComposerDraft(message) {
     const sequence = ++draftSequence, epoch = workspaceEpoch;
     const auth = await requireAuth();
     if (sequence !== draftSequence || epoch !== workspaceEpoch || message.scopeKey !== currentViewScope(auth.scope) || message.composerScope !== recoveryScope(auth)) return;
     if (typeof message.text !== 'string' || message.text.length > 20000 || !['chat','agent','plan'].includes(message.mode)) return;
     const key = recoveryScope(auth);
+    if (message.modeExplicit === true) await context.globalState.update(composerModeKey(auth),message.mode);
     clearTimeout(draftTimers.get(key)?.timer);
     const draft = {text:message.text,mode:message.mode};
     draft.timer = setTimeout(() => {
@@ -603,7 +617,7 @@ function activate(context) {
       try { options = chatOptions(auth, selection.pack); } catch { options = null; }
     } else updatePackStatus(null, null);
     if(view!==chatView || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
-    await view.webview.postMessage({ type: 'state', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length || !!(scope && local.history(scope).length), account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : L('Choose local workspace','Выберите локальную папку'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
+    await view.webview.postMessage({ type: 'state', runtimeVersion:context.extension?.packageJSON?.version || require('./package.json').version, composerMode:scope ? composerMode({scope}) : null, workspacePath:permissionFolder()?.uri.fsPath || '', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length || !!(scope && local.history(scope).length), account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError, authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : L('Choose project','Выбрать проект'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'coding') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
       status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
@@ -1790,7 +1804,7 @@ function activate(context) {
   command('tvijo.status', async () => {
     const api = client();
     const health = await api.request('/health');
-    await showDocument('json', JSON.stringify({ service: api.base, health, image_mode: 'local OCR text, not visual reasoning', sends_on: 'Ask only', max_task_usd: '1' }, null, 2));
+    await showDocument('json', JSON.stringify({ runtime_version:context.extension?.packageJSON?.version || require('./package.json').version, reload_command:'Tvijo: Reload window', service: api.base, health, image_mode: 'local OCR text, not visual reasoning', sends_on: 'Ask only', max_task_usd: '1' }, null, 2));
   });
   command('tvijo.tasks', async () => {
     const auth = await requireAuth();
@@ -1811,7 +1825,7 @@ function activate(context) {
     const knownSecrets = [auth.access_token, auth.refresh_token, storageUri?.fsPath, storageUri?.toString?.()].filter(Boolean);
     await showPrivateDocument('markdown', conversationExport.exportConversation(history, { knownSecrets }), auth);
   });
-  command('tvijo.help', () => showDocument('markdown', '# Tvijo DSHREM\n\nClick **Attach** to choose a file on your computer, paste a PNG/JPG screenshot, or drop a file into the chat. Use **Workspace** or `/attach path/to/file` for files on the SSH host. Select code and click **Selection** to attach only those lines.\n\nImages use local text extraction (OCR); the model does not see visual layout. Files are context for the next question. Knowledge-base uploads are a separate, confirmed action. Nothing is sent to the model until **Ask**. Each question has a $1 cap. Chat answers questions and suggests changes. Use Create isolated coding task to explicitly upload selected source and immutable tests, run a bounded offline test profile, review concrete diffs and explicitly apply unchanged targets.\n\n' + L('Use **Tvijo: Data & privacy** for read-only server preferences and **Tvijo: Resources** for verified public links. Both are in Settings and how it works and All commands.','Используйте **Tvijo: Data & privacy** для просмотра настроек сервера и **Tvijo: Resources** для проверенных ссылок. Обе команды доступны в настройках и списке всех команд.') + '\n\n' + ACTIONS.map(([, label, detail]) => `- **${label}**${detail ? ` — ${detail}` : ''}`).join('\n')));
+  command('tvijo.help', () => showDocument('markdown', '# Tvijo DSHREM ' + (context.extension?.packageJSON?.version || require('./package.json').version) + '\n\n' + L('If an update still shows old behavior, use **Tvijo: Reload window**. Right-click a folder in Explorer → **Work in Tvijo**, or use the folder button in chat. Agent mode reads, edits and tests in that folder with confirmations; Full access requires explicit approval. Chat answers without tools.','Если после обновления поведение не изменилось, выполните **Tvijo: Reload window**. Нажмите правой кнопкой по папке в Explorer → **Work in Tvijo** или выберите папку кнопкой в чате. Агент читает, правит и тестирует с подтверждениями; полный доступ требует явного согласия. Чат отвечает без инструментов.') + '\n\nClick **Attach** to choose a file on your computer, paste a PNG/JPG screenshot, or drop a file into the chat. Use **Workspace** or `/attach path/to/file` for files on the SSH host. Select code and click **Selection** to attach only those lines.\n\nImages use local text extraction (OCR); the model does not see visual layout. Files are context for the next question. Knowledge-base uploads are a separate, confirmed action. Nothing is sent to the model until **Ask**. Each question has a $1 cap. Chat answers questions and suggests changes. Use Create isolated coding task to explicitly upload selected source and immutable tests, run a bounded offline test profile, review concrete diffs and explicitly apply unchanged targets.\n\n' + L('Use **Tvijo: Data & privacy** for read-only server preferences and **Tvijo: Resources** for verified public links. Both are in Settings and how it works and All commands.','Используйте **Tvijo: Data & privacy** для просмотра настроек сервера и **Tvijo: Resources** для проверенных ссылок. Обе команды доступны в настройках и списке всех команд.') + '\n\n' + ACTIONS.map(([, label, detail]) => `- **${label}**${detail ? ` — ${detail}` : ''}`).join('\n')));
 
   command('tvijo.signIn', async () => {
     ensureIdle();
@@ -1884,7 +1898,7 @@ function activate(context) {
     clearTimeout(draftTimers.get(draftKey)?.timer); draftTimers.delete(draftKey);
     runJournals.saveDraft(draftKey,'','chat');
     await postChatState();
-    if (chatView && await isCurrentAuth(auth)) await chatView.webview.postMessage({type:'draft',scopeKey:auth.viewScope,text:'',mode:'chat'});
+    if (chatView && await isCurrentAuth(auth)) await chatView.webview.postMessage({type:'draft',scopeKey:auth.viewScope,text:''});
     vscode.window.showInformationMessage('Tvijo: new conversation started.');
   });
 
@@ -2354,7 +2368,19 @@ function activate(context) {
             const auth = await requireAuth();
             if (message.scopeKey !== currentViewScope(auth.scope)) return;
           }
-          if (message?.type === 'composerDraft') {
+          if (message?.type === 'folderList') {
+            try {
+              const result = await listFolders(vscode,message.uri);
+              await view.webview.postMessage({type:'folderList',requestId:message.requestId,...result});
+            } catch (error) { await view.webview.postMessage({type:'folderList',requestId:message.requestId,error:error.message}); }
+          } else if (message?.type === 'selectFolder') {
+            ensureIdle();
+            await activeWorkspace.select(folderUri(vscode,message.uri));
+            await postChatState();
+            await view.webview.postMessage({type:'folderSelected',requestId:message.requestId});
+          } else if (message?.type === 'reloadWindow') {
+            await handlers.get('tvijo.reloadWindow')();
+          } else if (message?.type === 'composerDraft') {
             await saveComposerDraft(message);
           } else if (message?.type === 'restoreRun') {
             await restoreJournal(message);
@@ -2447,6 +2473,7 @@ function activate(context) {
               const folder = await requireWorkspace();
               if (message.preset === 'full') {
                 const enabled = folder && await fullAccess.enable(folder,{guard:() => assertCurrent(auth)});
+                if (enabled) await context.globalState.update(composerModeKey(auth),'agent');
                 await postChatState();
                 await assertCurrent(auth);
                 await view.webview.postMessage({type:'presetResult',scopeKey:scope,requestId:message.requestId,preset:'full',ok:!!enabled});
@@ -2481,6 +2508,7 @@ function activate(context) {
                   globalActual.agentAutoApply !== settings.agentAutoApply || globalActual.agentAutoRun !== settings.agentAutoRun) {
                 throw new core.ServiceError('mode_update', 'The effective settings did not match this preset.');
               }
+              await context.globalState.update(composerModeKey(auth),message.preset === 'plan' ? 'plan' : 'agent');
               await postChatState();
               await assertCurrent(auth);
               await view.webview.postMessage({ type: 'presetResult', scopeKey: scope, requestId: message.requestId, preset: message.preset, ok: true });
@@ -2601,6 +2629,7 @@ function activate(context) {
             }
           }
         } catch (error) {
+          if (message?.type === 'selectFolder') await view.webview.postMessage({type:'folderSelected',requestId:message.requestId,error:error.code ? localizedMessage(error) : L('Choose a folder inside an open workspace. The folder may have moved or point outside its workspace.','Выберите папку внутри открытой рабочей области. Возможно, папка перемещена или ссылается за её пределы.')});
           if (!chatView) report(error);
           const action = errorAction(error);
           lastError = { text: localizedMessage(error), action };

@@ -65,12 +65,15 @@ function createActiveWorkspace({vscode,state,L = en => en,onChange = () => {}}) 
       if(!uris?.length)return null;
       candidate={uri:uris[0],name:path.basename(uris[0].fsPath)};
     }
-    const next=resolveFolder(vscode,candidate),previous=current();
+    return select(candidate.uri);
+  }
+  async function select(uri) {
+    const next=resolveFolder(vscode,{uri,name:path.basename(uri.fsPath)}),previous=current();
     await state.update(KEY,{schema:2,sourceUri:{scheme:next.sourceUri.scheme,authority:next.sourceUri.authority || '',path:next.sourceUri.path || next.sourceUri.fsPath},canonicalRoot:next.canonicalRoot,owner:next.owner,name:next.name});
     if(identity(previous)!==identity(next))onChange(previous,next);
     return current();
   }
   function hasNested(folder = current()) { return !!folder && folders().some(child => contains(folder,child)); }
-  return {current,choose,hasNested,identity,ensure:async()=>current() || choose()};
+  return {current,choose,select,hasNested,identity,ensure:async()=>current() || choose()};
 }
 module.exports = {createActiveWorkspace,identity,contains,resolveFolder,validFolder,KEY};

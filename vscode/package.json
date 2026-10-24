@@ -2,7 +2,7 @@
   "name": "tvijo-dshrem",
   "displayName": "Tvijo DSHREM",
   "description": "Managed coding and bounded reviews for shared projects with a per-task spending cap. Provider API credentials remain on the service.",
-  "version": "0.10.6",
+  "version": "0.10.7",
   "repository": {
     "type": "git",
     "url": "https://github.com/nikbibamon/dshrempub.git",
@@ -44,7 +44,11 @@
       ]
     },
     "commands": [
-      {"command": "tvijo.chooseWorkspace", "title": "Choose active local workspace", "category": "Tvijo"},
+      {
+        "command": "tvijo.chooseWorkspace",
+        "title": "Choose active local workspace",
+        "category": "Tvijo"
+      },
       {
         "command": "tvijo.choosePack",
         "title": "Choose skill pack",
@@ -321,6 +325,16 @@
         "command": "tvijo.disableAutoLint",
         "title": "Disable automatic syntax checks",
         "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.workInFolder",
+        "title": "Work in Tvijo",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.reloadWindow",
+        "title": "Reload window",
+        "category": "Tvijo"
       }
     ],
     "menus": {
@@ -343,6 +357,11 @@
         }
       ],
       "explorer/context": [
+        {
+          "command": "tvijo.workInFolder",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation@89"
+        },
         {
           "command": "tvijo.attachFile",
           "when": "!explorerResourceIsFolder",

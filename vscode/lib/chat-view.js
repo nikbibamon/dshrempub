@@ -23,7 +23,8 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
 #workspace-choice,#identity-button{min-width:0;max-width:100%;overflow-wrap:anywhere;white-space:normal;text-align:left}#identity-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:5px 12px;border-bottom:1px solid var(--border);flex-shrink:0}#identity-button{font-size:12px}#identity-state{font-size:11px;overflow-wrap:anywhere}
 </style></head><body>
 <header><strong id="brand" title="Tvijo">Tvijo</strong><button id="history" class="icon" type="button" title="History" aria-label="History">◷</button><button id="new" class="icon" type="button" title="New session" aria-label="New session">＋</button></header>
-<div id="identity-bar"><button id="workspace-choice" type="button">Local workspace…</button><button id="identity-button" type="button">Connecting…</button><span id="identity-state" role="status" aria-live="polite"></span></div>
+<div id="identity-bar"><button id="workspace-choice" type="button">Local workspace…</button><button id="identity-button" type="button">Connecting…</button><span id="identity-state" role="status" aria-live="polite"></span><button id="runtime-version" type="button" title="Reload window after updating Tvijo"></button></div>
+<section id="folder-browser" aria-labelledby="folder-title" hidden><div class="drawer-heading"><strong id="folder-title"></strong><button id="folder-close" type="button">×</button></div><p id="folder-hint"></p><div id="folder-rows"></div></section>
 <aside id="settings-drawer" aria-label="Chat settings" hidden><div class="drawer-heading"><strong id="drawer-title">Chat settings</strong><button id="drawer-close" class="icon" type="button" aria-label="Close settings">×</button></div>
 <nav aria-label="Workspace"><button id="tab-chat" type="button" aria-selected="true">Chat</button><button id="tab-context" type="button" aria-selected="false">Context</button><button id="tab-usage" type="button" aria-selected="false">Usage</button><button id="tab-terminal" type="button" aria-selected="false">Terminal</button></nav>
 <div class="drawer-tools"><button id="signin" type="button">Sign in</button><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="engineering" type="button" aria-pressed="false">Engineering view</button><button id="extension-settings" type="button">Extension settings…</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button></div>
@@ -62,7 +63,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   const modeMenu = document.getElementById('mode-menu');
   const modeButton = document.getElementById('mode');
   const agentLog = document.getElementById('agent-log');
-  let uiMode = 'chat';
+  let uiMode = 'agent';
   document.getElementById('settings-drawer').hidden = true;
   const notice = document.getElementById('notice');
   const noticeText = document.getElementById('notice-text');
@@ -89,6 +90,8 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   let uploading = false;
   let attachmentCount = 0;
   let lastMessages = null;
+  let lastMessageWorkspace = null;
+  let workspaceAvailable = true;
   let lastUsage = null;
   let lastUsageScope = null;
   let pending = false;
@@ -138,26 +141,77 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   }
   const queue = [];
   const saved = vscode.getState?.();
+  const draftModeExplicit = saved?.draftModeExplicit && typeof saved.draftModeExplicit === 'object' ? {...saved.draftModeExplicit} : {};
+  let modeExplicit = false;
   const draftModes = saved?.draftModes && typeof saved.draftModes === 'object' ? {...saved.draftModes} : {};
   const drafts = saved?.drafts && typeof saved.drafts === 'object' ? { ...saved.drafts } : {};
   const draftTimes = saved?.draftTimes && typeof saved.draftTimes === 'object' ? { ...saved.draftTimes } : {};
   const draftTtl = 7 * 24 * 60 * 60 * 1000;
   const legacyDraft = typeof saved?.legacyDraft === 'string' ? saved.legacyDraft : typeof saved?.draft === 'string' ? saved.draft : '';
   locale = saved?.locale === 'ru' ? 'ru' : 'en';
-  uiMode = ['chat','agent','plan'].includes(saved?.mode) ? saved.mode : 'chat';
+  uiMode = 'agent';
   let engineering = saved?.engineering === true;
   document.body.setAttribute('data-view', engineering ? 'engineering' : 'simple');
   let legacyHistory = false;
   let theme = ['dark','light','system'].includes(saved?.theme) ? saved.theme : 'system';
   document.body.setAttribute('data-theme', theme);
   const t = key => COPY[locale][key] || COPY.en[key] || key;
-  const saveState = () => { if (scopeKey) { drafts[composerScope || scopeKey] = question.value; draftModes[composerScope || scopeKey] = uiMode; } vscode.setState?.({drafts,draftModes,draftTimes,legacyDraft,locale,theme,engineering,mode:uiMode,composerScope}); };
+  const saveState = () => { if (scopeKey) { drafts[composerScope || scopeKey] = question.value; draftModes[composerScope || scopeKey] = uiMode; draftModeExplicit[composerScope || scopeKey] = modeExplicit; } vscode.setState?.({drafts,draftModes,draftModeExplicit,draftTimes,legacyDraft,locale,theme,engineering,mode:uiMode,composerScope}); };
   const post = message => vscode.postMessage({ ...message, scopeKey });
-  const saveDraft = () => { if (scopeKey) draftTimes[composerScope || scopeKey] = Date.now(); saveState(); if (scopeKey) post({type:'composerDraft',composerScope,text:question.value,mode:uiMode}); };
+  const saveDraft = () => { if (scopeKey) draftTimes[composerScope || scopeKey] = Date.now(); saveState(); if (scopeKey) post({type:'composerDraft',composerScope,text:question.value,mode:uiMode,modeExplicit}); };
   const setTimer = typeof setInterval === 'function' ? setInterval : () => null;
   const clearTimer = typeof clearInterval === 'function' ? clearInterval : () => {};
   const modelLabel = item => item.id === 'auto' ? t('modelAuto') : item.id === 'coding' ? t('modelCoding') : (item.name || item.id);
   const modelHint = item => item.id === 'auto' ? t('modelAutoHint') : item.id === 'coding' ? t('modelCodingHint') : t('activatedRoute');
+  let folderSequence = 0, folderSelection = null;
+  const folderRequests = new Map();
+  function closeFolderBrowser() {
+    document.getElementById('folder-browser').hidden = true;
+    folderRequests.clear(); folderSelection = null;
+    document.getElementById('workspace-choice').focus();
+  }
+  function requestFolders(uri, target, depth) {
+    const requestId = 'folders:' + (++folderSequence);
+    target.textContent = locale === 'ru' ? 'Загрузка…' : 'Loading…';
+    folderRequests.set(requestId, data => {
+      target.textContent = ''; target.replaceChildren();
+      if (data.error) { target.textContent = data.error; return; }
+      for (const folder of data.folders || []) {
+        const item = document.createElement('div'); item.className = 'folder-item';
+        const row = document.createElement('div'); row.className = 'folder-row';
+        const disclosure = document.createElement('button'); disclosure.type = 'button'; disclosure.textContent = '▸';
+        disclosure.setAttribute('aria-label',(locale === 'ru' ? 'Развернуть ' : 'Expand ') + folder.name); disclosure.setAttribute('aria-expanded','false');
+        const select = document.createElement('button'); select.type = 'button'; select.className = 'folder-select'; select.textContent = folder.name; select.title = folder.path;
+        const children = document.createElement('div'); children.className = 'folder-children'; children.hidden = true;
+        let loaded = false;
+        disclosure.disabled = depth >= 20;
+        disclosure.addEventListener('click', () => {
+          children.hidden = !children.hidden; disclosure.textContent = children.hidden ? '▸' : '▾'; disclosure.setAttribute('aria-expanded',String(!children.hidden));
+          if (!children.hidden && !loaded) { loaded = true; requestFolders(folder.uri,children,depth+1); }
+        });
+        select.addEventListener('click', () => {
+          if (running || submitting || preparing || pendingModeRequestId) return;
+          folderSelection = 'select:' + (++folderSequence);
+          post({type:'selectFolder',uri:folder.uri,requestId:folderSelection});
+        });
+        row.append(disclosure,select); item.append(row,children); target.append(item);
+      }
+      if (!data.folders?.length || data.truncated) {
+        const note = document.createElement('p'); note.textContent = data.truncated ? (locale === 'ru' ? 'Показана часть папок. Другую папку можно выбрать через Explorer → Work in Tvijo.' : 'Showing a bounded list. Choose another folder through Explorer → Work in Tvijo.') : (locale === 'ru' ? 'Нет доступных подпапок.' : 'No browsable subfolders.'); target.append(note);
+      }
+    });
+    post({type:'folderList',uri,requestId});
+  }
+  function openFolderBrowser() {
+    if (running || submitting || preparing || pendingModeRequestId) return;
+    folderRequests.clear();
+    document.getElementById('folder-browser').hidden = false;
+    document.getElementById('folder-title').textContent = locale === 'ru' ? 'Выбрать проект' : 'Choose project';
+    document.getElementById('folder-close').setAttribute('aria-label',locale === 'ru' ? 'Закрыть выбор папки' : 'Close folder browser');
+    document.getElementById('folder-hint').textContent = locale === 'ru' ? 'Нажмите название, чтобы работать в этой папке и её содержимом. Стрелка открывает подпапки.' : 'Click a name to work in that folder and its descendants. The arrow opens subfolders.';
+    requestFolders(null,document.getElementById('folder-rows'),0);
+    document.getElementById('folder-close').focus();
+  }
   function drawRecovery() {
     const panel = document.getElementById('recovery'), list = document.getElementById('recovery-list');
     panel.hidden = !interruptedRuns.length && !recoveryNotes.length;
@@ -298,7 +352,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     modeButton.setAttribute('aria-expanded', String(!modeMenu.hidden));
     renderModeMenu();
     question.placeholder = uiMode === 'chat' ? t('ask') : t('mentionHint');
-    document.getElementById('mode-help').textContent = t(uiMode === 'chat' ? 'modeChatHelp' : uiMode === 'agent' ? 'modeAgentHelp' : 'modePlanHelp') + ' ' + t('shellHelp');
+    document.getElementById('mode-help').textContent = t(uiMode === 'chat' ? 'modeChatHelp' : uiMode === 'agent' ? 'modeAgentHelp' : 'modePlanHelp') + (engineering ? ' ' + t('shellHelp') : '');
     updateWorkflowLabel();
   }
   function renderModeMenu() {
@@ -349,9 +403,10 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   }
   function chooseMode(mode) {
     if (pendingModeRequestId) return;
-    if (mode === 'chat') { closeModeMenu(true); uiMode = 'chat'; updateMode(); saveDraft(); return; }
+    if (mode === 'chat') { closeModeMenu(true); uiMode = 'chat'; modeExplicit = true; updateMode(); saveDraft(); return; }
     if (running || submitting || preparing) return;
-    if (mode === 'custom') { closeModeMenu(true); uiMode = 'agent'; updateMode(); saveDraft(); return; }
+    if (!workspaceAvailable) { closeModeMenu(); openFolderBrowser(); return; }
+    if (mode === 'custom') { closeModeMenu(true); uiMode = 'agent'; modeExplicit = true; updateMode(); saveDraft(); return; }
     const preset = mode === 'plan' ? 'plan' : mode;
     if (mode === 'full' && fullAccess?.available !== true) return;
     pendingModeRequestId = String(scopeKey || '') + ':' + (++modeRequestSequence);
@@ -497,7 +552,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     button.disabled = lastAuthState === 'connecting';
     button.title = lastSignedIn ? (locale === 'ru' ? 'Открыть аккаунт' : 'Open account') : t('signIn');
     document.getElementById('identity-state').textContent = lastAuthError || labels[lastAuthState] || labels.signed_out;
-    document.getElementById('workspace-choice').textContent = (locale === 'ru' ? 'Локально · ' : 'Local · ') + (activeWorkspaceLabel || (locale === 'ru' ? 'Выбрать папку…' : 'Choose folder…'));
+    document.getElementById('workspace-choice').textContent = activeWorkspaceLabel || (locale === 'ru' ? 'Выбрать проект…' : 'Choose project…');
   }
   function setTheme(next) { theme = next; document.body.setAttribute('data-theme', theme); updateThemeButton(); saveState(); }
   function renderBudget(account) {
@@ -587,14 +642,17 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     renderModeMenu();
   }
   function render(items) {
-    const key = JSON.stringify(items); if (key === lastMessages) return; lastMessages = key;
+    const key = JSON.stringify(items); if (key === lastMessages && lastMessageWorkspace === activeWorkspaceLabel) return; lastMessages = key; lastMessageWorkspace = activeWorkspaceLabel;
     messages.replaceChildren();
     if (!items.length) {
       const welcome = document.createElement('section'); welcome.className = 'welcome';
       const mark = document.createElement('div'); mark.className = 'welcome-mark'; mark.textContent = '›_';
       const title = document.createElement('strong'); title.textContent = t('title');
       const body = document.createElement('p'); body.textContent = t('intro');
-      welcome.append(mark, title, body); messages.append(welcome);
+      title.textContent = activeWorkspaceLabel ? (locale === 'ru' ? 'Что сделать в проекте?' : 'What should we work on?') : (locale === 'ru' ? 'Выберите проект' : 'Choose a project');
+      body.textContent = activeWorkspaceLabel ? (locale === 'ru' ? 'Выберите режим ниже и опишите задачу.' : 'Choose a mode below and describe the task.') : (locale === 'ru' ? 'Выберите папку здесь или нажмите Work in Tvijo в Explorer.' : 'Choose a folder here or right-click it in Explorer → Work in Tvijo.');
+      const choose = document.createElement('button'); choose.type = 'button'; choose.textContent = locale === 'ru' ? 'Выбрать проект' : 'Choose project'; choose.addEventListener('click',openFolderBrowser);
+      welcome.append(mark, title, body, choose); messages.append(welcome);
     }
     for (const [index, item] of items.entries()) {
       const block = document.createElement('article');
@@ -686,6 +744,18 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       renderAgentEvent(data.event);
       return;
     }
+    if (data.type === 'folderList') {
+      const callback = folderRequests.get(data.requestId);
+      if (callback) { folderRequests.delete(data.requestId); callback(data); }
+      return;
+    }
+    if (data.type === 'folderSelected') {
+      if (data.requestId === folderSelection) {
+        if (data.error) document.getElementById('folder-hint').textContent = data.error;
+        else { closeFolderBrowser(); question.focus(); }
+      }
+      return;
+    }
     if (data.type === 'state') {
       lastQuote = null;
       const nextScope = typeof data.scopeKey === 'string' ? data.scopeKey : null;
@@ -706,13 +776,19 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
         const cachedDraft = scopeKey && Object.prototype.hasOwnProperty.call(drafts,draftKey) && (!Number.isFinite(cachedTime) ? saved?.draftTimes === undefined : Date.now() - cachedTime < draftTtl);
         question.value = scopeKey ? (cachedDraft ? drafts[composerScope || scopeKey] : data.composerDraft?.text ?? legacyScopedDraft ?? '') : '';
         const restoredMode = cachedDraft ? draftModes[draftKey] || data.composerDraft?.mode : data.composerDraft?.mode;
-        uiMode = ['chat','agent','plan'].includes(restoredMode) ? restoredMode : data.fullAccess?.enabled ? 'agent' : 'chat';
+        modeExplicit = cachedDraft && draftModeExplicit[draftKey] === true;
+        const hostMode = ['chat','agent','plan'].includes(data.composerMode) ? data.composerMode : null;
+        uiMode = hostMode || (modeExplicit && ['chat','agent','plan'].includes(restoredMode) ? restoredMode : ['agent','plan'].includes(restoredMode) ? restoredMode : 'agent');
+        if (hostMode) modeExplicit = true;
         if (scopeKey) draftTimes[draftKey] = cachedDraft && Number.isFinite(cachedTime) ? cachedTime : data.composerDraft?.updatedAt || Date.now();
         submitting = false; uploading = false; queue.length = 0;
         saveState();
       }
       if (data.locale && data.locale !== locale) setLocale(data.locale);
       document.getElementById('brand').textContent = typeof data.projectLabel === 'string' && data.projectLabel.trim() ? data.projectLabel.slice(0,120) : 'Tvijo';
+      document.getElementById('workspace-choice').title = data.workspacePath || '';
+      document.getElementById('runtime-version').textContent = 'Tvijo ' + (data.runtimeVersion || '—') + ' ↻';
+      document.getElementById('runtime-version').title = locale === 'ru' ? 'После обновления: перезагрузить окно' : 'After updating: reload window';
       renderRunSession(data.runSession);
       if (data.workflow && !data.options) { window.tvijoWorkflow = data.workflow; document.getElementById('workflow-label').textContent = data.workflow; }
       const packPicker = document.getElementById('pack-picker');
@@ -728,6 +804,8 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       if (data.error) showNotice(data.error.text, data.error.action);
       else if (data.pending) showNotice(t('pendingNotice'), 'cancel');
       else showNotice('');
+      workspaceAvailable = data.workspaceSelected !== false;
+      activeWorkspaceLabel = data.workspaceSelected === false ? '' : data.projectLabel || '';
       render(data.messages || []);
       const sharedNote = document.getElementById('shared-thread-note');
       sharedNote.hidden = !data.sharedThreadUrl;
@@ -759,7 +837,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
       document.getElementById('history-note').textContent = t(legacyHistory || legacyDraft ? 'legacyPrivacy' : 'historyPrivacy');
     } else if (data.type === 'presetResult') {
       if (data.scopeKey !== scopeKey || !pendingModeRequestId || data.requestId !== pendingModeRequestId) return;
-      if (data.ok) { uiMode = data.preset === 'plan' ? 'plan' : 'agent'; saveDraft(); }
+      if (data.ok) { uiMode = data.preset === 'plan' ? 'plan' : 'agent'; modeExplicit = true; saveDraft(); }
       else showNotice(t('modeUpdateFailed'));
       pendingModeRequestId = null; closeModeMenu(true); controls(); updateMode();
     } else if (data.type === 'quote') {
@@ -777,7 +855,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
     } else if (data.type === 'draft') {
       if (data.scopeKey !== undefined && data.scopeKey !== scopeKey) return;
       question.value = typeof data.text === 'string' ? data.text.slice(0, 20000) : '';
-      if (['chat','agent','plan'].includes(data.mode)) uiMode = data.mode;
+      if (['chat','agent','plan'].includes(data.mode)) { uiMode = data.mode; modeExplicit = true; }
       updateMode(); saveDraft(); question.focus();
     } else if (data.type === 'activity') {
       if (data.scopeKey !== undefined && data.scopeKey !== scopeKey) return;
@@ -792,6 +870,7 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   document.getElementById('form').addEventListener('submit', event => {
     event.preventDefault(); const text = question.value.trim() || (attachmentCount ? t('attachmentOnly') : ''); if (!text || send.disabled || pendingModeRequestId) return;
     submitting = true; controls();
+    if (uiMode !== 'chat' && !workspaceAvailable) { submitting = false; controls(); openFolderBrowser(); return; }
     post({type:'ask', question:text, agent: uiMode !== 'chat', plan: uiMode === 'plan'});
   });
   question.addEventListener('keydown', event => {
@@ -814,7 +893,10 @@ header{flex-wrap:wrap;flex-shrink:0}nav{flex-shrink:0}.run-chip{font-size:11px;p
   document.getElementById('agent-map').addEventListener('keydown', event => { if (event.key === 'Escape') { setTab('chat'); document.getElementById('agent-map-button').focus(); } });
   document.getElementById('pack-picker').addEventListener('click', () => post({type:'choosePack'}));
   document.getElementById('identity-button').addEventListener('click', () => post({type:'account'}));
-  document.getElementById('workspace-choice').addEventListener('click', () => post({type:'chooseWorkspace'}));
+  document.getElementById('workspace-choice').addEventListener('click', openFolderBrowser);
+  document.getElementById('folder-close').addEventListener('click', closeFolderBrowser);
+  document.getElementById('folder-browser').addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); closeFolderBrowser(); } });
+  document.getElementById('runtime-version').addEventListener('click', () => post({type:'reloadWindow'}));
   document.getElementById('composer-signin').addEventListener('click', () => post({type:'account'}));
   document.getElementById('signin').addEventListener('click', () => post({type:lastSignedIn ? 'account' : 'account'}));
   document.getElementById('new').addEventListener('click', () => post({type:'new'}));

@@ -64,3 +64,39 @@ test('folder-model: canonical dialog path within symlink workspace accepted; lex
  await assert.rejects(x.browse(Uri.file(path.join(x.parent,'parser','outside'))),/escape|inside/);
  assert.equal(x.active.current().uri.fsPath,selected.uri.fsPath);
 });
+
+test('0.10.7 Explorer selection consumes clicked URI directly, canonicalizes nested symlink roots and retains schema 2 guards',async()=>{
+ const x=fixture();let changes=0,pickers=0;
+ x.vscode.window.showQuickPick=x.vscode.window.showOpenDialog=async()=>{pickers++;throw Error('Unexpected picker');};
+ const active=createActiveWorkspace({vscode:x.vscode,state:x.state,onChange:()=>changes++});
+ const selected=await active.select(Uri.file(path.join(x.parent,'parser','project')));
+ assert.equal(selected.uri.fsPath,path.join(x.parser,'project'));assert.equal(pickers,0);assert.equal(changes,1);
+ assert.equal(x.state.get(require('../lib/active-workspace').KEY).schema,2);
+ assert.equal(createActiveWorkspace({vscode:x.vscode,state:x.state}).current().uri.fsPath,selected.uri.fsPath);
+ await active.select(Uri.file(path.join(x.parent,'parser','project')));assert.equal(changes,1);
+ await active.select(Uri.file(x.parent));assert.equal(active.hasNested(),true);assert.equal(changes,2);
+ fs.symlinkSync(x.parser,path.join(x.parent,'escape'));
+ await assert.rejects(active.select(Uri.file(path.join(x.parent,'escape'))),/escape/);
+ assert.equal(active.current().uri.fsPath,x.parent);
+});
+
+test('0.10.7 visual browser lists only explicit expansions, skips generated folders/files/escapes, bounds results and validates forged URI',async()=>{
+ const {listFolders,folderUri}=require('../lib/folder-browser');const x=fixture();
+ fs.mkdirSync(path.join(x.parser,'node_modules'));fs.mkdirSync(path.join(x.parser,'.cache'));
+ fs.symlinkSync(path.join(x.parent,'docs'),path.join(x.parser,'escape'));
+ const original=fs.promises.opendir,reads=[];
+ fs.promises.opendir=async p=>{reads.push(p);return original(p);};
+ try{
+  const roots=await listFolders(x.vscode,null);assert.equal(reads.length,0);assert.ok(roots.folders.some(f=>f.name==='parser'));
+  const parser=roots.folders.find(f=>f.name==='parser');assert.equal(parser.path,x.parser);
+  const children=await listFolders(x.vscode,parser.uri);assert.deepEqual(reads,[x.parser]);assert.deepEqual(children.folders.map(f=>f.name),['project']);
+  await x.active.select(folderUri(x.vscode,children.folders[0].uri));assert.equal(x.active.current().uri.fsPath,path.join(x.parser,'project'));
+  for(let n=0;n<120;n++)fs.mkdirSync(path.join(x.parser,'project','dir'+n));
+  const bounded=await listFolders(x.vscode,children.folders[0].uri);assert.equal(bounded.folders.length,100);assert.equal(bounded.truncated,true);assert.equal(reads.length,2);
+  await assert.rejects(listFolders(x.vscode,{scheme:'file',path:x.base}),/inside/);
+  await assert.rejects(listFolders(x.vscode,{scheme:'file',path:path.join(x.parent,'parser','escape')}),/escape/);
+  assert.throws(()=>folderUri(x.vscode,{scheme:'vscode-remote',authority:'other',path:x.parser}),/workspace/);
+  assert.throws(()=>folderUri(x.vscode,{scheme:'file',path:'../elsewhere'}),/workspace/);
+  x.vscode.workspace.isTrusted=false;await assert.rejects(listFolders(x.vscode,null),/Trust/);
+ }finally{fs.promises.opendir=original;}
+});

@@ -2639,3 +2639,66 @@ test('folder-model integration: 0.10.5 account history stays visible on demand a
   assert.equal(app.rawLocal.history(app.scope('tenant-a')).length,2);
  }finally{app.close();}
 });
+
+test('0.10.7 Explorer folder command has no authentication or picker prerequisite; browser validates forged selections',async()=>{
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'explorer-host-'));
+ const child=path.join(root,'project');await fs.mkdir(child);
+ const app=host({root,secrets:memory(),pick:()=>{throw Error('QuickPick forbidden');},openFiles:()=>{throw Error('OpenDialog forbidden');}});
+ try{
+  await app.receive({type:'ready'});await app.commands.get('tvijo.workInFolder')(app.Uri.file(child));
+  let state=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.workspacePath,child);assert.equal(state.signedIn,false);assert.equal(state.fullAccess.enabled,false);assert.equal(state.runtimeVersion,'0.10.7');
+  assert.ok(app.executed.some(e=>e.id==='tvijo.chat.focus'));assert.equal(app.warnings.length,0);
+  await app.receive({type:'folderList',requestId:'roots'});const listing=app.posts.find(p=>p.type==='folderList');assert.equal(listing.folders[0].path,root);
+  await app.receive({type:'selectFolder',uri:{scheme:'file',path:path.dirname(root)},requestId:'forged'});
+  assert.match(app.posts.find(p=>p.type==='folderSelected'&&p.requestId==='forged').error,/inside/);
+  state=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.workspacePath,child);
+  await app.receive({type:'selectFolder',uri:{scheme:'file',path:root},requestId:'root'});assert.equal(app.posts.filter(p=>p.type==='state').at(-1).workspacePath,root);
+ }finally{app.close();}
+});
+
+test('0.10.7 production webview Full access ACK -> Send -> runAgentFlow -> canonical read and command cwd; Chat and reconnect stay intentional',async()=>{
+ const {sidebar}=require('./helpers/sidebar');
+ const base=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'composer-dispatch-'));
+ const root=path.join(base,'root'),volume=path.join(base,'volume'),project=path.join(volume,'project');await fs.mkdir(root);await fs.mkdir(project,{recursive:true});await fs.symlink(volume,path.join(root,'parser'));
+ await fs.writeFile(path.join(project,'sentinel.txt'),'CANONICAL_SELECTED_FOLDER');
+ const app=host({root,chatSequence:[JSON.stringify({tool:'read_file',path:'sentinel.txt'}),JSON.stringify({tool:'run_command',command:'pwd'}),JSON.stringify({tool:'finish',answer:'Verified selected folder'})],chatCost:'0.001'});
+ let view,postCursor=0,outCursor=0;
+ const deliver=()=>{for(const data of app.posts.slice(postCursor))view.emit('window:message',{data});postCursor=app.posts.length;};
+ const pump=async()=>{while(outCursor<view.outgoing.length){const message=view.outgoing[outCursor++];await app.receive(message);deliver();}};
+ try{
+  app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',4);
+  app.vscode.workspace.workspaceFolders=[{name:'root',uri:app.Uri.file(root)},{name:'parser',uri:app.Uri.file(path.join(root,'parser'))}];
+  await app.commands.get('tvijo.workInFolder')(app.Uri.file(path.join(root,'parser','project')));await app.receive({type:'ready'});
+  const state=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.workspacePath,project);
+  view=sidebar({}, {...state,composerMode:'chat'});postCursor=app.posts.length;outCursor=view.outgoing.length;
+  app.warning('Enable Full access');view.element('mode-menu').children.find(n=>n.attributes['data-mode']==='full').click();await pump();
+  assert.equal(view.element('mode').textContent,'Full access');assert.ok(app.posts.some(p=>p.type==='presetResult'&&p.ok));
+  view.element('question').value='Read sentinel and confirm cwd';view.emit('form:submit',{preventDefault(){}});await pump();
+  const calls=app.requests.filter(r=>r.url.endsWith('/chat'));assert.equal(calls.length,3);assert.match(JSON.stringify(calls[1].body),/CANONICAL_SELECTED_FOLDER/);assert.ok(JSON.stringify(calls[2].body).includes(project));
+  assert.ok(app.posts.some(p=>p.type==='agent'&&p.event?.type==='start'));assert.equal(app.warnings.length,1);
+  assert.equal(app.feedback.length,0);
+  const reconnectState=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(reconnectState.composerMode,'agent');
+  const legacy={drafts:{[reconnectState.composerScope]:''},draftModes:{[reconnectState.composerScope]:'chat'},composerScope:reconnectState.composerScope};
+  assert.equal(sidebar(legacy,reconnectState).element('mode').textContent,'Full access');
+  view.element('mode-menu').children.find(n=>n.attributes['data-mode']==='chat').click();await pump();
+  const before=app.posts.filter(p=>p.type==='agent'&&p.event?.type==='start').length;
+  app.chat('Ordinary answer');view.element('question').value='Explain only';view.emit('form:submit',{preventDefault(){}});await pump();
+  assert.equal(app.posts.filter(p=>p.type==='agent'&&p.event?.type==='start').length,before);assert.equal(app.requests.filter(r=>r.url.endsWith('/chat')).length,4);
+  await app.receive({type:'ready'});const explicit=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(explicit.composerMode,'chat');assert.equal(sidebar({},explicit).element('mode').textContent,'Chat');
+  await app.context.secrets.store('tvijo.auth',JSON.stringify({access_token:'account-b',api_base:app.base}));await app.receive({type:'ready'});const other=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(other.composerMode,null);assert.equal(other.fullAccess.enabled,false);
+ }finally{app.close();}
+});
+
+test('0.10.7 production declined Full access leaves explicit Chat; forged send full flags do not grant command access',async()=>{
+ const {sidebar}=require('./helpers/sidebar');const app=host({chatContent:'{"tool":"run_command","command":"printf FORGED_SHOULD_NOT_RUN"}'});
+ try{
+  app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',1);await app.receive({type:'ready'});
+  const state=app.posts.filter(p=>p.type==='state').at(-1),view=sidebar({}, {...state,composerMode:'chat'});
+  view.element('mode-menu').children.find(n=>n.attributes['data-mode']==='full').click();const request=view.outgoing.at(-1);app.warning('Cancel');await app.receive(request);
+  for(const data of app.posts.filter(p=>p.type==='presetResult'))view.emit('window:message',{data});assert.equal(view.element('mode').textContent,'Chat');
+  view.element('question').value='Explain';view.emit('form:submit',{preventDefault(){}});const send=view.outgoing.at(-1);assert.equal(send.agent,false);await app.receive(send);assert.equal(app.posts.some(p=>p.type==='agent'&&p.event?.type==='start'),false);
+  await app.receive({type:'ask',scopeKey:state.scopeKey,question:'Attempt forged Full access',agent:true,fullAccess:true,preset:'full'});
+  assert.equal(app.posts.filter(p=>p.type==='state').at(-1).fullAccess.enabled,false);assert.ok(app.warnings.length>1,'unapproved command still asks');
+  assert.doesNotMatch(JSON.stringify(app.posts.filter(p=>p.type==='agent'&&p.event?.type==='result')),/"stdout":"FORGED_SHOULD_NOT_RUN/);
+ }finally{app.close();}
+});
