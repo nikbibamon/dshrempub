@@ -105,3 +105,8 @@ their own versions and do not update when the standalone extension changes.
 The VS Code extension's optional DSH Harness host integration is documented in
 [vscode/README.md](vscode/README.md#optional-dsh-harness-orchestration). It is an
 explicit host-local mode; the remote research CLI described above is unchanged.
+
+
+## Self-hosted Telegram pilot
+
+A [self-hosted read-only bot preview](bot/README_EN.md) is available for local status checks. You can also prepare your own BotFather bot for a private Tvijo pilot. Customer bot tokens are **not** accepted by this repository or by a public form. Read the [English setup guide](docs/BOTFATHER_CONNECT_EN.md) or [русскую инструкцию](docs/BOTFATHER_CONNECT_RU.md). The current operator bot is not a shared customer service.
