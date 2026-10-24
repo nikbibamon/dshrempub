@@ -205,7 +205,7 @@ for(const kind of ['missing-proof','wrong-nonce','changed-creation-log','replace
 });
 
 test('judgefix3 concurrent user amend while Tvijo post-commit hook waits preserves sibling B and the user index',async()=>{
- const f=await fixture();fs.writeFileSync(path.join(f.root,'.git/hooks/post-commit'),'#!/bin/sh\nif test -f post-once; then exit 0; fi\nprintf once > post-once\ngit rev-parse HEAD > created-a.hash\nwhile ! test -f release-hook; do sleep 0.02; done\n',{mode:0o755});
+ const f=await fixture();fs.writeFileSync(path.join(f.root,'.git/hooks/post-commit'),'#!/bin/sh\nif test -f post-once; then exit 0; fi\nprintf once > post-once\ngit rev-parse HEAD > created-a.hash.tmp\nmv created-a.hash.tmp created-a.hash\nwhile ! test -f release-hook; do sleep 0.02; done\n',{mode:0o755});
  const pending=f.run();await waitForHook(path.join(f.root,'created-a.hash'));const a=fs.readFileSync(path.join(f.root,'created-a.hash'),'utf8').trim();
  fs.writeFileSync(path.join(f.root,'user-extra.txt'),'USER EXTRA');f.git('add','--','user-extra.txt');f.git('commit','--amend','--no-edit');const b=f.git('rev-parse','HEAD'),before=fs.readFileSync(path.join(f.root,'.git/index'));fs.writeFileSync(path.join(f.root,'release-hook'),'release');const r=await pending;
  assert.notEqual(a,b);assert.equal(f.git('rev-parse',a+'^'),f.start.head);assert.equal(f.git('rev-parse',b+'^'),f.start.head);assert.equal(r.ok,false);assert.equal(r.identityWarning,true);assert.equal(r.withdrawn,false);assert.ok(r.observedHashes.includes(a));assert.ok(r.observedHashes.includes(b));assert.equal(f.git('rev-parse','HEAD'),b);assert.deepEqual(fs.readFileSync(path.join(f.root,'.git/index')),before);
