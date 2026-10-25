@@ -164,7 +164,58 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
     const label = selectionText ? 'active selection' : 'active file';
     const start = selectionText ? document.selection.start.line + 1 : 1;
     if (selected !== null && sensitive(activePath,Buffer.from(clipped))) skippedSensitive++;
-    else push('\n--- ' + label + ': ' + activePath + (selectionText ? ' (lines ' + start + '-' + (document.selection.end.line + 1) + ')' : '') + ' ---\n' + clipped + '\n');
+    else {
+      // Existing callers already authorize collection. Read the opt-in here so
+      // chat, agent and preview share one policy without host/call-site changes.
+      const semanticConfigured = () => vscode.workspace.getConfiguration?.('tvijo', document.uri)?.get('semanticContext', false) === true;
+      const sourcePermitted = () => {
+        const config = vscode.workspace.getConfiguration?.('tvijo', document.uri);
+        const selection = typeof selectionForFolder === 'function' ? selectionForFolder(folder) : selectedPaths;
+        return config?.get('workspaceContext', 'ask') !== 'off' &&
+          contextMode !== 'off' && vscode.workspace.isTrusted === true && !document.isClosed &&
+          absoluteToRelative(document.uri) === activePath && require('./active-workspace').validFolder(vscode, folder) &&
+          (!Array.isArray(selection) || selection.includes(activePath.split('/')[0])) &&
+          !activePath.split('/').some(part => excluded(part, false) || /^(?:secrets?|credentials?)(?:$|[._-])/i.test(part)) &&
+          !require('./symbol-context').containsCredentialToken(activePath) &&
+          !sensitive(activePath, Buffer.from(activePath));
+      };
+      const semanticAllowed = () => semanticConfigured() && sourcePermitted() && !selectionText;
+      let outline = null;
+      let sourceAllowed = true;
+      let sourceCurrent = true;
+      let sourceClipped = clipped;
+      try {
+        // Scan the whole active source, before provider dispatch; clipping or a
+        // selection must never hide a secret from this gate. The existing file
+        // filter also refuses >512 KiB, invalid UTF-8 and binary text.
+        if (semanticConfigured()) {
+          // An authorized excerpt must stay an excerpt, including dirty buffers.
+          if (selectionText) sourceClipped = selectionText.slice(0, MAX_FILE_BYTES);
+          // Provider eligibility is narrower than source permission (e.g. a
+          // selected excerpt). Reject forbidden/sensitive source even when no
+          // provider call will be made, rather than falling back around policy.
+          sourceCurrent = sourcePermitted();
+          const symbols = require('./symbol-context');
+          if (sourceCurrent) sourceAllowed = body.length <= 512 * 1024 && printable(body) &&
+            !sensitive(activePath, Buffer.from(body)) && !symbols.containsCredentialToken(body);
+          if (sourceCurrent && sourceAllowed && !selectionText) {
+            const version = document.version;
+            const identity = symbols.uriIdentity(document.uri);
+            outline = await symbols.collectOutline(vscode, {
+              document, root, activePath, sensitive, allowed:semanticAllowed,
+              maxBytes:Math.max(0, limit - used - Buffer.byteLength('[END WORKSPACE CONTEXT]\n'))
+            });
+            // Revoked access or a changed document must not re-enter through
+            // the source fallback after its symbol result was rejected.
+            const current = () => semanticAllowed() && document.version === version &&
+              symbols.uriIdentity(document.uri) === identity;
+            sourceCurrent = current() && await symbols.authorizedFile(root, document.uri) && current();
+          }
+        }
+      } catch { sourceCurrent = false; }
+      if (!sourceAllowed) skippedSensitive++;
+      else if (sourceCurrent) push(outline || '\n--- ' + label + ': ' + activePath + (selectionText ? ' (lines ' + start + '-' + (document.selection.end.line + 1) + ')' : '') + ' ---\n' + sourceClipped + '\n');
+    }
   }
 
   const rulesStatus={status:'separate'};

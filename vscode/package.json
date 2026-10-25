@@ -530,6 +530,12 @@
             "%tvijo.workspaceContext.enum.2%"
           ]
         },
+        "tvijo.semanticContext": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "markdownDescription": "Use a compact, bounded active-document symbol outline instead of its source block when a local document-symbol provider is available. Requires trusted workspace and authorized workspace context. Experimental; disable to restore the source block."
+        },
         "tvijo.workspaceContextMaxBytes": {
           "type": "number",
           "default": 200000,
