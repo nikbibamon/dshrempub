@@ -1,0 +1,49 @@
+{
+  "at": "2026-10-26T18:35:24.237482+00:00",
+  "deploy_only": [
+    "index.html",
+    "guide.css",
+    "guide-data.js",
+    "guide.js"
+  ],
+  "version": "0.10.15",
+  "languages": [
+    "en",
+    "ru",
+    "uk",
+    "de",
+    "es",
+    "pt",
+    "nl"
+  ],
+  "default": "en",
+  "route": "https://tvijo.com/guide",
+  "query_parameter": "lang",
+  "files": {
+    "index.html": {
+      "bytes": 32952,
+      "sha256": "a7a1f29847b5c41f0fe5d43385d1a91d57ac3da4fe578163571adcabbf22e530"
+    },
+    "guide.css": {
+      "bytes": 15296,
+      "sha256": "5f09baaa02a7109c43ae8f71b4815a28f888673bb275d54cda4e736a1ac9cd7f"
+    },
+    "guide-data.js": {
+      "bytes": 230448,
+      "sha256": "61e81c4d6fab8444a1181f884cf399608aef9ad670de075b8cab08c31d247751"
+    },
+    "guide.js": {
+      "bytes": 14485,
+      "sha256": "ce90829f940e4569e384ddafcc819747a30ae0d751c675a64145176dac6d0a1f"
+    }
+  },
+  "frozen_original_unchanged": true,
+  "static_checks": {
+    "duplicate_ids": false,
+    "inline_scripts_styles_handlers": false,
+    "external_assets": false,
+    "private_host_paths": false
+  },
+  "api_translation_calls": 0,
+  "external_runtime_requests": 0
+}
