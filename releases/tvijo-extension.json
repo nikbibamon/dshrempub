@@ -745,8 +745,8 @@
       "ru": "Полный доступ запускает команды с правами пользователя и не создаёт изоляцию ОС. Границы контроля окружения и карантина правил описаны в README."
     },
     {
-      "en": "Direct VSIX and GitHub are this release channel. Marketplace is deferred by the operator. Reload Window activates the installed extension; native Windows and an interactive installed editor session were not observed.",
-      "ru": "Каналы этого выпуска — прямой VSIX и GitHub. Marketplace отложен оператором. Reload Window активирует установленное расширение; нативный Windows и интерактивная сессия установленного редактора не наблюдались."
+      "en": "Direct VSIX and GitHub are this release channel. Marketplace remains deferred. Reload Window activates the installed extension. Windows editor1.140.07195 passed native activation and code-navigation checks; interactive sign-in and a complete paid coding session remain untested.",
+      "ru": "Каналы выпуска — прямой VSIX и GitHub. Marketplace отложен. Reload Window активирует установленное расширение. Windows-редактор1.140.07195 прошёл нативные проверки активации и навигации; интерактивный вход и полная платная задача ещё не проверены."
     },
     {
       "en": "Python/Node syntax checks need separate approval and a Linux extension host; they are off by default.",
@@ -761,8 +761,8 @@
       "ru": "Plan поддерживает фиксированные проверки, а не shell или Git. Сводка строк приблизительная."
     },
     {
-      "en": "Windows/macOS editor bundles 0.1.0 still contain extension 0.5.5. Updating the standalone VSIX does not rebuild those bundles.",
-      "ru": "Сборки редактора Windows/macOS 0.1.0 по-прежнему содержат расширение 0.5.5. Обновление отдельного VSIX не пересобирает эти редакторы."
+      "en": "Current Windows editor1.140.07195 bundles extension0.10.15. Archived Windows0.1.0 and the current macOS0.1.0 preview still bundle0.5.5. Each product and platform has its own release status.",
+      "ru": "Текущий Windows-редактор1.140.07195 включает расширение0.10.15. Архивный Windows0.1.0 и текущий macOS0.1.0 preview сохраняют0.5.5. У каждого продукта и платформы отдельный статус выпуска."
     }
   ],
   "verification": {
@@ -774,8 +774,8 @@
     "final_affected_tests": 49,
     "manual_browser_checks": 159,
     "native_gui": {
-      "en": "Native Windows activation, guide and language-provider checks are gated by the separate TvijoCode release workflow. Interactive sign-in and a complete paid coding session are not established by these offline checks.",
-      "ru": "Нативные проверки активации Windows, учебника и языковых служб выполняются отдельным workflow TvijoCode. Интерактивный вход и полный платный coding-сеанс этими проверками не подтверждаются."
+      "en": "Native Windows editor1.140.07195 CI40385199326 passed activation of extension0.10.15, offline guide and symbols/definitions/references on2026-10-26. Interactive sign-in, EXE installation and a complete paid coding session remain untested.",
+      "ru": "Нативный Windows-редактор1.140.07195 в CI40385199326 прошёл активацию расширения0.10.15, учебник и символы/определения/использования26.10.2026. Интерактивный вход, установка EXE и полная платная задача ещё не проверены."
     },
     "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.15",
     "tag_commit": "1e9cabfa80d008f2d505c9fe177ef7c1d161c435",
