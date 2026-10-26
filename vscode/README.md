@@ -1,4 +1,27 @@
-## Settings and limits (0.10.11)
+## Native code navigation and learning guide (0.10.14)
+
+Plan and Agent can ask installed editor language extensions for document symbols,
+definitions and references before reading larger source files. The `code_intelligence`
+tool returns bounded workspace-relative metadata with 1-based line/column positions.
+It requires Workspace Trust and an available provider for the selected language;
+empty, unavailable, partial and stale results are distinguished. Queries do not call
+an LLM, while model turns using their results retain normal route accounting.
+Cancellation discards late results; the editor provider itself may finish later.
+
+Use the Command Palette → **Tvijo: Open learning guide** for the bundled offline
+Russian handbook: installation, choosing a local or SSH project, economical settings,
+project rules, selected context, practical tasks, review and measuring actual results.
+It works without an external documentation server. All existing user settings remain
+unchanged. On a shared dirty checkout, prefer explicit owned paths and turn automatic
+commits off until you have reviewed the changes.
+
+This editor integration is separate from the experimental Python DSHREM host LSP and
+context-dedup pilots. It does not install a language server or create an OS sandbox.
+Published releases include exact checksums; native Windows activation and provider
+checks are recorded in the corresponding TvijoCode release receipt. They do not prove
+an interactive account sign-in or paid model coding session.
+
+## Settings and limits (introduced in 0.10.11)
 
 Open **Tvijo → Settings → Extension settings** to edit values on the current local or Remote SSH host. The panel shows English or Russian using the editor language and offers an explicit language switch. User settings that you already chose take precedence over new defaults. Workspace overrides are reported and can be opened with **Advanced · VS Code**.
 

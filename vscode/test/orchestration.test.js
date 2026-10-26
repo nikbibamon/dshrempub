@@ -139,3 +139,15 @@ test('old runtimes and unavailable advertised worker policies stop before author
 test('partial and unsupported team capabilities fail before reserving money',async()=>{
  for(const options of [{}, {...teamOptions(),agent_counts:[4,5,6]}, {...teamOptions(),report_formats:['light']}, {...teamOptions(),policies:[]}, {...teamOptions(),policies:[{id:'sol',available:true,agent_counts:[4]}]}]){const f=fixture({},async command=>command==='doctor'?{setup_required:false,team_options:options}:undefined);await assert.rejects(f.host.run(f.options),/not supported|unavailable/);assert.equal(f.calls.some(c=>c.command==='authorize'),false);}
 });
+
+test('sol-claude is a capability-checked three participant policy with unchanged defaults',async()=>{
+ const properties=require('../package.json').contributes.configuration.properties;
+ assert.equal(properties['tvijo.orchestration.workerPolicy'].default,'sol');
+ assert.ok(properties['tvijo.orchestration.workerPolicy'].enum.includes('sol-claude'));
+ const f=fixture({'orchestration.workerPolicy':'sol-claude','orchestration.agentCount':3},async command=>command==='doctor'?{setup_required:false,team_options:{...teamOptions(),policies:[{id:'sol-claude',available:true,agent_counts:[3,4,5,6]}]}}:undefined);
+ await f.host.run(f.options);const grant=f.calls.find(c=>c.command==='authorize').data;
+ assert.equal(grant.agent_count,3);assert.equal(grant.policy,'sol-claude');
+ const unavailable=fixture({'orchestration.workerPolicy':'sol-claude'});
+ await assert.rejects(unavailable.host.run(unavailable.options),/unavailable/);
+ assert.equal(unavailable.calls.some(c=>c.command==='authorize'),false);
+});

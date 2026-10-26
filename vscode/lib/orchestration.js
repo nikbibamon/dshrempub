@@ -22,7 +22,7 @@ function settings(config){
  const enabled=config.get('orchestration.enabled',false)===true;
  const profile=config.get('orchestration.profile','dsh-harness');
  const policy=config.get('orchestration.workerPolicy','sol');
- if(enabled&&(profile!=='dsh-harness'||!['sol','sol-astra','sol-astra-claude'].includes(policy)))throw Error('Unsupported orchestration profile or worker policy.');
+ if(enabled&&(profile!=='dsh-harness'||!['sol','sol-astra','sol-astra-claude','sol-claude'].includes(policy)))throw Error('Unsupported orchestration profile or worker policy.');
  const agentCount=config.get('orchestration.agentCount',3),reportFormat=config.get('orchestration.reportFormat','both');
  if(!Number.isInteger(agentCount)||agentCount<3||agentCount>6)throw Error('Team role count must be an integer from 3 to 6.');
  if(!['light','dark','rainbow','both'].includes(reportFormat))throw Error('Unsupported orchestration report format.');

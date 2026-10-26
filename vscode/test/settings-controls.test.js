@@ -15,5 +15,6 @@ test('manifest localization and packaged default settings match runtime help',()
 test('every native enum has localized friendly descriptions and worker IDs stay exact',()=>{
  const props=require('../package.json').contributes.configuration.properties,en=require('../package.nls.json'),ru=require('../package.nls.ru.json');
  for(const [key,prop]of Object.entries(props))if(prop.enum){assert.equal(prop.enumDescriptions.length,prop.enum.length,key);for(const token of prop.enumDescriptions){assert.ok(en[token.slice(1,-1)]);assert.match(ru[token.slice(1,-1)],/[а-я]/i,key);}}
- assert.deepEqual(props['tvijo.orchestration.workerPolicy'].enum,['sol','sol-astra','sol-astra-claude']);assert.equal(props['tvijo.orchestration.agentCount'].default,3);assert.equal(props['tvijo.orchestration.reportFormat'].default,'both');
+ assert.deepEqual(props['tvijo.orchestration.workerPolicy'].enum,['sol','sol-astra','sol-astra-claude','sol-claude']);assert.equal(props['tvijo.orchestration.agentCount'].default,3);assert.equal(props['tvijo.orchestration.reportFormat'].default,'both');
+ assert.equal(validateSetting('tvijo.orchestration.workerPolicy','sol-claude'),'sol-claude');assert.throws(()=>validateSetting('tvijo.orchestration.workerPolicy','sol-claude-unavailable'));
 });

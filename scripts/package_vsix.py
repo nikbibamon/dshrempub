@@ -34,6 +34,7 @@ def build(repo, output):
                 "package.json", "extension.js", "workspace.js",
                 "README.md", "CHANGELOG.md", "PRIVACY.md",
                 "package.nls.json", "package.nls.ru.json", "settings.example.json",
+                "media/learning-guide.html",
             }
             or (rel.parts[0] == "lib" and rel.suffix == ".js")
             or (rel.parts[0] == "media" and rel.suffix in {".svg", ".png", ".jpg"})
@@ -98,7 +99,7 @@ def build(repo, output):
     for suffix, mime in {
         "js": "application/javascript", "json": "application/json",
         "md": "text/markdown", "svg": "image/svg+xml", "png": "image/png",
-        "jpg": "image/jpeg", "vsixmanifest": "text/xml",
+        "jpg": "image/jpeg", "html": "text/html", "vsixmanifest": "text/xml",
     }.items():
         ET.SubElement(types, "Default", {"Extension": suffix, "ContentType": mime})
     files["[Content_Types].xml"] = ET.tostring(types, encoding="utf-8", xml_declaration=True)

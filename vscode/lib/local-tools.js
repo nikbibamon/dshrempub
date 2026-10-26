@@ -381,7 +381,7 @@ async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
   return { ok: true, path: action.path, bytes: Buffer.byteLength(content, 'utf8') };
 }
 
-function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {}, planInspect = null }) {
+function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {}, planInspect = null, codeIntelligence = null }) {
   return {
     root,
     async execute(action, context = {}) {
@@ -398,6 +398,11 @@ function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite =
           if(Object.keys(action).some(key=>!['tool','operation'].includes(key)) || !['pwd','buffer_status','buffer_diff_stat'].includes(action.operation))throw new Error('Unknown Plan inspection operation or parameters.');
           if(typeof planInspect!=='function')return {ok:false,refused:true,reason:'plan_inspection_unavailable'};
           const value=await planInspect(action.operation,{signal:context.signal || signal});await guard();return {ok:true,...value};
+        }
+        case 'code_intelligence': {
+          if(Object.keys(action).some(key=>!['tool','operation','path','line','column'].includes(key)) || !['symbols','definition','references'].includes(action.operation))throw new Error('Unknown code intelligence operation or parameters.');
+          if(typeof codeIntelligence!=='function')return {ok:false,refused:true,reason:'code_intelligence_unavailable'};
+          const value=await codeIntelligence(action,{signal:context.signal || signal});await guard();return value;
         }
         case 'write_file': return await writeFile(root, action, confirmWrite, applyWrite, beforeWrite, 'write_file');
         case 'replace_in_file': return await replaceInFile(root, action, confirmWrite, applyWrite, beforeWrite);

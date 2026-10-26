@@ -8,6 +8,20 @@ const path = require('node:path');
 const { parseAction, runAgent } = require('../lib/agent');
 const { createTools, safePath } = require('../lib/local-tools');
 
+test('Agent offers bounded native code intelligence in Plan and explains unavailable evidence', async () => {
+  const { systemPrompt, TOOL_HELP }=require('../lib/agent');
+  const actions=TOOL_HELP.split('\n').map(line=>JSON.parse(line)).filter(action=>action.tool==='code_intelligence');
+  assert.deepEqual(actions.map(action=>action.operation),['symbols','definition','references']);
+  let step=0;
+  const executed=[];
+  const result=await runAgent({goal:'Locate the definition',planMode:true,maxSteps:3,tools:{execute:async action=>{
+    executed.push(action);return {ok:true,status:'unavailable',results:[]};
+  }},ask:async()=>({content:JSON.stringify(++step===1?actions[1]:{tool:'finish',status:'blocked',answer:'Language provider unavailable; bounded text search is required.'})})});
+  assert.equal(result.status,'blocked');assert.equal(executed[0].operation,'definition');
+  assert.match(systemPrompt({planMode:true}),/code_intelligence is read-only in Plan and Act/);
+  assert.match(systemPrompt({planMode:true}),/Empty or unavailable results are not proof/);
+});
+
 async function workspace() {
   const base = process.env.TVIJO_FIT_TEST_TMP || os.tmpdir();
   await fs.mkdir(base, { recursive: true });

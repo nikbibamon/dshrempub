@@ -24,6 +24,7 @@ const {createContextSelection} = require('./lib/context-selection');
 const {createRulesHost} = require('./lib/rules-host');
 const {createSyntaxHost} = require('./lib/syntax-host');
 const planInspection = require('./lib/plan-inspect');
+const codeIntelligence = require('./lib/code-intelligence');
 const quickEdit = require('./lib/quick-edit');
 const { runAgent } = require('./lib/agent');
 const { createOrchestrator } = require('./lib/orchestration');
@@ -834,6 +835,7 @@ function activate(context) {
       const commandSession = mapSession(auth);
       const tools = createTools({
         root: folder.uri.fsPath,
+        codeIntelligence:(action,{signal}) => codeIntelligence.inspect({vscode,root:folder.uri.fsPath,action,guard,signal}),
         planInspect:(operation,{signal}) => planInspection.inspect({vscode,root:folder.uri.fsPath,operation,guard,signal}), guard, signal:abort.signal,
         onCommandLifecycle: observeCommand(auth,commandSession),
         confirmRun: async info => {
@@ -2008,6 +2010,29 @@ function activate(context) {
     await showPrivateDocument('markdown', conversationExport.exportConversation(history, { knownSecrets }), auth);
   });
   command('tvijo.help', () => showDocument('markdown', '# Tvijo DSHREM ' + (context.extension?.packageJSON?.version || require('./package.json').version) + '\n\n' + L('If an update still shows old behavior, use **Tvijo: Reload window**. Right-click a folder in Explorer → **Work in Tvijo**, or use the folder button in chat. Agent mode reads, edits and tests in that folder with confirmations; Full access requires explicit approval. Chat answers without tools.','Если после обновления поведение не изменилось, выполните **Tvijo: Reload window**. Нажмите правой кнопкой по папке в Explorer → **Work in Tvijo** или выберите папку кнопкой в чате. Агент читает, правит и тестирует с подтверждениями; полный доступ требует явного согласия. Чат отвечает без инструментов.') + '\n\nClick **Attach** to choose a file on your computer, paste a PNG/JPG screenshot, or drop a file into the chat. Use **Workspace** or `/attach path/to/file` for files on the SSH host. Select code and click **Selection** to attach only those lines.\n\nImages use local text extraction (OCR); the model does not see visual layout. Files are context for the next question. Knowledge-base uploads are a separate, confirmed action. Nothing is sent to the model until **Ask**. Each question has a $1 cap. Chat answers questions and suggests changes. Use Create isolated coding task to explicitly upload selected source and immutable tests, run a bounded offline test profile, review concrete diffs and explicitly apply unchanged targets.\n\n' + L('Use **Tvijo: Data & privacy** for read-only server preferences and **Tvijo: Resources** for verified public links. Both are in Settings and how it works and All commands.','Используйте **Tvijo: Data & privacy** для просмотра настроек сервера и **Tvijo: Resources** для проверенных ссылок. Обе команды доступны в настройках и списке всех команд.') + '\n\n' + ACTIONS.map(([, label, detail]) => `- **${label}**${detail ? ` — ${detail}` : ''}`).join('\n')));
+
+  command('tvijo.openLearningGuide', async () => {
+    // Only the packaged, reviewed guide is executable here. No task path,
+    // server HTML or project content can become a script in this panel.
+    const handle = await fs.open(path.join(__dirname, 'media', 'learning-guide.html'), constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+    let html;
+    try {
+      const stat = await handle.stat();
+      if (!stat.isFile() || stat.size > 2 * 1024 * 1024) throw Error('Bundled learning guide is unavailable.');
+      const buffer = Buffer.alloc(2 * 1024 * 1024 + 1);
+      const {bytesRead} = await handle.read(buffer, 0, buffer.length, 0);
+      if (bytesRead > 2 * 1024 * 1024) throw Error('Bundled learning guide exceeds its size limit.');
+      html = buffer.subarray(0, bytesRead).toString('utf8');
+    } finally { await handle.close(); }
+    if (!/<head(?:\s[^>]*)?>/i.test(html) || /<script\b[^>]*\bsrc\s*=/i.test(html)) throw Error('Bundled guide must contain only inline scripts.');
+    const nonce = randomUUID().replace(/-/g, '');
+    const policy = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none';">`;
+    html = html.replace(/<script\b([^>]*)>/gi, (_, attributes) => `<script nonce="${nonce}"${attributes.replace(/\snonce\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')}>`);
+    html = html.replace(/<head(?:\s[^>]*)?>/i, match => match + policy);
+    const panel = vscode.window.createWebviewPanel('tvijo.learningGuide', L('Tvijo · Learning guide', 'Tvijo · Учебник'), vscode.ViewColumn.Active, {enableScripts: true, localResourceRoots: []});
+    panel.webview.html = html;
+    context.subscriptions.push(panel);
+  });
 
   command('tvijo.signIn', async () => {
     ensureIdle();

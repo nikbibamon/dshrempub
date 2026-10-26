@@ -85,7 +85,7 @@ function updateOptions(row,view){
  if(row.key==='tvijo.service')view.input.disabled=!runtime.sharedProject||!runtime.services?.length;
  const sig=JSON.stringify([locale,items,current,row.key==='tvijo.orchestration.workerPolicy'?runtime.orchestration:null]);if(view.optionsSignature===sig)return;
  view.optionsSignature=sig;view.input.replaceChildren();
- for(const item of items){const name=localized(item.name||item.title)||enumLabel(row,item.id);const option=node('option',name+(item.title?' · '+item.id:'')+(item.category?' · '+localized(item.category):''));option.value=item.id;if(row.key==='tvijo.orchestration.workerPolicy'&&runtime.orchestration?.policies?.find(p=>p.id===item.id)?.available===false)option.disabled=true;view.input.appendChild(option);}
+ for(const item of items){const name=localized(item.name||item.title)||enumLabel(row,item.id);const option=node('option',name+(item.title?' · '+item.id:'')+(item.category?' · '+localized(item.category):''));option.value=item.id;if(row.key==='tvijo.orchestration.workerPolicy'&&runtime.orchestration&&runtime.orchestration.policies?.find(p=>p.id===item.id)?.available!==true)option.disabled=true;view.input.appendChild(option);}
  if(!items.some(item=>item.id===current)){const option=node('option',String(current)+' · '+L('unavailable / not in loaded catalog','недоступно / нет в загруженном каталоге'));option.value=current;view.input.appendChild(option);}
  view.input.value=current;
 }

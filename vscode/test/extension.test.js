@@ -2872,7 +2872,7 @@ test('0.10.8 release gate G: symlink volume, default Auto, saved edit, test and 
   const beforeWarnings=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,beforeWarnings,'ZERO approvals during default Auto task');assert.equal(x.app.posts.find(p=>p.type==='agent' && p.event?.type==='start').event.maxSteps,60);
   assert.equal(await fs.readFile(x.file,'utf8'),'50\n');const check=x.results().find(r=>r.stdout?.includes('GATE_TEST_GREEN'));assert.equal(check?.ok,true,JSON.stringify(x.results()));
   assert.equal(git('rev-list','--count','HEAD'),'2');assert.equal(git('diff-tree','--no-commit-id','--name-only','-r','HEAD'),'x.txt');assert.equal(git('diff','--cached','--name-only'),'user-staged.txt');assert.equal(git('diff','--cached','--','x.txt'),'');assert.equal(git('diff','--name-only'),'dirty.txt');
-  const msg=git('show','-s','--format=%B');assert.match(msg,/Tvijo-Agent: tvijo-dshrem 0\.10\.11/);assert.match(msg,/Tvijo-Model: served-gate-model/);assert.match(msg,/Co-Authored-By:/);
+  const msg=git('show','-s','--format=%B');assert.equal(msg.split('\n').find(line=>line.startsWith('Tvijo-Agent:')),`Tvijo-Agent: tvijo-dshrem ${require('../package.json').version}`);assert.match(msg,/Tvijo-Model: served-gate-model/);assert.match(msg,/Co-Authored-By:/);
   assert.equal(execFileSync('git',['--git-dir='+remote,'rev-parse','HEAD'],{env,encoding:'utf8'}),remoteBefore);
   const calls=x.calls();assert.match(JSON.stringify(calls),/CANARY_B_FOLLOW_STYLE/);assert.doesNotMatch(JSON.stringify(calls),/CANARY_A_MUST_NOT_LOAD/);
   state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.account.identity.email,'gate@example.test');assert.equal(state.runtimeVersion,require('../package.json').version);assert.ok(state.loadedRules.some(r=>r.file==='AGENTS.md'));
@@ -3048,7 +3048,7 @@ test('DSH production native commit preserves private Undo identity and verified 
   await x.run();let state=x.app.posts.filter(p=>p.type==='state').at(-1);const index=state.messages.findIndex(row=>row.autoCommit);assert.ok(index>=0);
   const message=x.git('show','-s','--format=%B',state.messages[index].autoCommit.hash),nonce=message.match(/^Tvijo-Commit-Nonce: ([a-f0-9]{64})$/m)?.[1];
   assert.ok(nonce);assert.equal(JSON.stringify(x.app.posts).includes(nonce),false);assert.deepEqual(Object.keys(state.messages[index].autoCommit),['hash']);
-  assert.match(message,/Tvijo-Agent: tvijo-dshrem 0\.10\.11/);assert.match(message,/Tvijo-Model: gpt-6\.1-sol/);assert.doesNotMatch(message,/Tvijo-Model:.*ds41f/);
+  assert.equal(message.split('\n').find(line=>line.startsWith('Tvijo-Agent:')),`Tvijo-Agent: tvijo-dshrem ${require('../package.json').version}`);assert.match(message,/Tvijo-Model: gpt-6\.1-sol/);assert.doesNotMatch(message,/Tvijo-Model:.*ds41f/);
   await x.app.receive({type:'undoCommit',index,scopeKey:state.scopeKey});assert.equal(x.git('rev-parse','HEAD'),x.head);
   state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.messages[index].autoCommit,undefined);assert.match(state.messages[index].content,/Commit undone/);
   assert.equal(await fs.readFile(path.join(x.root,'code.txt'),'utf8'),x.content);assert.equal(x.app.errors.length,0);

@@ -125,3 +125,14 @@ test('shared service controls lead to a project first and only then to its workf
  assert.equal(select.disabled,true);const button=app.card('tvijo.service').children.find(c=>c.textContent==='Choose a shared project first');button.handlers.click();assert.equal(app.messages.at(-1).id,'chooseProject');
  app.receive({type:'settingsValues',revision:1,values:{},runtime:{sharedProject:true,services:[{id:'standard',name:'Standard'}]}});assert.equal(select.disabled,false);assert.equal(button.textContent,'Choose shared workflow');button.handlers.click();assert.equal(app.messages.at(-1).id,'chooseWorkflow');
 });
+
+test('sol-claude displays the triad and an unadvertised policy is unavailable without changing saved values',()=>{
+ const {HELP_OVERRIDES}=require('../lib/settings-copy');
+ assert.match(HELP_OVERRIDES['orchestration.workerPolicy'][0],/three-participant triad.*ds41f coordinator, Sol implementation, Claude read-only review/);
+ assert.match(HELP_OVERRIDES['orchestration.workerPolicy'][1],/тройки/);
+ const app=guide({values:{'tvijo.orchestration.workerPolicy':'sol-claude'},runtime:{orchestration:{policies:[{id:'sol',available:true}]}}});
+ const input=app.input('tvijo.orchestration.workerPolicy');
+ assert.equal(input.value,'sol-claude');assert.equal(input.children.find(n=>n.value==='sol-claude').disabled,true);
+ app.receive({type:'settingsValues',revision:1,values:{'tvijo.orchestration.workerPolicy':'sol-claude'},runtime:{orchestration:{policies:[{id:'sol-claude',available:true}]}}});
+ assert.equal(app.input('tvijo.orchestration.workerPolicy').children.find(n=>n.value==='sol-claude').disabled,undefined);
+});

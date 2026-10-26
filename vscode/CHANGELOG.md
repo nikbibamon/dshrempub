@@ -1,3 +1,15 @@
+# 0.10.14 — 2026-10-26
+
+- Add read-only `code_intelligence` actions for document symbols, definitions and references through language extensions already installed in the editor. Available in Plan and Agent; no model call is made by the provider query itself.
+- Keep navigation inside the selected trusted workspace, filter returned locations, bound output and discard stale, cancelled or late provider results. Missing or partial provider results remain explicit.
+- Add **Tvijo: Open learning guide**, a bundled offline Russian handbook with a light rainbow design, examples, project setup, context selection, model budgets and verification steps.
+- Keep all existing user settings and model routes. The separate Python DSHREM LSP/context pilot remains an opt-in host experiment; it is not automatically activated by this extension.
+- Publish exact archive hashes and retain earlier releases. Windows editor activation and native language-provider evidence are recorded separately by the TvijoCode release workflow.
+
+# 0.10.13 · prepared, unpublished
+
+Expose the host-advertised Sol + Claude triad in EN/RU settings. Preserve account, API and worker defaults. Installation readiness and subscription quota remain separate checks.
+
 ## 0.10.11 — 2026-10-24
 
 - Save settings automatically and reflect native configuration changes without a refresh button. Keep draft text and focus through background updates; reject stale replies and show failed saves.

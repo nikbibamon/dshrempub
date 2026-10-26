@@ -90,6 +90,10 @@ class ReleaseCheckTests(unittest.TestCase):
         packager.build(CATALOG.parents[1], self.vsix)
         self.write_catalog()
         self.assertEqual(check(self.catalog, self.vsix)['version'], self.version)
+        with zipfile.ZipFile(self.vsix) as archive:
+            guide = archive.read('extension/media/learning-guide.html')
+            self.assertEqual(guide, (CATALOG.parents[1] / 'vscode/media/learning-guide.html').read_bytes())
+            self.assertIn(b'text/html', archive.read('[Content_Types].xml'))
 
     def test_wrong_package_identity_is_rejected_even_if_manifest_agrees(self):
         for field, value, attribute in [('name', 'other-extension', 'Id'), ('publisher', 'other-publisher', 'Publisher')]:

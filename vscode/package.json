@@ -2,7 +2,7 @@
   "name": "tvijo-dshrem",
   "displayName": "Tvijo DSHREM",
   "description": "Managed coding and bounded reviews for shared projects with a per-task spending cap. Provider API credentials remain on the service.",
-  "version": "0.10.11",
+  "version": "0.10.14",
   "repository": {
     "type": "git",
     "url": "https://github.com/nikbibamon/dshrempub.git",
@@ -44,6 +44,7 @@
       ]
     },
     "commands": [
+      {"command": "tvijo.openLearningGuide", "title": "Tvijo: Open learning guide"},
       {
         "command": "tvijo.chooseWorkspace",
         "title": "Choose active local workspace",
@@ -661,14 +662,16 @@
           "enum": [
             "sol",
             "sol-astra",
-            "sol-astra-claude"
+            "sol-astra-claude",
+            "sol-claude"
           ],
           "markdownDescription": "%tvijo.orchestration.workerPolicy.description%",
           "scope": "machine",
           "enumDescriptions": [
             "%tvijo.orchestration.workerPolicy.enum.0%",
             "%tvijo.orchestration.workerPolicy.enum.1%",
-            "%tvijo.orchestration.workerPolicy.enum.2%"
+            "%tvijo.orchestration.workerPolicy.enum.2%",
+            "%tvijo.orchestration.workerPolicy.enum.3%"
           ]
         },
         "tvijo.orchestration.controllerPath": {
@@ -755,6 +758,7 @@
     }
   },
   "scripts": {
-    "test": "node ../scripts/test-runner.mjs --extension"
+    "test": "node ../scripts/test-runner.mjs --extension",
+    "compile": "node scripts/compile.cjs"
   }
 }

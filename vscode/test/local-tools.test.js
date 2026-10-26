@@ -8,6 +8,22 @@ const os = require('node:os');
 const { createTools, autoCommand, cleanEnv } = require('../lib/local-tools');
 const { autoWritePolicy } = require('../lib/modes');
 
+test('native code intelligence is read-only in Plan with explicit unavailable and guarded dispatch', async () => {
+  const root = await workspace(), controller = new AbortController();
+  const action = {tool:'code_intelligence',operation:'symbols',path:'source.js'};
+  assert.equal((await createTools({root}).execute(action,{planMode:true})).reason,'code_intelligence_unavailable');
+  let calls=0,guards=0;
+  const tools=createTools({root,guard:async()=>{guards++;},codeIntelligence:async(actual,context)=>{
+    calls++;assert.deepEqual(actual,action);assert.equal(context.signal,controller.signal);
+    return {ok:true,results:[{path:'source.js',name:'value',line:1,column:1}]};
+  }});
+  assert.equal((await tools.execute(action,{planMode:true,signal:controller.signal})).results[0].name,'value');
+  assert.equal(calls,1);assert.equal(guards,2);
+  await assert.rejects(tools.execute({...action,command:'arbitrary.command'}),/Unknown code intelligence/);
+  await assert.rejects(tools.execute({...action,operation:'rename'}),/Unknown code intelligence/);
+  assert.equal(calls,1);
+});
+
 async function workspace() {
   const parent = process.env.TVIJO_TEST_ARTIFACTS || os.tmpdir();
   const root = await fs.mkdtemp(path.join(parent,'slice2-tools-'));
