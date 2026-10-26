@@ -1,3 +1,8 @@
+## 0.10.15 — 2026-10-26
+
+- Link the bundled offline guide to the multilingual handbook at https://tvijo.com/guide. The standalone guide defaults to English and offers Russian, Ukrainian and additional translated editions.
+- Includes the native editor navigation and preserved settings described below. The0.10.14 candidate remains an unpublished, preserved build.
+
 # 0.10.14 — 2026-10-26
 
 - Add read-only `code_intelligence` actions for document symbols, definitions and references through language extensions already installed in the editor. Available in Plan and Agent; no model call is made by the provider query itself.
