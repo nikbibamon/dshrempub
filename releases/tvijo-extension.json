@@ -9,34 +9,34 @@
       "ru": "Помощь с кодом: выбранный контекст, проверяемые правки и задачи с лимитом."
     }
   },
-  "latest_version": "0.10.14",
+  "latest_version": "0.10.15",
   "channel": "preview",
   "publication": {
     "status": "prepared",
     "published_at": null,
     "note": {
-      "en": "Checksum-verified0.10.14 candidate prepared with native editor navigation and offline guide. GitHub publication and native Windows acceptance have separate receipts.",
-      "ru": "Кандидат0.10.14 с проверенным SHA: навигация через редактор и встроенный учебник. Публикация GitHub и приёмка Windows подтверждаются отдельными квитанциями."
+      "en": "Verified0.10.15 package prepared with native navigation, offline handbook and multilingual tvijo.com/guide link. GitHub publication and native Windows acceptance are recorded separately.",
+      "ru": "Проверенный пакет0.10.15: навигация по коду, встроенный учебник и ссылка на многоязычный tvijo.com/guide. Публикация GitHub и приёмка Windows фиксируются отдельно."
     }
   },
   "package": {
-    "filename": "tvijo-dshrem-0.10.14.vsix",
-    "sha256": "836531a71d8a3787694c4ce6495c1435c448d540bf7fa80cdf8b8c336f1823bb",
-    "bytes": 1129358,
+    "filename": "tvijo-dshrem-0.10.15.vsix",
+    "sha256": "3c41ee6f58714c079123b8c96c4a389f27cee7031400cd7c2cad5b468efd6017",
+    "bytes": 1129979,
     "editor_requirement": "^1.90.0",
-    "source_commit": "f6a118bca137e6368f4fb0b1d951dd92d32a74a5",
+    "source_commit": "0100108c57b2dd57a8d1de512a24371ea621f1bb",
     "verified_environment": "870 extension,7 runner and10 CLI checks passed;37 Chromium handbook checks; bounded DSHREM source review. Native Windows activation/provider smoke is a separate TvijoCode publication gate; no paid coding-session claim."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
-    "source": "https://github.com/nikbibamon/dshrempub/tree/f6a118bca137e6368f4fb0b1d951dd92d32a74a5",
-    "changelog": "https://github.com/nikbibamon/dshrempub/blob/f6a118bca137e6368f4fb0b1d951dd92d32a74a5/vscode/CHANGELOG.md",
+    "source": "https://github.com/nikbibamon/dshrempub/tree/0100108c57b2dd57a8d1de512a24371ea621f1bb",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/0100108c57b2dd57a8d1de512a24371ea621f1bb/vscode/CHANGELOG.md",
     "issues": "https://github.com/nikbibamon/dshrempub/issues"
   },
   "features": [
     {
       "id": "native-editor-navigation-guide",
-      "since": "0.10.14",
+      "since": "0.10.15",
       "title": {
         "en": "Native code navigation and offline learning guide",
         "ru": "Навигация по коду и встроенный учебник"
@@ -157,11 +157,35 @@
   ],
   "releases": [
     {
+      "version": "0.10.15",
+      "date": "2026-10-26",
+      "title": {
+        "en": "Native navigation and multilingual learning",
+        "ru": "Навигация по коду и многоязычное обучение"
+      },
+      "changes": [
+        {
+          "en": "Plan and Agent use installed editor language providers for bounded workspace symbols, definitions and references. Open the bundled practical guide from the Command Palette. Existing user settings are preserved.",
+          "ru": "Plan и Agent используют языковые службы редактора для поиска символов, определений и использований внутри проекта. Практический учебник открывается из палитры команд. Сохранённые настройки не меняются."
+        },
+        {
+          "en": "Open the offline guide in the editor or follow its link to tvijo.com/guide for English, Russian, Ukrainian and additional languages.",
+          "ru": "Откройте встроенный учебник в редакторе или перейдите по его ссылке на tvijo.com/guide: английский, русский, украинский и дополнительные языки."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Requires a trusted workspace and an installed language provider. Provider queries do not call a model; model turns still use normal accounting. The Python DSHREM LSP pilot remains separate and default-off.",
+          "ru": "Нужны доверенный проект и установленная языковая служба. Запрос навигации не вызывает модель; обращения модели учитываются обычным способом. Python LSP-пилот DSHREM остаётся отдельным и выключенным по умолчанию."
+        }
+      ]
+    },
+    {
       "version": "0.10.14",
       "date": "2026-10-26",
       "title": {
-        "en": "Native code navigation and offline learning guide",
-        "ru": "Навигация по коду и встроенный учебник"
+        "en": "Preserved unpublished0.10.14 candidate",
+        "ru": "Сохранённый неопубликованный кандидат0.10.14"
       },
       "changes": [
         {
