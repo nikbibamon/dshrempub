@@ -1,3 +1,34 @@
+## Windows editor 1.140.07195 / extension 0.10.15 — 2026-10-26
+
+The current Windows x64 editor bundles Tvijo DSHREM **0.10.15**, including
+native symbols, definitions and references and the offline learning guide.
+The previous Windows 0.1.0 package with extension 0.5.5 remains archived.
+Editor and extension version numbers identify separate products.
+
+- [Windows release, ZIP and per-user EXE](https://github.com/nikbibamon/tvijocode/releases/tag/1.140.07195)
+- [Download and installation instructions](https://dsh.tvijo.com/download#windows)
+- [Native Windows receipt](https://github.com/nikbibamon/tvijocode/releases/download/1.140.07195/WINDOWS_SMOKE.json)
+- [Exact sizes, SHA-256 and source commit](https://github.com/nikbibamon/tvijocode/releases/download/1.140.07195/BUILD_RECEIPT.json)
+- [Standalone extension 0.10.15](https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.15)
+
+Observed 2026-10-26: anonymous EXE and ZIP downloads match their published
+SHA-256 files and build receipt. Native Windows CI passed CLI startup,
+extension activation, the guide and code navigation; all 71 embedded files
+match the published VSIX. The ZIP SHA-256 is
+`d4c07e28efac0e91ec7829d9f496ae9b22b9a837127638052f8a63b86eb2512f`
+(219,811,437 bytes). EXE SHA-256 is
+`2cbf5dcadf6be3b8e1233bccd91d8676ac3ed145a4ed6ff0495bc17a798f6fef`
+(156,594,949 bytes).
+
+The EXE install/upgrade/uninstall flow, interactive sign-in and a complete paid
+coding session remain untested. Builds are unsigned and auto-update is disabled;
+keep the previous editor folder and install updates manually. Existing extension
+settings are preserved; installing the standalone VSIX requires Reload Window.
+macOS remains on its separate 0.1.0 preview; Marketplace remains deferred.
+MCP is a separate npm product, currently `tvijo-dshrem-mcp@0.1.1`.
+The preserved 0.10.14 draft and failed Windows CI40379292758 are not promoted
+as working downloads. No binary, tag or previous release was replaced.
+
 ## 0.10.15 — 2026-10-26
 
 - Link the bundled offline guide to the multilingual handbook at https://tvijo.com/guide. The standalone guide defaults to English and offers Russian, Ukrainian and additional translated editions.

@@ -15,8 +15,8 @@
     "status": "published",
     "published_at": "2026-10-26",
     "note": {
-      "en": "GitHub preview0.10.15 and checksum-verified VSIX are published. Open the bundled guide or multilingual tvijo.com/guide. Marketplace remains deferred. Reload Window activates installation.",
-      "ru": "GitHub-preview0.10.15 и VSIX с проверенным SHA опубликованы. Доступны встроенный учебник и многоязычный tvijo.com/guide. Marketplace остаётся отложенным. Reload Window активирует установку."
+      "en": "GitHub preview 0.10.15 and checksum-verified VSIX are published. Windows editor 1.140.07195 now includes this extension and passed native activation and code-navigation checks. Open Download for the ZIP and EXE. Marketplace remains deferred; reload after VSIX installation.",
+      "ru": "GitHub-preview 0.10.15 и VSIX с проверенным SHA опубликованы. Windows-редактор 1.140.07195 включает это расширение и прошёл нативные проверки активации и навигации. ZIP и EXE доступны на странице загрузки. Marketplace отложен; после установки VSIX перезагрузите окно."
     }
   },
   "package": {
@@ -25,7 +25,7 @@
     "bytes": 1129979,
     "editor_requirement": "^1.90.0",
     "source_commit": "0100108c57b2dd57a8d1de512a24371ea621f1bb",
-    "verified_environment": "870 extension,7 runner and10 CLI checks passed;37 Chromium handbook checks; bounded DSHREM source review. Native Windows activation/provider smoke is a separate TvijoCode publication gate; no paid coding-session claim."
+    "verified_environment": "Windows native CI40385199326 passed for editor1.140.07195: CLI, embedded0.10.15 activation, offline guide, symbols/definition/references;71embedded files match publicVSIX. Anonymous ZIP/EXE SHA and sizes verified2026-10-26. Interactive sign-in, EXE installation and full paid coding sessions remain untested."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
