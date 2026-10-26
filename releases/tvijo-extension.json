@@ -1,6 +1,6 @@
 {
   "schema": "tvijo.extension-release/v1",
-  "as_of": "2026-10-24",
+  "as_of": "2026-10-26",
   "product": {
     "id": "tvijo-dshrem-vscode",
     "name": "Tvijo DSHREM for VS Code",
@@ -9,31 +9,43 @@
       "ru": "Помощь с кодом: выбранный контекст, проверяемые правки и задачи с лимитом."
     }
   },
-  "latest_version": "0.10.11",
+  "latest_version": "0.10.14",
   "channel": "preview",
   "publication": {
-    "status": "published",
-    "published_at": "2026-10-24",
+    "status": "prepared",
+    "published_at": null,
     "note": {
-      "en": "GitHub release and checksum-verified VSIX published. Marketplace remains deferred. Reload Window activates installation.",
-      "ru": "GitHub-релиз и VSIX с проверенной контрольной суммой опубликованы. Marketplace остаётся отложенным. Reload Window активирует установку."
+      "en": "Checksum-verified0.10.14 candidate prepared with native editor navigation and offline guide. GitHub publication and native Windows acceptance have separate receipts.",
+      "ru": "Кандидат0.10.14 с проверенным SHA: навигация через редактор и встроенный учебник. Публикация GitHub и приёмка Windows подтверждаются отдельными квитанциями."
     }
   },
   "package": {
-    "filename": "tvijo-dshrem-0.10.11.vsix",
-    "sha256": "59e8b2d3bc9857c7fdd62724d893d1decc92e5f7bbde7d462c8d8cbd9157c97b",
-    "bytes": 1029148,
+    "filename": "tvijo-dshrem-0.10.14.vsix",
+    "sha256": "836531a71d8a3787694c4ce6495c1435c448d540bf7fa80cdf8b8c336f1823bb",
+    "bytes": 1129358,
     "editor_requirement": "^1.90.0",
-    "source_commit": "cc67128eb95c3596ea93b81852734c51e762c550",
-    "verified_environment": "Final tag CI:851 extension checks,7 runner checks and10 CLI checks passed; independently rebuilt VSIX matches published SHA256. EN/RU Chromium920/3604flows and two actual private runtime report previews. Interactive installed editor not observed."
+    "source_commit": "f6a118bca137e6368f4fb0b1d951dd92d32a74a5",
+    "verified_environment": "870 extension,7 runner and10 CLI checks passed;37 Chromium handbook checks; bounded DSHREM source review. Native Windows activation/provider smoke is a separate TvijoCode publication gate; no paid coding-session claim."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
-    "source": "https://github.com/nikbibamon/dshrempub/tree/cc67128eb95c3596ea93b81852734c51e762c550",
-    "changelog": "https://github.com/nikbibamon/dshrempub/blob/cc67128eb95c3596ea93b81852734c51e762c550/vscode/CHANGELOG.md",
+    "source": "https://github.com/nikbibamon/dshrempub/tree/f6a118bca137e6368f4fb0b1d951dd92d32a74a5",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/f6a118bca137e6368f4fb0b1d951dd92d32a74a5/vscode/CHANGELOG.md",
     "issues": "https://github.com/nikbibamon/dshrempub/issues"
   },
   "features": [
+    {
+      "id": "native-editor-navigation-guide",
+      "since": "0.10.14",
+      "title": {
+        "en": "Native code navigation and offline learning guide",
+        "ru": "Навигация по коду и встроенный учебник"
+      },
+      "description": {
+        "en": "Plan and Agent use installed editor language providers for bounded workspace symbols, definitions and references. Open the bundled practical guide from the Command Palette. Existing user settings are preserved.",
+        "ru": "Plan и Agent используют языковые службы редактора для поиска символов, определений и использований внутри проекта. Практический учебник открывается из палитры команд. Сохранённые настройки не меняются."
+      }
+    },
     {
       "id": "reactive-settings-private-reports",
       "since": "0.10.11",
@@ -144,6 +156,30 @@
     }
   ],
   "releases": [
+    {
+      "version": "0.10.14",
+      "date": "2026-10-26",
+      "title": {
+        "en": "Native code navigation and offline learning guide",
+        "ru": "Навигация по коду и встроенный учебник"
+      },
+      "changes": [
+        {
+          "en": "Plan and Agent use installed editor language providers for bounded workspace symbols, definitions and references. Open the bundled practical guide from the Command Palette. Existing user settings are preserved.",
+          "ru": "Plan и Agent используют языковые службы редактора для поиска символов, определений и использований внутри проекта. Практический учебник открывается из палитры команд. Сохранённые настройки не меняются."
+        },
+        {
+          "en": "Preserve inherited0.10.13 host-policy UI fixes; no automatic model or permission changes.",
+          "ru": "Сохранены доработки интерфейса политик хоста0.10.13; модели и права автоматически не меняются."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Requires a trusted workspace and an installed language provider. Provider queries do not call a model; model turns still use normal accounting. The Python DSHREM LSP pilot remains separate and default-off.",
+          "ru": "Нужны доверенный проект и установленная языковая служба. Запрос навигации не вызывает модель; обращения модели учитываются обычным способом. Python LSP-пилот DSHREM остаётся отдельным и выключенным по умолчанию."
+        }
+      ]
+    },
     {
       "version": "0.10.11",
       "date": "2026-10-24",
