@@ -1,3 +1,21 @@
+## Remote SSH server for Windows editor 1.140.07195 — 2026-10-26
+
+The missing Linux x64 remote extension host is now published in the existing
+[Windows release](https://github.com/nikbibamon/tvijocode/releases/tag/1.140.07195).
+Open Remote SSH can download its expected filename instead of receiving404.
+The exact Windows runtime commit and pinned Tvijo0.10.15 VSIX are retained.
+Native Linux CLI, isolated VSIX installation/listing and loopback startup passed
+in [CI40397971052](https://github.com/nikbibamon/tvijocode/actions/runs/40397971052).
+The71 bundled extension files match the published VSIX. Stable product policy
+permits Tvijo VSIX updates while preserving existing built-in update entries.
+
+Anonymous server download:88,165,345 bytes; SHA-256
+`533f88ad1b623b13deafca0016a28090c965edd5f9b66503b3d507d12746c1c8`.
+[Build pins and native test limits](https://github.com/nikbibamon/tvijocode/releases/download/1.140.07195/REMOTE_SERVER_RECEIPT.json).
+Original EXE/ZIP, receipts, release tag, previous releases and failed artifacts
+are preserved. Actual Windows SSH connection and remote extension activation/chat
+remain unverified; unified Codex/Claude/Copilot sessions are not implemented yet.
+
 ## Windows editor 1.140.07195 / extension 0.10.15 — 2026-10-26
 
 The current Windows x64 editor bundles Tvijo DSHREM **0.10.15**, including

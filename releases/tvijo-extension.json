@@ -15,8 +15,8 @@
     "status": "published",
     "published_at": "2026-10-26",
     "note": {
-      "en": "GitHub preview 0.10.15 and checksum-verified VSIX are published. Windows editor 1.140.07195 now includes this extension and passed native activation and code-navigation checks. Open Download for the ZIP and EXE. Marketplace remains deferred; reload after VSIX installation.",
-      "ru": "GitHub-preview 0.10.15 и VSIX с проверенным SHA опубликованы. Windows-редактор 1.140.07195 включает это расширение и прошёл нативные проверки активации и навигации. ZIP и EXE доступны на странице загрузки. Marketplace отложен; после установки VSIX перезагрузите окно."
+      "en": "GitHub preview 0.10.15 and checksum-verified VSIX are published. Windows editor 1.140.07195 now includes this extension and passed native activation and code-navigation checks. Open Download for the ZIP and EXE. Marketplace remains deferred; reload after VSIX installation. The matching Linux x64 Remote SSH server is now published with native CLI/VSIX/startup checks; the Windows SSH session and remote chat remain unverified.",
+      "ru": "GitHub-preview 0.10.15 и VSIX с проверенным SHA опубликованы. Windows-редактор 1.140.07195 включает это расширение и прошёл нативные проверки активации и навигации. ZIP и EXE доступны на странице загрузки. Marketplace отложен; после установки VSIX перезагрузите окно. Совпадающий Linux x64 сервер Remote SSH опубликован после проверок CLI, VSIX и запуска; подключение из Windows и удалённый чат ещё не проверены."
     }
   },
   "package": {
