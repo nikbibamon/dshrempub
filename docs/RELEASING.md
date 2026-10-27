@@ -24,3 +24,18 @@ Copying a VSIX into `<downloads-dir>/` is not a deployment by itself. Configure
 the download service to serve the exact versioned filenames and apply that
 deployment separately.
 
+
+## Rule: the published changelog is the single source of "what's new"
+
+The Marketplace Overview tab is `vscode/README.md`, frozen into each published version, and the
+Changelog tab is `vscode/CHANGELOG.md`. Write the release notes once, in `CHANGELOG.md`, then run
+
+```sh
+node vscode/scripts/sync-readme.cjs        # regenerates the README block and version line
+```
+
+`vscode/test/readme-changelog.test.js` and `scripts/package_vsix.py` refuse a README that does not
+announce the package version. After publishing, the same CHANGELOG entry goes to every surface:
+the git tag and GitHub release notes, the Marketplace version, and the site metadata
+(`releases/tvijo-extension.json`: `latest_version`, `publication`, `features`). A surface that
+shows an older version than Marketplace is a defect, not a "later" task.

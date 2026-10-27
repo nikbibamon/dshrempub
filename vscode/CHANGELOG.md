@@ -1,3 +1,8 @@
+## 0.10.21 — 2026-10-27
+
+- **The Marketplace Overview now shows the current release notes.** It still announced 0.10.14 while 0.10.20 was live. The "What's new" block and the version line in README.md are now generated from this changelog, and packaging refuses a README that does not announce the package version.
+- No functional changes from 0.10.20. The local bridge for Claude Code and Codex stays out of this release until its review findings are fixed.
+
 ## 0.10.20 — 2026-10-27
 
 - **Devstral agent steps no longer cut off.** Each Agent step asked every model for at most 2048 output tokens; Devstral reasons at length, ran out mid-answer and the step came back empty. Devstral steps now ask for 4096, the service's per-request ceiling. Other models are unchanged. The per-task budget still applies.

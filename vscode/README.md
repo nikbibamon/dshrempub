@@ -1,4 +1,13 @@
-## Native code navigation and learning guide (0.10.14)
+<!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
+## What's new in 0.10.21 — 2026-10-27
+
+- **The Marketplace Overview now shows the current release notes.** It still announced 0.10.14 while 0.10.20 was live. The "What's new" block and the version line in README.md are now generated from this changelog, and packaging refuses a README that does not announce the package version.
+- No functional changes from 0.10.20. The local bridge for Claude Code and Codex stays out of this release until its review findings are fixed.
+
+Earlier versions: the **Changelog** tab.
+<!-- changelog-latest:end -->
+
+## Native code navigation and learning guide (since 0.10.14)
 
 Plan and Agent can ask installed editor language extensions for document symbols,
 definitions and references before reading larger source files. The `code_intelligence`
@@ -51,7 +60,7 @@ Choose **Configuration file example** in the help section or run **Tvijo: Open c
 
 # Tvijo DSHREM for VS Code
 
-Version 0.10.9. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.21. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
@@ -641,9 +650,6 @@ response contract are available, states remain **Unknown**. This extension does 
 grant or change consent. Use **Tvijo: Resources** for the verified Learn, Knowledge
 base, Axes skills, privacy, terms and changelog pages. These commands are also in
 **Settings and how it works** and **All commands**.
-
-Version 0.10.0 is a prepared candidate. Backend integration, full test-suite and native
-host acceptance are pending; this note does not claim a published or installable release.
 
 ## Commands
 

@@ -45,6 +45,13 @@ def build(repo, output):
         if source.is_symlink() or not source.resolve().is_relative_to(root.resolve()):
             raise ValueError(f"Unsafe source: {name}")
         files["extension/" + rel.as_posix()] = source.read_bytes()
+    # The Marketplace Overview is README.md frozen into this version: it must announce this
+    # version, not an older one (0.10.14 stayed on the page while 0.10.20 was live).
+    readme = files["extension/README.md"].decode() if "extension/README.md" in files else ""
+    version = meta["version"]
+    if f"## What's new in {version}" not in readme or f"Version {version}. " not in readme:
+        raise ValueError(
+            f"README.md does not announce {version}; run: node vscode/scripts/sync-readme.cjs")
     for name in ["package.json", "extension.js", "workspace.js", "README.md",
                  "media/tvijo.svg"]:
         if "extension/" + name not in files:
