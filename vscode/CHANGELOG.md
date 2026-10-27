@@ -1,3 +1,12 @@
+## 0.10.18 — 2026-10-27
+
+- **Follow-up messages while the agent works.** Send stays available during an answer: a new message is queued under the composer and sent automatically when the current answer ends. Queued messages can be removed. If the current request is refused, the queue pauses and waits for Send now instead of firing on top of an error.
+- **The composer clears on send.** The question moves into the conversation at once and stays visible while the agent works; a refused request puts the text back.
+- **The chat survives switching tabs and opening settings.** The view keeps its state while hidden (Codex or Claude Code tab, Settings editor), so the running step log and the queue are not lost. A reloaded view still shows the question being answered.
+- **Error notices can be dismissed** with ×, so an old notice (for example, Telegram bot setup) no longer sits under the composer. The auto-commit toggle is disabled while a task runs instead of failing with "Wait for the current question".
+- **Mode help moved to ⚙.** The paragraph about presets, saved edits and the ! shell prefix is shown in chat settings instead of under the composer.
+- **Thinking words.** While the model thinks, the status line rotates playful verbs every ~3 seconds, like the DSHREM terminal (Wibbling, Reticulating… / Кумекаю, Колдую…). Reading, reserving and receipt stages keep their plain labels.
+
 ## 0.10.17 — 2026-10-27
 
 - **Clear message when a model step returns nothing usable.** The service now reports `model_output_unavailable` instead of a generic HTTP 502; the editor says that the step's cost is recorded and that no automatic retry was made. Every failed chat step names its task id, so its spending can be checked even when a proxy replaces the error body.
