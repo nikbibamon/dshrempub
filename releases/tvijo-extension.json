@@ -12,11 +12,11 @@
   "latest_version": "0.10.17",
   "channel": "preview",
   "publication": {
-    "status": "prepared",
-    "published_at": null,
+    "status": "published",
+    "published_at": "2026-10-27",
     "note": {
-      "en": "GitHub preview 0.10.17 is prepared: Full access without pauses, command chains and clear model-step errors. Marketplace remains deferred. Reload Window activates installation.",
-      "ru": "GitHub-preview 0.10.17 подготовлен: полный доступ без пауз, цепочки команд и понятные ошибки шага модели. Marketplace остаётся отложенным. Reload Window активирует установку."
+      "en": "GitHub preview 0.10.17 and checksum-verified VSIX are published; Tvijo Code 1.140.07214 for Windows embeds it with a matching Remote SSH server. Marketplace remains deferred. Reload Window activates installation.",
+      "ru": "GitHub-preview 0.10.17 и VSIX с проверенным SHA опубликованы; Tvijo Code 1.140.07214 для Windows содержит его вместе с парным сервером Remote SSH. Marketplace остаётся отложенным. Reload Window активирует установку."
     }
   },
   "package": {
