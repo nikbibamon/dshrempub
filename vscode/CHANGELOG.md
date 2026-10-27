@@ -1,3 +1,8 @@
+## 0.10.20 — 2026-10-27
+
+- **Devstral agent steps no longer cut off.** Each Agent step asked every model for at most 2048 output tokens; Devstral reasons at length, ran out mid-answer and the step came back empty. Devstral steps now ask for 4096, the service's per-request ceiling. Other models are unchanged. The per-task budget still applies.
+- Bridge note in ⚙ and these notes: a bridged message runs in the mode it names (default Agent with the chat's current preset), not "the current mode".
+
 ## 0.10.19 — 2026-10-27
 
 - **Bridge for local tools (opt-in).** With `tvijo.bridge.enabled`, the extension reads JSON messages (`{"text": "...", "mode": "agent|plan|chat", "from": "Claude Code"}`) from the `inbox` folder in its storage on this host and queues each one in the chat as if typed. Only regular files owned by the same account, up to 32 KiB, are accepted; they run with the current mode, including Full access, so the setting is off by default and ⚙ shows when it is on.

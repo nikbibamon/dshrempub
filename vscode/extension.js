@@ -1019,7 +1019,8 @@ function activate(context) {
             beforeChat:() => projectRulesHost.assertCurrent(agentRuleGrants),
             token: auth.access_token, messages: stepMessages, maxUsd: Math.min(1, Math.floor(remaining * 1e9) / 1e9), idempotencyKey,
             title: 'VS Code agent step ' + step + ': ' + goal.trim().slice(0, 50),
-            maxTokens: 2048, model: agentModel, mode: 'single', method: config.get('reasoningMethod', 'evidence-first'), signal,
+            // Devstral reasons at length and was cut off at 2048 (empty step); 4096 is the gateway ceiling.
+            maxTokens: agentModel === 'devstral' ? 4096 : 2048, model: agentModel, mode: 'single', method: config.get('reasoningMethod', 'evidence-first'), signal,
             onGrant: async grant => { if(grant.model)servedModels.add(grant.model);runJournals.task(recoveryKey,localAgentRunId,grant.id); await mapTask(auth, grant.id, {...grant, title:'Agent step ' + step, model:grant.model || agentModel, status:'running', startedAt:Date.now()}); await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); projectRulesHost.assertCurrent(agentRuleGrants); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
           }).catch(async error => {
             const pending = local.pending(auth.scope, idempotencyKey);

@@ -123,3 +123,8 @@ test('0.10.19 a bridge message starts thinking words at once and is labelled wit
   assert.equal(bubble.children[0].textContent, 'Claude Code');
   assert.equal(bubble.children[1].textContent, 'status?');
 });
+
+test('0.10.20 Devstral agent steps ask for the gateway output ceiling, other models keep 2048', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  assert.match(source, /maxTokens: agentModel === 'devstral' \? 4096 : 2048, model: agentModel/);
+});
