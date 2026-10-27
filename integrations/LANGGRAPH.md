@@ -19,7 +19,7 @@ const State = Annotation.Root({
 });
 const analyse = createDshremNode({
   token: process.env.DSHREM_TENANT_TOKEN,
-  apiBase: 'https://finedg.com/api/dshrem/v1',
+  apiBase: 'https://dsh.tvijo.com/api/dshrem/v1',
   onTask: ({taskId, requestId}) => console.log({taskId, requestId})
 });
 const graph = new StateGraph(State)

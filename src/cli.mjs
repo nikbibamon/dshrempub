@@ -21,7 +21,7 @@ Usage:
 
 The client sends requests to the remote DSHREM service. It does not execute
 generated code or run autonomous local tools. See docs/HELP.md for details.`;
-const VERSION = '0.1.0';
+const VERSION = '0.4.3';
 
 function option(args, name) { const i = args.indexOf(name); return i < 0 ? null : args[i + 1] ?? null; }
 function checkNode() { const major = Number(process.versions.node.split('.')[0]); if (major < 22) throw new Error('Node.js 22 or newer is required'); }
@@ -30,7 +30,7 @@ function printJson(value) { console.log(JSON.stringify(value, null, 2)); }
 async function login() {
   const device = await request('/auth/device', { method: 'POST', body: {} });
   if (!device?.device_code || !device?.user_code || !device?.verification_uri) throw new Error('Service returned an incomplete device authorization response');
-  console.log(`Open ${device.verification_uri} and enter code: ${device.user_code}`);
+  console.log(`Open ${device.verification_uri_complete || device.verification_uri} and approve code: ${device.user_code}`);
   const interval = Math.max(1, Number(device.interval) || 5) * 1000;
   const deadline = Date.now() + Math.max(1, Number(device.expires_in) || 600) * 1000;
   while (Date.now() < deadline) {
@@ -112,11 +112,12 @@ async function oneTurn(session, prompt, { json = false } = {}) {
   const messages = [...conversation(session), { role: 'user', content: prompt }];
   if (messages.length > 80 || Buffer.byteLength(JSON.stringify(messages), 'utf8') > 110 * 1024) throw new Error('Conversation exceeds the remote context bound. Start /new before creating another task grant.');
   const idempotencyKey = randomUUID();
-  session.pending_grant = { idempotency_key: idempotencyKey, status: 'requesting', created_at: new Date().toISOString() };
+  const grantRequest = { title: session.title, max_usd: '1', model: process.env.DSHREM_MODEL || 'coding', mode: process.env.DSHREM_MODE || 'single', method: process.env.DSHREM_METHOD || 'evidence-first', idempotency_key: idempotencyKey };
+  session.pending_grant = { idempotency_key: idempotencyKey, request: grantRequest, status: 'requesting', created_at: new Date().toISOString() };
   await saveSession(session);
   const grant = await request('/tasks', {
     method: 'POST', token: auth.access_token,
-    body: { title: session.title, max_usd: '1', model: 'coding', idempotency_key: idempotencyKey }
+    body: grantRequest
   });
   if (!grant?.id) throw new Error('Service returned a task without an id');
   delete session.pending_grant;
@@ -257,7 +258,7 @@ async function reconcileSession(id, cancel = false) {
     if (session.pending_grant) {
       const grant = await request('/tasks', {
         method: 'POST', token: auth.access_token,
-        body: { title: session.title, max_usd: '1', model: 'coding', idempotency_key: session.pending_grant.idempotency_key }
+        body: session.pending_grant.request || { title: session.title, max_usd: '1', model: 'coding', idempotency_key: session.pending_grant.idempotency_key }
       });
       if (!grant?.id) throw new Error('Idempotent grant recovery returned no task id; the grant key remains saved.');
       session.task_ids.push(grant.id);

@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 
-export const API_BASE = 'https://finedg.com/api/dshrem/v1';
+export const API_BASE = 'https://dsh.tvijo.com/api/dshrem/v1';
 export const APP_DIR = path.join(os.homedir(), '.config', 'dshrempub');
 export const AUTH_FILE = path.join(APP_DIR, 'auth.json');
 export const SESSIONS_DIR = path.join(APP_DIR, 'sessions');

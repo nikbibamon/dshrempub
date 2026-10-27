@@ -67,6 +67,9 @@ def build(repo, output):
     node(metadata, "DisplayName", text=meta["displayName"])
     node(metadata, "Description", text=meta["description"])
     node(metadata, "Categories", text=",".join(meta.get("categories", [])))
+    # Marketplace visibility is separate from package.json's npm private flag.
+    flags = ["Public"] + (["Preview"] if meta.get("preview") else [])
+    node(metadata, "GalleryFlags", text=" ".join(flags))
     properties = node(metadata, "Properties")
     for key, value in {
         "Microsoft.VisualStudio.Code.Engine": meta["engines"]["vscode"],
