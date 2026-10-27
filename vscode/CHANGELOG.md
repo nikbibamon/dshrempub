@@ -1,3 +1,9 @@
+## 0.10.19 — 2026-10-27
+
+- **Bridge for local tools (opt-in).** With `tvijo.bridge.enabled`, the extension reads JSON messages (`{"text": "...", "mode": "agent|plan|chat", "from": "Claude Code"}`) from the `inbox` folder in its storage on this host and queues each one in the chat as if typed. Only regular files owned by the same account, up to 32 KiB, are accepted; they run with the current mode, including Full access, so the setting is off by default and ⚙ shows when it is on.
+- **A push is visible at once.** When a bridge message arrives, the Tvijo view comes forward, the status line starts the thinking words (Cooking…, Mulling… / Кумекаю…), and the question appears in the conversation labelled with its sender (for example Claude Code) instead of You.
+- **Telegram bot setup moved to ⚙.** When `tvijo.telegram.enabled` is on but the bot is not set up for the signed-in account, chat settings show a note with Set up bot and Turn off in settings instead of a red error under the composer.
+
 ## 0.10.18 — 2026-10-27
 
 - **Follow-up messages while the agent works.** Send stays available during an answer: a new message is queued under the composer and sent automatically when the current answer ends. Queued messages can be removed. If the current request is refused, the queue pauses and waits for Send now instead of firing on top of an error.

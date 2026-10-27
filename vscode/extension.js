@@ -44,6 +44,7 @@ const { createFullAccess } = require('./lib/full-access');
 const {createActiveWorkspace} = require('./lib/active-workspace');
 const {fitContext} = require('./lib/context-budget');
 const {listFolders,folderUri} = require('./lib/folder-browser');
+const {createInbox} = require('./lib/inbox');
 const AUTH_KEY = 'tvijo.auth';
 const CONTEXT_CONSENT = 'tvijo.contextConsent';
 
@@ -175,7 +176,9 @@ function activate(context) {
   }
   let pendingDraft = null;
   let busy = false, lastBusyContext = null;
-  let liveQuestion = null;
+  let liveQuestion = null, liveFrom = '';
+  // An enabled but unconfigured Telegram bot is a settings matter, not a chat error.
+  let botSetupNeeded = false, botAutostart = false;
   let modeUpdatePending = false;
   let attaching = false;
   let attachments = [];
@@ -636,7 +639,7 @@ function activate(context) {
       try { options = chatOptions(auth, selection.pack); } catch { options = null; }
     } else updatePackStatus(null, null);
     if(view!==chatView || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
-    await view.webview.postMessage({ type: 'state', colorTheme:vscode.workspace.getConfiguration('tvijo').get('colorTheme','blue'), orchestration:{enabled:orchestration.enabled(),coordinator:'ds41f',policy:vscode.workspace.getConfiguration('tvijo').get('orchestration.workerPolicy','sol')}, autoCommit:vscode.workspace.getConfiguration('tvijo').get('autoCommit','afterTask'), loadedRules:projectRulesHost.loaded?.() || [],rulesScanTruncated:projectRulesHost.scanTruncated(), runtimeVersion:context.extension?.packageJSON?.version || require('./package.json').version, composerMode:scope ? composerMode({scope}) : null, workspacePath:permissionFolder()?.uri.fsPath || refusedCandidate?.fsPath || '', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, liveQuestion, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length || !!(scope && local.history(scope).length), account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError || (projectRulesHost.scanTruncated() && !fullAccessState().enabled?{text:L('Rules scan truncated. Further commands require confirmation for this task.','Сканирование правил усечено. Следующие команды этой задачи требуют подтверждения.'),action:'rulesSettings'}:null) || ((projectRulesHost.loaded?.() || []).some(row=>row.quarantined)?{text:L('Rules changed outside an approved direct edit. Quarantined rules are excluded from future requests until you re-enable them in ⚙.','Правила изменены вне одобренной прямой правки. Правила в карантине исключены из следующих запросов до повторного включения в ⚙.'),action:'rulesSettings'}:null), authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : refusedCandidate ? path.basename(refusedCandidate.fsPath) : L('Choose project','Выбрать проект'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
+    await view.webview.postMessage({ type: 'state', colorTheme:vscode.workspace.getConfiguration('tvijo').get('colorTheme','blue'), orchestration:{enabled:orchestration.enabled(),coordinator:'ds41f',policy:vscode.workspace.getConfiguration('tvijo').get('orchestration.workerPolicy','sol')}, autoCommit:vscode.workspace.getConfiguration('tvijo').get('autoCommit','afterTask'), loadedRules:projectRulesHost.loaded?.() || [],rulesScanTruncated:projectRulesHost.scanTruncated(), runtimeVersion:context.extension?.packageJSON?.version || require('./package.json').version, composerMode:scope ? composerMode({scope}) : null, workspacePath:permissionFolder()?.uri.fsPath || refusedCandidate?.fsPath || '', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, liveQuestion, liveFrom, botSetupNeeded, bridgeEnabled:vscode.workspace.getConfiguration('tvijo').get('bridge.enabled', false) === true, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length || !!(scope && local.history(scope).length), account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError || (projectRulesHost.scanTruncated() && !fullAccessState().enabled?{text:L('Rules scan truncated. Further commands require confirmation for this task.','Сканирование правил усечено. Следующие команды этой задачи требуют подтверждения.'),action:'rulesSettings'}:null) || ((projectRulesHost.loaded?.() || []).some(row=>row.quarantined)?{text:L('Rules changed outside an approved direct edit. Quarantined rules are excluded from future requests until you re-enable them in ⚙.','Правила изменены вне одобренной прямой правки. Правила в карантине исключены из следующих запросов до повторного включения в ⚙.'),action:'rulesSettings'}:null), authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : refusedCandidate ? path.basename(refusedCandidate.fsPath) : L('Choose project','Выбрать проект'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'ds41f') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
       status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
@@ -1196,6 +1199,8 @@ function activate(context) {
   }
 
   function report(error) {
+    // Start-up with an unconfigured bot is a settings note; an explicit Start bot still answers.
+    if (error?.code === 'bot_account_setup') { botSetupNeeded = true; if (botAutostart) { void postChatState(); return; } }
     const message = localizedMessage(error);
     if (chatView) {
       lastError = {text:message,action:errorAction(error)};
@@ -1933,6 +1938,7 @@ function activate(context) {
     if (!/^\d+:[A-Za-z0-9_-]{20,}$/.test(token)) throw new core.ServiceError('bot_token', 'Use the token from the official @BotFather /newbot command.');
     await context.secrets.store(`tvijo.telegram.token.${auth.scope}`, token);
     await local.saveBotConfig(auth.scope, { ownerId: owner, allowedServices: config.get('telegram.allowedServices', []) });
+    botSetupNeeded = false;
     await vscode.window.showInformationMessage(L('Bot configured. Use Start bot in Tvijo settings.','Бот настроен. Нажмите «Запустить бота» в настройках Tvijo.'));
   });
   command('tvijo.startBot', async () => {
@@ -2840,12 +2846,16 @@ function activate(context) {
             if (message.type === 'cancel' && agentRunning) { agentAbort?.abort(); return; }
             const id = { new: 'tvijo.newConversation', cancel: 'tvijo.cancelPending', commands: 'tvijo.commands', workspace: 'tvijo.attachFile', selection: 'tvijo.attachSelection', path: 'tvijo.attachPath', help: 'tvijo.help', bot: 'tvijo.botGuide', workflow: 'tvijo.chooseWorkflow', credit: 'tvijo.buyCredit', terminal: 'tvijo.terminal', learn: 'tvijo.learn', feedback: 'tvijo.feedback', settings: 'tvijo.settings', clearAttachments: 'tvijo.clearAttachments', usage: 'tvijo.usage', connections: 'tvijo.connections', productGuide: 'tvijo.productGuide', tasks: 'tvijo.tasks', history: 'tvijo.chooseThread', contextSelect: 'tvijo.contextSelect', contextPreview: 'tvijo.contextPreview', quickEdit: 'tvijo.quickEdit' }[message.type];
             await handlers.get(id)(); await refreshStatus();
+          } else if (message?.type === 'botSetup') {
+            await handlers.get('tvijo.configureBot')(); await postChatState();
+          } else if (message?.type === 'botSettings') {
+            await vscode.commands.executeCommand('workbench.action.openSettings', 'tvijo.telegram.enabled');
           } else if (message?.type === 'dismissNotice') {
             lastError = null; await postChatState();
           } else if (message?.type === 'ask' && typeof message.question === 'string') {
             // A refused overlapping ask must not replace or clear the running question.
             const ownsLiveQuestion = !busy && !attaching && liveQuestion === null;
-            if (ownsLiveQuestion) liveQuestion = message.question.trim().slice(0, 20000);
+            if (ownsLiveQuestion) { liveQuestion = message.question.trim().slice(0, 20000); liveFrom = typeof message.from === 'string' ? message.from.slice(0, 40) : ''; }
             try {
               let question = message.question;
               let referencesResolved = false;
@@ -2904,7 +2914,7 @@ function activate(context) {
             } catch (error) {
               await view.webview.postMessage({ type: 'submission', scopeKey: message.scopeKey, ok: false, question: message.question });
               throw error;
-            } finally { if (ownsLiveQuestion) liveQuestion = null; }
+            } finally { if (ownsLiveQuestion) { liveQuestion = null; liveFrom = ''; } }
           }
         } catch (error) {
           if (message?.type === 'selectFolder') await view.webview.postMessage({type:'folderSelected',requestId:message.requestId,error:error.code ? localizedMessage(error) : L('Choose a folder inside an open workspace. The folder may have moved or point outside its workspace.','Выберите папку внутри открытой рабочей области. Возможно, папка перемещена или ссылается за её пределы.')});
@@ -2942,8 +2952,12 @@ function activate(context) {
   if (vscode.window.onDidChangeWindowState) context.subscriptions.push(vscode.window.onDidChangeWindowState(event => { if (event.focused && !busy) void refreshStatus({reconcile:true}); }));
   const reconnectTimer = setInterval(() => { if (chatView?.visible !== false && !busy && !deviceLoginActive) void refreshStatus({reconcile:true}); },30000);
   reconnectTimer.unref?.(); context.subscriptions.push({dispose:() => clearInterval(reconnectTimer)});
+  const bridgeEnabled = () => vscode.workspace.getConfiguration('tvijo').get('bridge.enabled', false) === true;
+  const inbox = createInbox({dir:context.globalStorageUri?.fsPath ? path.join(context.globalStorageUri.fsPath, 'inbox') : null, deliver:message => { if (!chatView) return false; chatView.show?.(true); void chatView.webview.postMessage({type:'inbox', ...message}); return true; }});
+  const inboxTimer = setInterval(() => { if (bridgeEnabled()) { try { inbox.ensure(); inbox.poll(); } catch { /* The next tick retries. */ } } }, 1500);
+  inboxTimer.unref?.(); context.subscriptions.push({dispose:() => clearInterval(inboxTimer)});
   refreshStatus();
-  if (vscode.workspace.getConfiguration('tvijo').get('telegram.enabled', false)) handlers.get('tvijo.startBot')().then(refreshStatus).catch(report);
+  if (vscode.workspace.getConfiguration('tvijo').get('telegram.enabled', false)) { botAutostart = true; handlers.get('tvijo.startBot')().then(refreshStatus).catch(report).finally(() => { botAutostart = false; }); }
 }
 
 function deactivate() {}

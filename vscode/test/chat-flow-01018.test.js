@@ -92,3 +92,34 @@ test('0.10.18 host keeps the chat view alive when hidden and clears a dismissed 
   assert.match(source, /registerWebviewViewProvider\('tvijo\.chat'[\s\S]*?\{ webviewOptions: \{ retainContextWhenHidden: true \} \}\)\);/);
   assert.match(source, /message\?\.type === 'dismissNotice'\) \{\s*lastError = null; await postChatState\(\);/);
 });
+
+test('0.10.19 a bridge message from Claude Code is queued and sent like a typed one', () => {
+  const view = sidebar({}, {busy:true, bridgeEnabled:true});
+  assert.equal(view.element('bridge-note').hidden, false);
+  view.emit('window:message', { data: { type: 'inbox', text: ' check the canon gate ', mode: 'plan', from: 'Claude Code' } });
+  assert.equal(asks(view).length, 0);
+  assert.match(view.element('followups').children[0].children[0].textContent, /Queued · Claude Code: check the canon gate/);
+  view.emit('window:message', { data: { type: 'state', busy:false, bridgeEnabled:true, messages: [] } });
+  assert.deepEqual(asks(view).map(item => [item.question, item.agent, item.plan]), [['check the canon gate', true, true]]);
+});
+
+test('0.10.19 an unconfigured Telegram bot is a settings note, not a chat error', () => {
+  const view = sidebar({}, {botSetupNeeded:true});
+  assert.equal(view.element('notice').className, '');
+  assert.equal(view.element('bot-setup-note').hidden, false);
+  view.element('bot-setup').click();
+  assert.equal(view.outgoing.at(-1).type, 'botSetup');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  assert.match(source, /if \(error\?\.code === 'bot_account_setup'\) \{ botSetupNeeded = true; if \(botAutostart\) \{ void postChatState\(\); return; \} \}/);
+  assert.match(source, /botAutostart = true; handlers\.get\('tvijo\.startBot'\)\(\)/);
+});
+
+test('0.10.19 a bridge message starts thinking words at once and is labelled with its sender', () => {
+  const view = sidebar();
+  view.emit('window:message', { data: { type: 'inbox', text: 'status?', from: 'Claude Code' } });
+  assert.match(view.element('activity-label').textContent, /^[A-Za-z]+…$/);
+  assert.equal(asks(view).at(-1).from, 'Claude Code');
+  const bubble = userBubbles(view).at(-1);
+  assert.equal(bubble.children[0].textContent, 'Claude Code');
+  assert.equal(bubble.children[1].textContent, 'status?');
+});
