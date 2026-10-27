@@ -145,3 +145,14 @@ test('service held micro Tvijo values retain TT units and fail-closed blocking',
  assert.equal(core.taskStateOf({status:'completed',budget:{held_usd:'2.5'}}).held,2.5);
  assert.equal(core.pendingBlocks(core.taskStateOf({status:'completed',receipt:{held_micro_tvijo:'0'}})),true);
 });
+
+test('0.10.17 an unusable model step names its code and task, and is not retried', async () => {
+  const { impl, calls } = fakeFetch({ 'POST /tasks': [200, {id:'task-step'}], 'POST /tasks/task-step/chat': [502, {error:{code:'model_output_unavailable'}}] });
+  const api = core.createClient({fetchImpl:impl});
+  await assert.rejects(api.ask({token:'synthetic',messages:[{role:'user',content:'Q'}],idempotencyKey:'once'}), e => e.code === 'model_output_unavailable' && e.taskId === 'task-step' && /no usable output/.test(e.message) && e.message.includes('task-step'));
+  assert.equal(calls.length, 2);
+  // A replaced proxy body still reports which task to check.
+  const opaque = fakeFetch({ 'POST /tasks': [200, {id:'task-proxy'}], 'POST /tasks/task-proxy/chat': [502, undefined] });
+  await assert.rejects(core.createClient({fetchImpl:opaque.impl}).ask({token:'synthetic',messages:[{role:'user',content:'Q'}],idempotencyKey:'two'}), e => /HTTP 502/.test(e.message) && e.message.includes('task-proxy'));
+  assert.equal(opaque.calls.length, 2);
+});

@@ -1,3 +1,8 @@
+## 0.10.17 — 2026-10-27
+
+- **Clear message when a model step returns nothing usable.** The service now reports `model_output_unavailable` instead of a generic HTTP 502; the editor says that the step's cost is recorded and that no automatic retry was made. Every failed chat step names its task id, so its spending can be checked even when a proxy replaces the error body.
+- Requires the matching service update: `code_intelligence` actions are accepted, and editor-agent sessions are no longer told to ask for an attached progress file. No automatic retry was added: a repeat would be a new paid attempt.
+
 ## 0.10.16 — 2026-10-27
 
 - **Full access works without pauses.** A truncated project-rules scan, rules quarantined during the task and non-destructive Git commands no longer ask for confirmation once Full access is granted for the folder. Commands that name a rules file and `git push` still ask.
