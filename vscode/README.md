@@ -4,7 +4,13 @@
 - **The bridge reports back.** Every bridged message has an id, and its progress is written to `outbox/<id>.json` in the extension storage: accepted, running, then completed with Tvijo's answer, failed with the reason, or cancelled when it is removed from the queue. Senders such as Claude Code and Codex no longer have to read the run journal.
 - **Nothing is lost on reload.** A claimed message stays on disk until its task starts; after a window reload or a recreated chat view it is queued again. A message whose task was running when its window died is marked `failed: interrupted_by_reload` and is not re-run, because a second run would be a second paid task. A second open window keeps its own claims.
 - **Copilot Chat sees Tvijo.** Type `@tvijo <task>` in Copilot Chat to send the task to Tvijo and get its answer back there. In Copilot agent mode, any model (including DeepSeek through a provider extension) can call the `tvijo_ask` tool; VS Code asks for confirmation first, and the tool works only while `tvijo.bridge.enabled` is on. Both need a VS Code version with the chat and language-model tool APIs and are skipped on older editors.
-- A bridge status that cannot be written never blocks the task itself.
+- **Review fixes (independent review of the first bridge build).**
+  - Two windows can no longer both run one message: a claim another window has just made is left alone until its status exists (10 s grace), and a hand-over the chat view never confirmed is repeated instead of being assumed.
+  - If the `running` status cannot be written (for example a full disk) the task is not started, so a reload cannot run it a second time.
+  - `completed` now carries only the answer of that run. A command with no answer (`/help`) completes with an empty answer and `note: no_new_answer`; stopping the agent ends as `cancelled: stopped_by_user`; an answer over 20 000 characters is marked `answer_truncated`.
+  - A message that arrives before the chat view has its first state is no longer cancelled as `scope_changed`; it waits and runs.
+  - A file the bridge refuses (over 32 768 bytes of JSON, invalid JSON, empty or too long text) ends as `failed` with the reason instead of vanishing. The send script checks bytes, not characters.
+  - `@tvijo` in Copilot Chat now respects `tvijo.bridge.enabled` like the `tvijo_ask` tool.
 
 Earlier versions: the **Changelog** tab.
 <!-- changelog-latest:end -->

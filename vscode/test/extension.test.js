@@ -3167,3 +3167,31 @@ test('0.10.21 a bridged ask records running then completed with the answer in th
     assert.equal(app.requests.filter(item => item.url.endsWith('/chat')).length, 1);
   } finally { app.close(); }
 });
+
+test('0.10.22 a bridged ask that cannot record running does not start the paid task', async () => {
+  const app = host();
+  try {
+    app.settings.set('workspaceContext', 'off');
+    const storage = app.context.globalStorageUri.fsPath;
+    await fs.rm(path.join(storage, 'outbox'), { recursive: true, force: true });
+    await fs.writeFile(path.join(storage, 'outbox'), 'a file where the status folder should be');
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_UNRECORDED', bridgeId: 'bridge-ro' });
+    assert.equal(app.requests.filter(item => item.url.endsWith('/chat')).length, 0);
+  } finally { app.close(); }
+});
+
+test('0.10.22 a bridged command that produces no answer does not return the previous answer', async () => {
+  const app = host();
+  try {
+    app.settings.set('workspaceContext', 'off');
+    const outbox = id => path.join(app.context.globalStorageUri.fsPath, 'outbox', id + '.json');
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_FIRST', bridgeId: 'bridge-a' });
+    const first = JSON.parse(await fs.readFile(outbox('bridge-a'), 'utf8'));
+    assert.ok(first.answer.length > 0);
+    await app.receive({ type: 'ask', question: '/help', bridgeId: 'bridge-b' });
+    const second = JSON.parse(await fs.readFile(outbox('bridge-b'), 'utf8'));
+    assert.equal(second.state, 'completed');
+    assert.ok(!second.answer);
+    assert.equal(second.note, 'no_new_answer');
+  } finally { app.close(); }
+});

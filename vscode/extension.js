@@ -287,10 +287,20 @@ function activate(context) {
   }
 
   const selectShared = async (...args) => { attachments = []; return shared.select(...args); };
-  async function lastAnswer() {
-    // The same scope the chat view renders: the verified identity, not the raw token file.
-    try { const item = identity?.scope ? [...historyFor(identity.scope)].reverse().find(row => row.role === 'assistant') : null; return item ? String(item.display || item.content || '') : ''; } catch { return ''; }
+  // The answer of THIS run: history grows by an assistant row, or its last row changes. An
+  // older answer must never be reported as the result of a run that produced none.
+  function answerSnapshot() {
+    try {
+      const rows = identity?.scope ? [...historyFor(identity.scope)].filter(row => row.role === 'assistant') : [];
+      const last = rows.at(-1);
+      return { count: rows.length, text: last ? String(last.display || last.content || '') : '' };
+    } catch { return { count: 0, text: '' }; }
   }
+  function answerSince(before) {
+    const now = answerSnapshot();
+    return now.count > before.count || (now.count === before.count && now.text !== before.text) ? now.text : '';
+  }
+  let lastRunStopped = false;
   const historyFor = scope => shared.selection(scope) ? [...shared.history(scope), ...local.history(shared.scope(scope)).filter(item => item.localRecovery)] : local.history(localScope(scope));
   const localScope = scope => createHash('sha256').update(JSON.stringify([scope,activeWorkspace.identity(permissionFolder())])).digest('hex');
   const currentViewScope = scope => shared.selection(scope) ? shared.guard(scope) : localScope(scope);
@@ -1092,6 +1102,7 @@ function activate(context) {
       await finishMap(auth, abort.signal.aborted ? 'cancelled' : 'failed');
       if (!local.pending(auth.scope) && error?.code !== 'usage_unknown') runJournals.finish(recoveryKey,localAgentRunId);
       if (abort.signal.aborted) {
+        lastRunStopped = true;
         lastError = null;
         await postChatState(L('Agent stopped.', 'Агент остановлен.')+(taskEffectsText()?'\n'+taskEffectsText():''));
         return;
@@ -2859,6 +2870,8 @@ function activate(context) {
             await handlers.get('tvijo.configureBot')(); await postChatState();
           } else if (message?.type === 'botSettings') {
             await vscode.commands.executeCommand('workbench.action.openSettings', 'tvijo.telegram.enabled');
+          } else if (message?.type === 'inboxAck') {
+            if (bridgeInbox && typeof message.id === 'string') bridgeInbox.ack(message.id);
           } else if (message?.type === 'bridgeCancel') {
             if (bridgeInbox && typeof message.id === 'string' && bridgeInbox.status(message.id)?.state === 'accepted') bridgeStatus(() => bridgeInbox.finish(message.id, 'cancelled', {error:message.reason === 'scope' ? 'scope_changed' : 'removed_by_user'}));
           } else if (message?.type === 'dismissNotice') {
@@ -2868,9 +2881,16 @@ function activate(context) {
             const ownsLiveQuestion = !busy && !attaching && liveQuestion === null;
             if (ownsLiveQuestion) { liveQuestion = message.question.trim().slice(0, 20000); liveFrom = typeof message.from === 'string' ? message.from.slice(0, 40) : ''; }
             const bridgeId = typeof message.bridgeId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(message.bridgeId) && bridgeInbox ? message.bridgeId : null;
-            if (bridgeId && ownsLiveQuestion) bridgeStatus(() => bridgeInbox.mark(bridgeId, 'running'));
             let bridgeDone = false;
+            const bridgeBefore = bridgeId ? answerSnapshot() : null;
+            lastRunStopped = false;
             try {
+              // The running mark is the guard against a second paid run after a reload: if it
+              // cannot be written the task does not start (the claim stays queued and unrun).
+              if (bridgeId && ownsLiveQuestion) {
+                try { bridgeInbox.mark(bridgeId, 'running'); }
+                catch { throw new core.ServiceError('bridge_status_unwritable', L('Tvijo could not record the task state, so the task was not started. Check free disk space.', 'Tvijo не смог записать состояние задачи, поэтому задача не запущена. Проверьте свободное место на диске.')); }
+              }
               let question = message.question;
               let referencesResolved = false;
               const action = slashAction(question);
@@ -2926,7 +2946,11 @@ function activate(context) {
                 await runAgentFlow(question, { planMode: !!message.plan });
               } else await askQuestion(question);
               await view.webview.postMessage({ type: 'submission', scopeKey: message.scopeKey, ok: true, question: message.question });
-              if (bridgeId && ownsLiveQuestion) { const answer = await lastAnswer(); bridgeStatus(() => bridgeInbox.finish(bridgeId, 'completed', {answer})); bridgeDone = true; }
+              if (bridgeId && ownsLiveQuestion) {
+                if (lastRunStopped) bridgeStatus(() => bridgeInbox.finish(bridgeId, 'cancelled', {error:'stopped_by_user'}));
+                else { const answer = answerSince(bridgeBefore); bridgeStatus(() => bridgeInbox.finish(bridgeId, 'completed', answer ? {answer} : {answer:'', note:'no_new_answer'})); }
+                bridgeDone = true;
+              }
             } catch (error) {
               await view.webview.postMessage({ type: 'submission', scopeKey: message.scopeKey, ok: false, question: message.question });
               if (bridgeId && !ownsLiveQuestion) { bridgeStatus(() => { bridgeInbox.mark(bridgeId, 'accepted'); bridgeInbox.reset(); }); bridgeDone = true; }
@@ -2935,7 +2959,7 @@ function activate(context) {
             } finally {
               if (ownsLiveQuestion) { liveQuestion = null; liveFrom = ''; }
               // A path that returned without an outcome must not leave the sender waiting.
-              if (bridgeId && ownsLiveQuestion && !bridgeDone) bridgeStatus(() => bridgeInbox.finish(bridgeId, 'completed', {answer:''}));
+              if (bridgeId && ownsLiveQuestion && !bridgeDone) bridgeStatus(() => bridgeInbox.finish(bridgeId, lastRunStopped ? 'cancelled' : 'completed', lastRunStopped ? {error:'stopped_by_user'} : {answer:'', note:'no_new_answer'}));
             }
           }
         } catch (error) {
@@ -2976,7 +3000,13 @@ function activate(context) {
   reconnectTimer.unref?.(); context.subscriptions.push({dispose:() => clearInterval(reconnectTimer)});
   const bridgeEnabled = () => vscode.workspace.getConfiguration('tvijo').get('bridge.enabled', false) === true;
   const storage = context.globalStorageUri?.fsPath;
-  const inbox = bridgeInbox = createInbox({dir:storage ? path.join(storage, 'inbox') : null, outbox:storage ? path.join(storage, 'outbox') : null, deliver:message => { if (!chatView) return false; chatView.show?.(true); void chatView.webview.postMessage({type:'inbox', ...message}); return true; }});
+  const inbox = bridgeInbox = createInbox({dir:storage ? path.join(storage, 'inbox') : null, outbox:storage ? path.join(storage, 'outbox') : null, deliver:message => {
+    if (!chatView) return false;
+    chatView.show?.(true);
+    // A refused post (view disposed or not loaded) is handed over again at the next tick.
+    Promise.resolve(chatView.webview.postMessage({type:'inbox', ...message})).then(ok => { if (ok === false) inbox.unhand(message.id); }, () => inbox.unhand(message.id));
+    return true;
+  }});
   let inboxTicks = 0;
   // Recovery runs regardless of the file bridge: Copilot messages use the same claimed queue.
   const inboxTimer = setInterval(() => { try { inbox.ensure(); inbox.recover(); if (bridgeEnabled()) inbox.poll(); if (++inboxTicks % 2400 === 1) inbox.prune(); } catch { /* The next tick retries. */ } }, 1500);
@@ -3007,6 +3037,7 @@ function activate(context) {
   if (vscode.chat?.createChatParticipant) {
     const participant = vscode.chat.createChatParticipant('tvijo.agent', async (request, _chatContext, stream, token) => {
       if (!request.prompt?.trim()) { stream.markdown(L('Describe the task for Tvijo.', 'Опишите задачу для Tvijo.')); return {}; }
+      if (!bridgeEnabled()) { stream.markdown(L('The Tvijo bridge is off. Turn on "tvijo.bridge.enabled" in settings.', 'Мост Tvijo выключен. Включите "tvijo.bridge.enabled" в настройках.')); return {}; }
       stream.progress(L('Queued in Tvijo…', 'В очереди Tvijo…'));
       const result = await askTvijo({text:request.prompt, mode:'agent', from:'Copilot Chat', token,
         onStatus: value => { if (value.state === 'running') stream.progress(L('Tvijo is working…', 'Tvijo работает…')); }});

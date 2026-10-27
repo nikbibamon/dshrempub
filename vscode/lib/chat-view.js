@@ -831,6 +831,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       if (scopeKey !== nextScope || composerScope !== nextComposerScope) {
         const legacyTime = draftTimes[nextScope];
         const legacyScopedDraft = scopeKey === null && saved?.composerScope === undefined && nextScope && typeof drafts[nextScope] === 'string' && (!Number.isFinite(legacyTime) || Date.now() - legacyTime < draftTtl) ? drafts[nextScope] : undefined;
+        const leavingScope = scopeKey !== null;
         if (scopeKey) drafts[composerScope || scopeKey] = question.value;
         scopeKey = nextScope;
         composerScope = nextComposerScope;
@@ -849,8 +850,10 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
         uiMode = hostMode || (modeExplicit && ['chat','agent','plan'].includes(restoredMode) ? restoredMode : ['agent','plan'].includes(restoredMode) ? restoredMode : 'agent');
         if (hostMode) modeExplicit = true;
         if (scopeKey) draftTimes[draftKey] = cachedDraft && Number.isFinite(cachedTime) ? cachedTime : data.composerDraft?.updatedAt || Date.now();
-        for (const item of followUps) if (item.bridgeId) post({type:'bridgeCancel', id:item.bridgeId, reason:'scope'});
-        submitting = false; uploading = false; queue.length = 0; followUps.length = 0; followPaused = false; liveQuestion = null; drawFollowUps();
+        // The first scope after load is not a scope change: messages that arrived before the
+        // state stay queued. Only leaving a real scope cancels what was waiting for it.
+        if (leavingScope) for (const item of followUps) if (item.bridgeId) post({type:'bridgeCancel', id:item.bridgeId, reason:'scope'});
+        submitting = false; uploading = false; queue.length = 0; if (leavingScope) followUps.length = 0; followPaused = false; liveQuestion = null; drawFollowUps();
         saveState();
       }
       if (data.locale && data.locale !== locale) setLocale(data.locale);
@@ -944,6 +947,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     } else if (data.type === 'inbox') {
       if (typeof data.text !== 'string' || !data.text.trim()) return;
       const bridgeId = typeof data.id === 'string' ? data.id : null;
+      if (bridgeId) post({type:'inboxAck', id:bridgeId});
       // The host re-hands accepted messages after a view reload; one copy per id.
       if (bridgeId && (bridgeId === submittedBridgeId || followUps.some(item => item.bridgeId === bridgeId))) return;
       followUps.push({text:data.text.trim().slice(0, 20000), mode:['chat','agent','plan'].includes(data.mode) ? data.mode : 'agent', from:typeof data.from === 'string' ? data.from.slice(0, 40) : '', bridgeId});
