@@ -4,7 +4,7 @@ const {randomUUID} = require('node:crypto');
 
 const PREFIX = 'tvijo.fullAccess.v1.';
 const VALID_SCOPE = /^[a-f0-9]{64}$/;
-const FULL_ACCESS_LIMITS=Object.freeze({"en": "Commands run with your user's rights. Push is blocked for inherited environments; a program that rewrites its own environment is not stopped. Rules files changed by commands are quarantined, not prevented.", "ru": "Команды выполняются с правами вашего пользователя. Push блокируется при унаследованном окружении; программа, заменяющая собственное окружение, не останавливается. Изменения файлов правил командами помещаются в карантин, а не предотвращаются."});
+const FULL_ACCESS_LIMITS=Object.freeze({"en": "The agent works without pausing: no confirmations for edits, checks or chains like cd app && npm test | tail. sudo, destructive Git and removals outside the folder stay blocked. Commands run with your user's rights. Push is blocked for inherited environments; a program that rewrites its own environment is not stopped. Rules files changed by commands are quarantined, not prevented.", "ru": "Агент работает без пауз: без подтверждений правок, проверок и цепочек вида cd app && npm test | tail. sudo, разрушительный Git и удаление вне папки по-прежнему заблокированы. Команды выполняются с правами вашего пользователя. Push блокируется при унаследованном окружении; программа, заменяющая собственное окружение, не останавливается. Изменения файлов правил командами помещаются в карантин, а не предотвращаются."});
 
 function createFullAccess({ vscode, state, scope, L = en => en, onRevoke = () => {} }) {
   let epoch = 0;

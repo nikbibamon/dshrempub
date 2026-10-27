@@ -1,3 +1,10 @@
+## 0.10.16 — 2026-10-27
+
+- **Full access works without pauses.** A truncated project-rules scan, rules quarantined during the task and non-destructive Git commands no longer ask for confirmation once Full access is granted for the folder. Commands that name a rules file and `git push` still ask.
+- **Command chains in Full access.** `run_command` accepts `&&`, `||`, `;`, `|` and redirections into workspace files (for example `cd app && npm test 2>&1 | tail -40`), plus `timeout`, `nice`, `env VAR=…` and `bash -c` with an analysable script. Every simple command in the chain passes the same hard denials as a single command: `sudo`, destructive Git, `curl | sh`, removal outside the folder, `PATH`/`LD_*` overrides. Substitutions (`$(…)`, `$VAR`, backticks), subshells, heredocs and background jobs are refused instead of guessed. Removals and output files are checked against the folder after each literal `cd`. Without Full access, commands stay single and literal as before. Windows hosts keep single commands.
+- **Agent autonomy.** In Full access the agent is told to reconstruct project state from code, configs and Git history instead of stopping on a missing status file, follow existing patterns ("like X"), and finish as done with a list of the remaining operator steps (DNS, cloud consoles, credentials, production deploys), rather than blocking.
+- The truncated-scan banner is hidden while Full access is active; the rules settings note still reports the truncation.
+
 ## 0.10.15 — 2026-10-26
 
 - Link the bundled offline guide to the multilingual handbook at https://tvijo.com/guide. The standalone guide defaults to English and offers Russian, Ukrainian and additional translated editions.

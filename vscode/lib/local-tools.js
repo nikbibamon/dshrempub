@@ -159,13 +159,40 @@ function autoCommand(command) {
   return Object.hasOwn(vectors, command) ? vectors[command].slice() : null;
 }
 
-async function runCommand(root, action, confirm, { signal, onLifecycle = () => {}, guard = async()=>{} } = {}) {
-  const decision = isCommandDecision(action.commandDecision, action.command) ? action.commandDecision : analyzeCommand(action.command);
+// A Full access chain may change directory before it removes or redirects.
+// Follow literal `cd` steps; once the location is unknown or outside the
+// workspace, later removals and output files are refused.
+function assertShellPaths(root, cwd, decision) {
+  const blocked = () => { throw new Error('This command is blocked by the local safety rules.'); };
+  let here = cwd, known = true;
+  const target = value => { if (!known || value.startsWith('~')) blocked(); const absolute = path.resolve(here, value); try { safePath(root, absolute); } catch { blocked(); } return absolute; };
+  for (const segment of decision.segments) {
+    for (const file of segment.redirects) if (file !== '/dev/null') target(file);
+    if (segment.executable === 'cd' || segment.executable === 'pushd') {
+      const next = segment.args.filter(arg => arg !== '--')[0];
+      if (!next || next === '-' || next.startsWith('~') || next.startsWith('-')) { known = false; continue; }
+      here = path.resolve(here, next);
+      try { safePath(root, here); } catch { known = false; }
+    } else if (segment.executable === 'popd') known = false;
+    else if (segment.executable === 'rm') {
+      let operandsOnly = false;
+      for (const arg of segment.args) {
+        if (!operandsOnly && arg === '--') { operandsOnly = true; continue; }
+        if (!operandsOnly && arg.startsWith('-') && arg !== '-') continue;
+        if (target(arg) === path.resolve(root)) blocked();
+      }
+    }
+  }
+}
+
+async function runCommand(root, action, confirm, { signal, onLifecycle = () => {}, guard = async()=>{}, allowShell = false } = {}) {
+  const shell = typeof allowShell === 'function' ? !!allowShell() : !!allowShell;
+  const decision = isCommandDecision(action.commandDecision, action.command) && (!action.commandDecision.shell || shell) ? action.commandDecision : analyzeCommand(action.command, { shell });
   const command = typeof action.command === 'string' ? action.command : '';
   if (!decision.ok) throw new Error(decision.reason);
   const cwd = action.cwd ? safePath(root, action.cwd) : root;
   const executable = path.basename(decision.executable).toLowerCase().replace(/\.exe$/,'');
-  const assertRemovalPaths = () => { if (executable === 'rm') {
+  const assertRemovalPaths = () => { if (decision.shell) assertShellPaths(root, cwd, decision); else if (executable === 'rm') {
     // Bound every removal operand, including those before an option terminator.
     // This also covers GNU option abbreviations without guessing their effect.
     let operandsOnly = false;
@@ -381,7 +408,7 @@ async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
   return { ok: true, path: action.path, bytes: Buffer.byteLength(content, 'utf8') };
 }
 
-function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {}, planInspect = null, codeIntelligence = null }) {
+function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {}, planInspect = null, codeIntelligence = null, allowShell = false }) {
   return {
     root,
     async execute(action, context = {}) {
@@ -406,7 +433,7 @@ function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite =
         }
         case 'write_file': return await writeFile(root, action, confirmWrite, applyWrite, beforeWrite, 'write_file');
         case 'replace_in_file': return await replaceInFile(root, action, confirmWrite, applyWrite, beforeWrite);
-        case 'run_command': await guard(); return await runCommand(root, action, confirmRun, { signal:context.signal || signal, onLifecycle:onCommandLifecycle, guard });
+        case 'run_command': await guard(); return await runCommand(root, action, confirmRun, { signal:context.signal || signal, onLifecycle:onCommandLifecycle, guard, allowShell });
         default: throw new Error('Unknown tool: ' + action.tool);
       }
     }

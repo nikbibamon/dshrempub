@@ -2916,7 +2916,7 @@ for(const method of ['literal-copy','npm-directory'])test('limitation: Full acce
   await fs.writeFile(path.join(x.root,'advice.txt'),'COMMAND_RULE_CANARY');await fs.writeFile(path.join(x.root,'AGENTS.md'),'ORIGINAL_RULE_CANARY');
   await fs.writeFile(path.join(x.root,'package.json'),JSON.stringify({scripts:{'change-rules':'mkdir -p .clinerules && cp advice.txt .clinerules/a.md'}}));await fs.writeFile(path.join(x.root,'.npmrc'),'cache='+path.join(x.root,'npm-cache')+'\n');
   x.app.warning('Run command');const n=x.app.warnings.length;await x.run();assert.equal(x.results()[0].ok,true,JSON.stringify(x.results()));assert.equal(x.results()[1].ok,true);
-  assert.equal(x.app.warnings.length-n,method==='literal-copy'?2:1,'literal rule operands ask; every command after a rules mutation asks');
+  assert.equal(x.app.warnings.length-n,method==='literal-copy'?1:0,'literal rule operands ask; quarantine alone does not pause Full access');
   let state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.error.action,'rulesSettings');const row=state.loadedRules.find(row=>row.file===target);assert.equal(row.quarantined,true);
   assert.match(state.messages.at(-1).content,/quarantined/);const oldCalls=x.calls().length;await x.run();assert.doesNotMatch(JSON.stringify(x.calls().slice(oldCalls)),/COMMAND_RULE_CANARY/);
   state=x.app.posts.filter(p=>p.type==='state').at(-1);const {sidebar}=require('./helpers/sidebar');
@@ -3005,11 +3005,12 @@ test('judgefix2 production final answer explicitly reports hook commit withdrawa
  finally{x.close();}
 });
 
-test('judgefix2 production scan truncation stops Full access command auto-approval and is visible EN/RU',async()=>{
- const x=await savedAgentFixture({actions:[{tool:'run_command',command:'printf unapproved'},{tool:'finish',status:'blocked',answer:'Scan limit'}]});
+test('0.10.16 scan truncation does not pause Full access; the settings note still reports it EN/RU',async()=>{
+ const x=await savedAgentFixture({actions:[{tool:'run_command',command:'printf approved && printf chained'},{tool:'finish',status:'done',answer:'Scan limit'}]});
  try{
-  await Promise.all(Array.from({length:1030},(_,i)=>fs.mkdir(path.join(x.root,'scan-dir-'+i))));x.app.warning('Cancel');const n=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,n+1);assert.equal(x.results()[0].refused,true);
-  const state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.rulesScanTruncated,true);assert.match(state.error.text,/scan truncated/);const {sidebar}=require('./helpers/sidebar');for(const locale of ['en','ru']){const view=sidebar({}, {...state,locale});view.element('notice-action').click();assert.equal(view.element('settings-drawer').hidden,false);assert.equal(view.element('rules-scan-note').hidden,false);assert.match(view.element('rules-scan-note').textContent,/truncated|усечено/);}
+  await Promise.all(Array.from({length:1030},(_,i)=>fs.mkdir(path.join(x.root,'scan-dir-'+i))));const n=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,n);assert.equal(x.results()[0].ok,true,JSON.stringify(x.results()));assert.equal(x.results()[0].stdout,'approvedchained');
+  const state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.rulesScanTruncated,true);assert.doesNotMatch(String(state.error?.text||''),/scan truncated/);assert.doesNotMatch(state.messages.at(-1).content,/require confirmation/);
+  const {sidebar}=require('./helpers/sidebar');for(const locale of ['en','ru']){const view=sidebar({}, {...state,locale,error:{text:'x',action:'rulesSettings'}});view.element('notice-action').click();assert.equal(view.element('rules-scan-note').hidden,false);assert.match(view.element('rules-scan-note').textContent,/truncated|усечено/);}
  }finally{x.close();}
 });
 

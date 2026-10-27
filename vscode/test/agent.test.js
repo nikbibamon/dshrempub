@@ -212,3 +212,11 @@ test('agent step limit returns a partial result instead of throwing', async () =
   assert.equal(result.partial, true);
   assert.match(result.text, /step limit/);
 });
+
+test('0.10.16 Full access prompt tells the agent to discover state and not stop for permission', () => {
+  const { systemPrompt } = require('../lib/agent');
+  const full = systemPrompt({ fullAccess:true }), act = systemPrompt({}), plan = systemPrompt({ planMode:true, fullAccess:true });
+  assert.match(full, /FULL ACCESS/); assert.match(full, /missing or empty notes\/status file is not a blocker/); assert.match(full, /&&/);
+  assert.doesNotMatch(act, /FULL ACCESS/); assert.match(act, /need user approval/);
+  assert.match(plan, /PLAN ONLY/); assert.doesNotMatch(plan, /FULL ACCESS/);
+});
