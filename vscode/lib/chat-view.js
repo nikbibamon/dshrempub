@@ -167,7 +167,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   // Messages typed while an answer is running; sent one by one when it ends.
   const followUps = [];
   let followPaused = false;
-  let liveQuestion = null, lastSubmitted = null, liveFrom = '';
+  let liveQuestion = null, lastSubmitted = null, liveFrom = '', submittedBridgeId = null;
   const saved = vscode.getState?.();
   const draftModeExplicit = saved?.draftModeExplicit && typeof saved.draftModeExplicit === 'object' ? {...saved.draftModeExplicit} : {};
   let modeExplicit = false;
@@ -666,22 +666,22 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       row.append(text);
       if (followPaused && index === 0) { const now = document.createElement('button'); now.type = 'button'; now.textContent = t('queueSendNow'); now.addEventListener('click', () => { followPaused = false; drawFollowUps(); drainFollowUps(); }); row.append(now); }
       const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.title = t('queueRemove'); remove.setAttribute('aria-label', t('queueRemove'));
-      remove.addEventListener('click', () => { followUps.splice(index, 1); if (!followUps.length) followPaused = false; drawFollowUps(); });
+      remove.addEventListener('click', () => { const [gone] = followUps.splice(index, 1); if (gone?.bridgeId) post({type:'bridgeCancel', id:gone.bridgeId}); if (!followUps.length) followPaused = false; drawFollowUps(); });
       row.append(remove); box.append(row);
     }
   }
-  function submitText(text, mode, from = '') {
-    submitting = true; liveQuestion = text; lastSubmitted = text; liveFrom = from; controls();
+  function submitText(text, mode, from = '', bridgeId = null) {
+    submitting = true; liveQuestion = text; lastSubmitted = text; liveFrom = from; submittedBridgeId = bridgeId; controls();
     // Clear the composer at once; a refused request puts the text back.
     if (question.value.trim() === text) { question.value = ''; saveDraft(); }
-    post({type:'ask', question:text, agent: mode !== 'chat', plan: mode === 'plan', ...(from ? {from} : {})});
+    post({type:'ask', question:text, agent: mode !== 'chat', plan: mode === 'plan', ...(from ? {from} : {}), ...(bridgeId ? {bridgeId} : {})});
     render(lastItems);
   }
   function drainFollowUps() {
     if (!followUps.length || followPaused || running || submitting || preparing || uploading || pending || pendingModeRequestId || !scopeKey) return;
     const next = followUps.shift(); drawFollowUps();
     if (next.mode !== 'chat' && !workspaceAvailable) { followUps.unshift(next); followPaused = true; drawFollowUps(); return; }
-    submitText(next.text, next.mode, next.from || '');
+    submitText(next.text, next.mode, next.from || '', next.bridgeId || null);
   }
   function controls() {
     const blocked = running || preparing || submitting || uploading;
@@ -849,6 +849,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
         uiMode = hostMode || (modeExplicit && ['chat','agent','plan'].includes(restoredMode) ? restoredMode : ['agent','plan'].includes(restoredMode) ? restoredMode : 'agent');
         if (hostMode) modeExplicit = true;
         if (scopeKey) draftTimes[draftKey] = cachedDraft && Number.isFinite(cachedTime) ? cachedTime : data.composerDraft?.updatedAt || Date.now();
+        for (const item of followUps) if (item.bridgeId) post({type:'bridgeCancel', id:item.bridgeId, reason:'scope'});
         submitting = false; uploading = false; queue.length = 0; followUps.length = 0; followPaused = false; liveQuestion = null; drawFollowUps();
         saveState();
       }
@@ -942,7 +943,10 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       startActivity(data.stage, data.detail);
     } else if (data.type === 'inbox') {
       if (typeof data.text !== 'string' || !data.text.trim()) return;
-      followUps.push({text:data.text.trim().slice(0, 20000), mode:['chat','agent','plan'].includes(data.mode) ? data.mode : 'agent', from:typeof data.from === 'string' ? data.from.slice(0, 40) : ''});
+      const bridgeId = typeof data.id === 'string' ? data.id : null;
+      // The host re-hands accepted messages after a view reload; one copy per id.
+      if (bridgeId && (bridgeId === submittedBridgeId || followUps.some(item => item.bridgeId === bridgeId))) return;
+      followUps.push({text:data.text.trim().slice(0, 20000), mode:['chat','agent','plan'].includes(data.mode) ? data.mode : 'agent', from:typeof data.from === 'string' ? data.from.slice(0, 40) : '', bridgeId});
       drawFollowUps();
       if (!running) startActivity('inbox', t('bridgeArrived') + ' ' + (followUps.at(-1).from || ''));
       drainFollowUps();

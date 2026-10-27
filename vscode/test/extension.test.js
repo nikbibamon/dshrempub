@@ -3154,3 +3154,16 @@ test('settings host serializes actual config writes, correlates errors and keeps
   }
  }finally{release();controls.installedOcrLanguages=original;app.close();}
 });
+
+test('0.10.21 a bridged ask records running then completed with the answer in the outbox', async () => {
+  const app = host();
+  try {
+    app.settings.set('workspaceContext', 'off');
+    const outbox = path.join(app.context.globalStorageUri.fsPath, 'outbox', 'bridge-1.json');
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_BRIDGE_QUESTION', bridgeId: 'bridge-1' });
+    const status = JSON.parse(await fs.readFile(outbox, 'utf8'));
+    assert.equal(status.state, 'completed');
+    assert.ok(status.answer.length > 0);
+    assert.equal(app.requests.filter(item => item.url.endsWith('/chat')).length, 1);
+  } finally { app.close(); }
+});

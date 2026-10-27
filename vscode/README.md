@@ -1,8 +1,10 @@
 <!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
-## What's new in 0.10.21 — 2026-10-27
+## What's new in 0.10.22 — 2026-10-27
 
-- **The Marketplace Overview now shows the current release notes.** It still announced 0.10.14 while 0.10.20 was live. The "What's new" block and the version line in README.md are now generated from this changelog, and packaging refuses a README that does not announce the package version.
-- No functional changes from 0.10.20. The local bridge for Claude Code and Codex stays out of this release until its review findings are fixed.
+- **The bridge reports back.** Every bridged message has an id, and its progress is written to `outbox/<id>.json` in the extension storage: accepted, running, then completed with Tvijo's answer, failed with the reason, or cancelled when it is removed from the queue. Senders such as Claude Code and Codex no longer have to read the run journal.
+- **Nothing is lost on reload.** A claimed message stays on disk until its task starts; after a window reload or a recreated chat view it is queued again. A message whose task was running when its window died is marked `failed: interrupted_by_reload` and is not re-run, because a second run would be a second paid task. A second open window keeps its own claims.
+- **Copilot Chat sees Tvijo.** Type `@tvijo <task>` in Copilot Chat to send the task to Tvijo and get its answer back there. In Copilot agent mode, any model (including DeepSeek through a provider extension) can call the `tvijo_ask` tool; VS Code asks for confirmation first, and the tool works only while `tvijo.bridge.enabled` is on. Both need a VS Code version with the chat and language-model tool APIs and are skipped on older editors.
+- A bridge status that cannot be written never blocks the task itself.
 
 Earlier versions: the **Changelog** tab.
 <!-- changelog-latest:end -->
@@ -60,7 +62,7 @@ Choose **Configuration file example** in the help section or run **Tvijo: Open c
 
 # Tvijo DSHREM for VS Code
 
-Version 0.10.21. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.22. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 

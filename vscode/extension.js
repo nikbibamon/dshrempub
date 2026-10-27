@@ -177,6 +177,9 @@ function activate(context) {
   let pendingDraft = null;
   let busy = false, lastBusyContext = null;
   let liveQuestion = null, liveFrom = '';
+  let bridgeInbox = null;
+  // A status file that cannot be written must never block the user's own task.
+  const bridgeStatus = write => { try { return write(); } catch { return null; } };
   // An enabled but unconfigured Telegram bot is a settings matter, not a chat error.
   let botSetupNeeded = false, botAutostart = false;
   let modeUpdatePending = false;
@@ -284,6 +287,10 @@ function activate(context) {
   }
 
   const selectShared = async (...args) => { attachments = []; return shared.select(...args); };
+  async function lastAnswer() {
+    // The same scope the chat view renders: the verified identity, not the raw token file.
+    try { const item = identity?.scope ? [...historyFor(identity.scope)].reverse().find(row => row.role === 'assistant') : null; return item ? String(item.display || item.content || '') : ''; } catch { return ''; }
+  }
   const historyFor = scope => shared.selection(scope) ? [...shared.history(scope), ...local.history(shared.scope(scope)).filter(item => item.localRecovery)] : local.history(localScope(scope));
   const localScope = scope => createHash('sha256').update(JSON.stringify([scope,activeWorkspace.identity(permissionFolder())])).digest('hex');
   const currentViewScope = scope => shared.selection(scope) ? shared.guard(scope) : localScope(scope);
@@ -2606,6 +2613,7 @@ function activate(context) {
   context.subscriptions.push(vscode.window.registerWebviewViewProvider('tvijo.chat', {
     resolveWebviewView(view) {
       chatView = view;
+      bridgeInbox?.reset();
       view.webview.options = { enableScripts: true };
       view.webview.html = chatHtml(view.webview);
       const listener = view.webview.onDidReceiveMessage(async (message) => {
@@ -2851,12 +2859,17 @@ function activate(context) {
             await handlers.get('tvijo.configureBot')(); await postChatState();
           } else if (message?.type === 'botSettings') {
             await vscode.commands.executeCommand('workbench.action.openSettings', 'tvijo.telegram.enabled');
+          } else if (message?.type === 'bridgeCancel') {
+            if (bridgeInbox && typeof message.id === 'string' && bridgeInbox.status(message.id)?.state === 'accepted') bridgeStatus(() => bridgeInbox.finish(message.id, 'cancelled', {error:message.reason === 'scope' ? 'scope_changed' : 'removed_by_user'}));
           } else if (message?.type === 'dismissNotice') {
             lastError = null; await postChatState();
           } else if (message?.type === 'ask' && typeof message.question === 'string') {
             // A refused overlapping ask must not replace or clear the running question.
             const ownsLiveQuestion = !busy && !attaching && liveQuestion === null;
             if (ownsLiveQuestion) { liveQuestion = message.question.trim().slice(0, 20000); liveFrom = typeof message.from === 'string' ? message.from.slice(0, 40) : ''; }
+            const bridgeId = typeof message.bridgeId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(message.bridgeId) && bridgeInbox ? message.bridgeId : null;
+            if (bridgeId && ownsLiveQuestion) bridgeStatus(() => bridgeInbox.mark(bridgeId, 'running'));
+            let bridgeDone = false;
             try {
               let question = message.question;
               let referencesResolved = false;
@@ -2896,6 +2909,7 @@ function activate(context) {
                 referencesResolved = replacements.length > 0;
                 if (referencesResolved && /^[\s,;.!?]*$/.test(remainder)) {
                   await view.webview.postMessage({ type: 'submission', scopeKey: message.scopeKey, ok: true, question: message.question });
+                  if (bridgeId && ownsLiveQuestion) { bridgeStatus(() => bridgeInbox.finish(bridgeId, 'completed', {answer:''})); bridgeDone = true; }
                   return;
                 }
               }
@@ -2912,10 +2926,17 @@ function activate(context) {
                 await runAgentFlow(question, { planMode: !!message.plan });
               } else await askQuestion(question);
               await view.webview.postMessage({ type: 'submission', scopeKey: message.scopeKey, ok: true, question: message.question });
+              if (bridgeId && ownsLiveQuestion) { const answer = await lastAnswer(); bridgeStatus(() => bridgeInbox.finish(bridgeId, 'completed', {answer})); bridgeDone = true; }
             } catch (error) {
               await view.webview.postMessage({ type: 'submission', scopeKey: message.scopeKey, ok: false, question: message.question });
+              if (bridgeId && !ownsLiveQuestion) { bridgeStatus(() => { bridgeInbox.mark(bridgeId, 'accepted'); bridgeInbox.reset(); }); bridgeDone = true; }
+              else if (bridgeId) { bridgeStatus(() => bridgeInbox.finish(bridgeId, 'failed', {error:error?.code || 'error', message:localizedMessage(error)})); bridgeDone = true; }
               throw error;
-            } finally { if (ownsLiveQuestion) { liveQuestion = null; liveFrom = ''; } }
+            } finally {
+              if (ownsLiveQuestion) { liveQuestion = null; liveFrom = ''; }
+              // A path that returned without an outcome must not leave the sender waiting.
+              if (bridgeId && ownsLiveQuestion && !bridgeDone) bridgeStatus(() => bridgeInbox.finish(bridgeId, 'completed', {answer:''}));
+            }
           }
         } catch (error) {
           if (message?.type === 'selectFolder') await view.webview.postMessage({type:'folderSelected',requestId:message.requestId,error:error.code ? localizedMessage(error) : L('Choose a folder inside an open workspace. The folder may have moved or point outside its workspace.','Выберите папку внутри открытой рабочей области. Возможно, папка перемещена или ссылается за её пределы.')});
@@ -2954,9 +2975,47 @@ function activate(context) {
   const reconnectTimer = setInterval(() => { if (chatView?.visible !== false && !busy && !deviceLoginActive) void refreshStatus({reconcile:true}); },30000);
   reconnectTimer.unref?.(); context.subscriptions.push({dispose:() => clearInterval(reconnectTimer)});
   const bridgeEnabled = () => vscode.workspace.getConfiguration('tvijo').get('bridge.enabled', false) === true;
-  const inbox = createInbox({dir:context.globalStorageUri?.fsPath ? path.join(context.globalStorageUri.fsPath, 'inbox') : null, deliver:message => { if (!chatView) return false; chatView.show?.(true); void chatView.webview.postMessage({type:'inbox', ...message}); return true; }});
-  const inboxTimer = setInterval(() => { if (bridgeEnabled()) { try { inbox.ensure(); inbox.poll(); } catch { /* The next tick retries. */ } } }, 1500);
+  const storage = context.globalStorageUri?.fsPath;
+  const inbox = bridgeInbox = createInbox({dir:storage ? path.join(storage, 'inbox') : null, outbox:storage ? path.join(storage, 'outbox') : null, deliver:message => { if (!chatView) return false; chatView.show?.(true); void chatView.webview.postMessage({type:'inbox', ...message}); return true; }});
+  let inboxTicks = 0;
+  // Recovery runs regardless of the file bridge: Copilot messages use the same claimed queue.
+  const inboxTimer = setInterval(() => { try { inbox.ensure(); inbox.recover(); if (bridgeEnabled()) inbox.poll(); if (++inboxTicks % 2400 === 1) inbox.prune(); } catch { /* The next tick retries. */ } }, 1500);
   inboxTimer.unref?.(); context.subscriptions.push({dispose:() => clearInterval(inboxTimer)});
+  // Copilot Chat (any model, including DeepSeek through a provider extension) reaches the
+  // same durable queue: the @tvijo participant for the user, the tvijo_ask tool for agent mode.
+  async function askTvijo({text, mode = 'agent', from, token, onStatus}) {
+    await vscode.commands.executeCommand('tvijo.chat.focus');
+    const id = inbox.enqueue({text, mode, from});
+    return inbox.wait(id, {onStatus, cancellation:token});
+  }
+  const bridgeText = result => result.state === 'completed' ? (result.answer || L('Tvijo finished without a text answer.', 'Tvijo завершил задачу без текстового ответа.'))
+    : result.state === 'detached' ? L('Still running in Tvijo; follow it in the Tvijo panel.', 'Задача ещё выполняется в Tvijo; следите за ней в панели Tvijo.')
+    : L('Tvijo: ', 'Tvijo: ') + result.state + (result.error ? ' — ' + result.error : '') + (result.message ? '. ' + result.message : '');
+  if (vscode.lm?.registerTool && vscode.LanguageModelToolResult) context.subscriptions.push(vscode.lm.registerTool('tvijo_ask', {
+    prepareInvocation: options => ({
+      invocationMessage: L('Sending the task to Tvijo…', 'Отправляю задачу в Tvijo…'),
+      confirmationMessages: {title: L('Ask Tvijo', 'Спросить Tvijo'), message: new vscode.MarkdownString(L('Tvijo runs this as a normal paid task with the chat\'s current preset, including Full access when it is on.\n\n', 'Tvijo выполнит это как обычную платную задачу в текущем пресете чата, включая полный доступ, если он включён.\n\n') + '> ' + String(options.input?.task || '').slice(0, 500))}
+    }),
+    invoke: async (options, token) => {
+      const part = text => new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(text)]);
+      if (!bridgeEnabled()) return part(L('The Tvijo bridge is off. The user can turn on "tvijo.bridge.enabled" in settings.', 'Мост Tvijo выключен. Пользователь может включить "tvijo.bridge.enabled" в настройках.'));
+      const task = String(options.input?.task || '').trim();
+      if (!task) return part('task is required');
+      return part(bridgeText(await askTvijo({text:task, mode:options.input?.mode, from:'Copilot', token})));
+    }
+  }));
+  if (vscode.chat?.createChatParticipant) {
+    const participant = vscode.chat.createChatParticipant('tvijo.agent', async (request, _chatContext, stream, token) => {
+      if (!request.prompt?.trim()) { stream.markdown(L('Describe the task for Tvijo.', 'Опишите задачу для Tvijo.')); return {}; }
+      stream.progress(L('Queued in Tvijo…', 'В очереди Tvijo…'));
+      const result = await askTvijo({text:request.prompt, mode:'agent', from:'Copilot Chat', token,
+        onStatus: value => { if (value.state === 'running') stream.progress(L('Tvijo is working…', 'Tvijo работает…')); }});
+      stream.markdown(bridgeText(result));
+      return {};
+    });
+    participant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'tvijo.svg');
+    context.subscriptions.push(participant);
+  }
   refreshStatus();
   if (vscode.workspace.getConfiguration('tvijo').get('telegram.enabled', false)) { botAutostart = true; handlers.get('tvijo.startBot')().then(refreshStatus).catch(report).finally(() => { botAutostart = false; }); }
 }
