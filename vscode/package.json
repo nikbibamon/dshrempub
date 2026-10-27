@@ -2,7 +2,7 @@
   "name": "tvijo-dshrem",
   "displayName": "Tvijo DSHREM",
   "description": "Managed coding and bounded reviews for shared projects with a per-task spending cap. Provider API credentials remain on the service.",
-  "version": "0.10.20",
+  "version": "0.10.21",
   "repository": {
     "type": "git",
     "url": "https://github.com/nikbibamon/dshrempub.git",
@@ -761,7 +761,48 @@
           ]
         }
       }
-    }
+    },
+    "languageModelTools": [
+      {
+        "name": "tvijo_ask",
+        "displayName": "Ask Tvijo",
+        "toolReferenceName": "tvijo",
+        "canBeReferencedInPrompt": true,
+        "icon": "media/tvijo.svg",
+        "userDescription": "Send a task to the Tvijo agent and return its answer.",
+        "modelDescription": "Sends a task to the Tvijo coding agent in this VS Code window and waits for its answer. Tvijo runs it as a normal paid task with the user's current Tvijo preset and project rules. Use it when the user asks to involve Tvijo, or to get a second agent's work on this project. Returns Tvijo's final answer text, or its failure state.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string",
+              "description": "The task for Tvijo, written as a complete instruction."
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "agent",
+                "plan",
+                "chat"
+              ],
+              "description": "agent edits and runs commands per the user's preset; plan only inspects; chat answers without tools. Default agent."
+            }
+          },
+          "required": [
+            "task"
+          ]
+        }
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "tvijo.agent",
+        "name": "tvijo",
+        "fullName": "Tvijo",
+        "description": "Send a task to the Tvijo agent",
+        "isSticky": false
+      }
+    ]
   },
   "scripts": {
     "test": "node ../scripts/test-runner.mjs --extension",

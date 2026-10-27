@@ -1,3 +1,10 @@
+## 0.10.21 — 2026-10-27
+
+- **The bridge reports back.** Every bridged message has an id, and its progress is written to `outbox/<id>.json` in the extension storage: accepted, running, then completed with Tvijo's answer, failed with the reason, or cancelled when it is removed from the queue. Senders such as Claude Code and Codex no longer have to read the run journal.
+- **Nothing is lost on reload.** A claimed message stays on disk until its task starts; after a window reload or a recreated chat view it is queued again. A message whose task was running when its window died is marked `failed: interrupted_by_reload` and is not re-run, because a second run would be a second paid task. A second open window keeps its own claims.
+- **Copilot Chat sees Tvijo.** Type `@tvijo <task>` in Copilot Chat to send the task to Tvijo and get its answer back there. In Copilot agent mode, any model (including DeepSeek through a provider extension) can call the `tvijo_ask` tool; VS Code asks for confirmation first, and the tool works only while `tvijo.bridge.enabled` is on. Both need a VS Code version with the chat and language-model tool APIs and are skipped on older editors.
+- A bridge status that cannot be written never blocks the task itself.
+
 ## 0.10.20 — 2026-10-27
 
 - **Devstral agent steps no longer cut off.** Each Agent step asked every model for at most 2048 output tokens; Devstral reasons at length, ran out mid-answer and the step came back empty. Devstral steps now ask for 4096, the service's per-request ceiling. Other models are unchanged. The per-task budget still applies.

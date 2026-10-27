@@ -128,3 +128,28 @@ test('0.10.20 Devstral agent steps ask for the gateway output ceiling, other mod
   const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
   assert.match(source, /maxTokens: agentModel === 'devstral' \? 4096 : 2048, model: agentModel/);
 });
+
+test('0.10.21 a bridge message carries its id into the ask, is not queued twice and reports removal', () => {
+  const view = sidebar({}, {busy:true});
+  const inbox = data => view.emit('window:message', { data: { type: 'inbox', text: 'task', from: 'Codex', ...data } });
+  inbox({id:'m1'}); inbox({id:'m1'}); inbox({id:'m2', text:'second'});
+  assert.equal(view.element('followups').children.length, 2);
+  view.element('followups').children[1].children.find(node => node.textContent === '×').click();
+  assert.equal(JSON.stringify(view.outgoing.at(-1)), JSON.stringify({type:'bridgeCancel', id:'m2', scopeKey:'tenant-a'}));
+  view.emit('window:message', { data: { type: 'state', busy:false, messages: [] } });
+  assert.equal(asks(view).at(-1).bridgeId, 'm1');
+  inbox({id:'m1'});
+  assert.equal(view.element('followups').hidden, true, 'the running message is not queued again');
+});
+
+test('0.10.21 Copilot sees Tvijo as a tool and an @tvijo participant', () => {
+  const manifest = require('../package.json');
+  const tool = manifest.contributes.languageModelTools.find(item => item.name === 'tvijo_ask');
+  assert.deepEqual(tool.inputSchema.required, ['task']);
+  assert.match(tool.modelDescription, /paid task/);
+  assert.equal(manifest.contributes.chatParticipants[0].name, 'tvijo');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+  assert.match(source, /vscode\.lm\?\.registerTool && vscode\.LanguageModelToolResult\) context\.subscriptions\.push\(vscode\.lm\.registerTool\('tvijo_ask'/);
+  assert.match(source, /if \(!bridgeEnabled\(\)\) return part\(/);
+  assert.match(source, /vscode\.chat\.createChatParticipant\('tvijo\.agent'/);
+});
