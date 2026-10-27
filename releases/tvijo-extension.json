@@ -1,6 +1,6 @@
 {
   "schema": "tvijo.extension-release/v1",
-  "as_of": "2026-10-26",
+  "as_of": "2026-10-27",
   "product": {
     "id": "tvijo-dshrem-vscode",
     "name": "Tvijo DSHREM for VS Code",
@@ -9,31 +9,43 @@
       "ru": "Помощь с кодом: выбранный контекст, проверяемые правки и задачи с лимитом."
     }
   },
-  "latest_version": "0.10.15",
+  "latest_version": "0.10.16",
   "channel": "preview",
   "publication": {
-    "status": "published",
-    "published_at": "2026-10-26",
+    "status": "prepared",
+    "published_at": null,
     "note": {
-      "en": "GitHub preview0.10.15 and checksum-verified VSIX are published. Open the bundled guide or multilingual tvijo.com/guide. Marketplace remains deferred. Reload Window activates installation.",
-      "ru": "GitHub-preview0.10.15 и VSIX с проверенным SHA опубликованы. Доступны встроенный учебник и многоязычный tvijo.com/guide. Marketplace остаётся отложенным. Reload Window активирует установку."
+      "en": "GitHub preview 0.10.16 is prepared. Full access now works without pauses and accepts command chains. Marketplace remains deferred. Reload Window activates installation.",
+      "ru": "GitHub-preview 0.10.16 подготовлен. Полный доступ теперь работает без пауз и принимает цепочки команд. Marketplace остаётся отложенным. Reload Window активирует установку."
     }
   },
   "package": {
-    "filename": "tvijo-dshrem-0.10.15.vsix",
-    "sha256": "3c41ee6f58714c079123b8c96c4a389f27cee7031400cd7c2cad5b468efd6017",
-    "bytes": 1129979,
+    "filename": "tvijo-dshrem-0.10.16.vsix",
+    "sha256": "a38f20b991330a856fa1ae3fb826aa8cf1deb27a04f91ed296d761fcbeb29a76",
+    "bytes": 1144638,
     "editor_requirement": "^1.90.0",
-    "source_commit": "0100108c57b2dd57a8d1de512a24371ea621f1bb",
-    "verified_environment": "870 extension,7 runner and10 CLI checks passed;37 Chromium handbook checks; bounded DSHREM source review. Native Windows activation/provider smoke is a separate TvijoCode publication gate; no paid coding-session claim."
+    "source_commit": "9e6ca52d92576925920291edb0bfd5743d5cae97",
+    "verified_environment": "889 of 890 extension checks passed (auto-commit no-repo fails on the 0.10.15 baseline too). Native Windows activation is a separate TvijoCode publication gate; no paid coding-session claim."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
-    "source": "https://github.com/nikbibamon/dshrempub/tree/0100108c57b2dd57a8d1de512a24371ea621f1bb",
-    "changelog": "https://github.com/nikbibamon/dshrempub/blob/0100108c57b2dd57a8d1de512a24371ea621f1bb/vscode/CHANGELOG.md",
+    "source": "https://github.com/nikbibamon/dshrempub/tree/9e6ca52d92576925920291edb0bfd5743d5cae97",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/9e6ca52d92576925920291edb0bfd5743d5cae97/vscode/CHANGELOG.md",
     "issues": "https://github.com/nikbibamon/dshrempub/issues"
   },
   "features": [
+    {
+      "id": "full-access-autonomy",
+      "since": "0.10.16",
+      "title": {
+        "en": "Full access without pauses",
+        "ru": "Полный доступ без пауз"
+      },
+      "description": {
+        "en": "With Full access the agent edits, runs checks and command chains (&&, |, redirections) without confirmations, reconstructs project state from code and Git, and lists remaining operator steps instead of stopping. sudo, destructive Git, removals outside the folder and git push stay guarded.",
+        "ru": "С полным доступом агент правит файлы, запускает проверки и цепочки команд (&&, |, перенаправления) без подтверждений, восстанавливает состояние проекта по коду и Git и перечисляет оставшиеся шаги оператора вместо остановки. sudo, разрушительный Git, удаление вне папки и git push по-прежнему под защитой."
+      }
+    },
     {
       "id": "native-editor-navigation-guide",
       "since": "0.10.15",
@@ -156,6 +168,26 @@
     }
   ],
   "releases": [
+    {
+      "version": "0.10.16",
+      "date": "2026-10-27",
+      "title": {
+        "en": "Full access without pauses",
+        "ru": "Полный доступ без пауз"
+      },
+      "changes": [
+        {
+          "en": "With Full access the agent edits, runs checks and command chains (&&, |, redirections) without confirmations, reconstructs project state from code and Git, and lists remaining operator steps instead of stopping. sudo, destructive Git, removals outside the folder and git push stay guarded.",
+          "ru": "С полным доступом агент правит файлы, запускает проверки и цепочки команд (&&, |, перенаправления) без подтверждений, восстанавливает состояние проекта по коду и Git и перечисляет оставшиеся шаги оператора вместо остановки. sudo, разрушительный Git, удаление вне папки и git push по-прежнему под защитой."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Full access is not an OS sandbox: commands run with your user rights. Command chains need a Linux or macOS extension host; substitutions ($(…), $VAR), subshells and heredocs are refused. git push and commands naming rules files still ask.",
+          "ru": "Полный доступ не песочница ОС: команды выполняются с правами вашего пользователя. Цепочки команд работают на хосте расширения Linux или macOS; подстановки ($(…), $VAR), подоболочки и heredoc отклоняются. git push и команды с файлами правил по-прежнему спрашивают."
+        }
+      ]
+    },
     {
       "version": "0.10.15",
       "date": "2026-10-26",
