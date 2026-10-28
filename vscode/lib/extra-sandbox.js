@@ -82,7 +82,7 @@ function ownedTree(root, uid, gid) {
   for(const entry of fs.readdirSync(root,{withFileTypes:true})) {const file=path.join(root,entry.name);if(entry.isSymbolicLink())throw failure('Symlinks are not copied into Extra tasks.');if(entry.isDirectory())ownedTree(file,uid,gid);fs.chownSync(file,uid,gid);}
   fs.chownSync(root,uid,gid);
 }
-function git(cwd,args,{input}={}) {return execFileSync('git',['-c','core.hooksPath=/dev/null','-c','core.fsmonitor=false','-c','protocol.file.allow=always',...args],{cwd,env:{...ENV,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0'},maxBuffer:16*1024*1024,input});}
+function git(cwd,args,{input}={}) {return execFileSync('git',['--literal-pathspecs','-c','core.hooksPath=/dev/null','-c','core.fsmonitor=false','-c','protocol.file.allow=always',...args],{cwd,env:{...ENV,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0'},maxBuffer:16*1024*1024,input});}
 function snapshot(root, {paths=null,includePrivate=false}={}) {
   const files=new Map();let bytes=0;
   function add(relative) {
@@ -122,7 +122,8 @@ function createTaskCopy(source, parent=os.tmpdir()) {
     const dest=path.resolve(task,name);if(!within(task,dest))throw failure('Invalid base tree path.');
     fs.mkdirSync(path.dirname(dest),{recursive:true});fs.writeFileSync(dest,data,{flag:'wx',mode:parseInt(mode,8)&0o777});baseFiles.add(name);
   }
-  git(task,['add','--all']);git(task,['-c','user.name=Tvijo Sandbox','-c','user.email=sandbox@localhost','-c','commit.gpgsign=false','commit','--quiet','--allow-empty','-m','Filtered task base from '+base]);
+  const stagedPaths=[...baseFiles];for(let at=0;at<stagedPaths.length;at+=200)git(task,['add','--',...stagedPaths.slice(at,at+200)]);
+  git(task,['-c','user.name=Tvijo Sandbox','-c','user.email=sandbox@localhost','-c','commit.gpgsign=false','commit','--quiet','--allow-empty','-m','Filtered task base from '+base]);
   const baseSnapshot=snapshot(task);
   for(const name of new Set([...baseFiles,...selected])) {
     if(name.split('/').some(n=>n==='.git'||deniedPart(n)))continue;
