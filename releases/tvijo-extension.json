@@ -1016,6 +1016,37 @@
       }
     },
     "anonymous_sha256": "9461cd246c45f68e89d2dcb3d45efdeb5ffecd7ecdfec01f7d8c52bac4f97f56",
-    "anonymous_observed_at": "2026-10-28T20:35:40.862349+00:00"
+    "anonymous_observed_at": "2026-10-28T20:35:40.862349+00:00",
+    "historical_main_verification": {
+      "date": "2026-10-26",
+      "extension_tests": 870,
+      "runner_tests": 7,
+      "cli_tests": 10,
+      "archive_tests": 17,
+      "final_affected_tests": 49,
+      "manual_browser_checks": 159,
+      "native_gui": {
+        "en": "Native Windows editor1.140.07195 CI40385199326 passed activation of extension0.10.15, offline guide and symbols/definitions/references on2026-10-26. Interactive sign-in, EXE installation and a complete paid coding session remain untested.",
+        "ru": "Нативный Windows-редактор1.140.07195 в CI40385199326 прошёл активацию расширения0.10.15, учебник и символы/определения/использования26.10.2026. Интерактивный вход, установка EXE и полная платная задача ещё не проверены."
+      },
+      "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.15",
+      "tag_commit": "1e9cabfa80d008f2d505c9fe177ef7c1d161c435",
+      "github_ci": "https://github.com/nikbibamon/dshrempub/actions/runs/40378532809",
+      "previous_release_verification": {
+        "version": "0.10.11",
+        "date": "2026-10-24",
+        "extension_tests": 851,
+        "native_gui": {
+          "en": "Interactive installed editor not observed. Production host integration, real native subscription receipts and synthetic EN/RU desktop/mobile Chromium are separate evidence layers.",
+          "ru": "Интерактивная сессия установленного редактора не наблюдалась. Рабочие обработчики, реальные квитанции нативных подписок и синтетический Chromium EN/RU desktop/mobile — отдельные уровни доказательств."
+        },
+        "final_affected_tests": 54,
+        "settings_browser_flows": 4,
+        "private_report_previews": 2,
+        "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.11",
+        "tag_commit": "03e1f54141ad799b0f7f0d1d47afd6934ef03807",
+        "github_ci": "https://github.com/nikbibamon/dshrempub/actions/runs/40109919542"
+      }
+    }
   }
 }

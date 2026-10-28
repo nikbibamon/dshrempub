@@ -6,6 +6,55 @@
 - **Copilot direction is explicit.** The preserved 0.10.22 bridge lets Copilot call Tvijo through `@tvijo`/`#tvijo`; outbound Tvijo-to-Copilot review is not implemented. Previous bridge and saved-conversation work is included and retained.
 - No automatic permission migration, OS elevation, trading activation or model-route changes. Reload the editor after installing; select ExtraFullAccess for the intended project. This extension release does not rebuild native editors, CLI or MCP.
 
+## Remote SSH server for Windows editor 1.140.07195 — 2026-10-26
+
+The missing Linux x64 remote extension host is now published in the existing
+[Windows release](https://github.com/nikbibamon/tvijocode/releases/tag/1.140.07195).
+Open Remote SSH can download its expected filename instead of receiving404.
+The exact Windows runtime commit and pinned Tvijo0.10.15 VSIX are retained.
+Native Linux CLI, isolated VSIX installation/listing and loopback startup passed
+in [CI40397971052](https://github.com/nikbibamon/tvijocode/actions/runs/40397971052).
+The71 bundled extension files match the published VSIX. Stable product policy
+permits Tvijo VSIX updates while preserving existing built-in update entries.
+
+Anonymous server download:88,165,345 bytes; SHA-256
+`533f88ad1b623b13deafca0016a28090c965edd5f9b66503b3d507d12746c1c8`.
+[Build pins and native test limits](https://github.com/nikbibamon/tvijocode/releases/download/1.140.07195/REMOTE_SERVER_RECEIPT.json).
+Original EXE/ZIP, receipts, release tag, previous releases and failed artifacts
+are preserved. Actual Windows SSH connection and remote extension activation/chat
+remain unverified; unified Codex/Claude/Copilot sessions are not implemented yet.
+
+## Windows editor 1.140.07195 / extension 0.10.15 — 2026-10-26
+
+The current Windows x64 editor bundles Tvijo DSHREM **0.10.15**, including
+native symbols, definitions and references and the offline learning guide.
+The previous Windows 0.1.0 package with extension 0.5.5 remains archived.
+Editor and extension version numbers identify separate products.
+
+- [Windows release, ZIP and per-user EXE](https://github.com/nikbibamon/tvijocode/releases/tag/1.140.07195)
+- [Download and installation instructions](https://dsh.tvijo.com/download#windows)
+- [Native Windows receipt](https://github.com/nikbibamon/tvijocode/releases/download/1.140.07195/WINDOWS_SMOKE.json)
+- [Exact sizes, SHA-256 and source commit](https://github.com/nikbibamon/tvijocode/releases/download/1.140.07195/BUILD_RECEIPT.json)
+- [Standalone extension 0.10.15](https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.15)
+
+Observed 2026-10-26: anonymous EXE and ZIP downloads match their published
+SHA-256 files and build receipt. Native Windows CI passed CLI startup,
+extension activation, the guide and code navigation; all 71 embedded files
+match the published VSIX. The ZIP SHA-256 is
+`d4c07e28efac0e91ec7829d9f496ae9b22b9a837127638052f8a63b86eb2512f`
+(219,811,437 bytes). EXE SHA-256 is
+`2cbf5dcadf6be3b8e1233bccd91d8676ac3ed145a4ed6ff0495bc17a798f6fef`
+(156,594,949 bytes).
+
+The EXE install/upgrade/uninstall flow, interactive sign-in and a complete paid
+coding session remain untested. Builds are unsigned and auto-update is disabled;
+keep the previous editor folder and install updates manually. Existing extension
+settings are preserved; installing the standalone VSIX requires Reload Window.
+macOS remains on its separate 0.1.0 preview; Marketplace remains deferred.
+MCP is a separate npm product, currently `tvijo-dshrem-mcp@0.1.1`.
+The preserved 0.10.14 draft and failed Windows CI40379292758 are not promoted
+as working downloads. No binary, tag or previous release was replaced.
+
 ## Extension 0.10.9 — 2026-10-24
 
 Optional durable DSH Harness orchestration on the selected local/SSH host;
