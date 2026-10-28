@@ -311,6 +311,11 @@
         "category": "Tvijo"
       },
       {
+        "command": "tvijo.conversations",
+        "title": "Saved conversations",
+        "category": "Tvijo"
+      },
+      {
         "command": "tvijo.configureAutoLint",
         "title": "Approve automatic syntax checks",
         "category": "Tvijo"

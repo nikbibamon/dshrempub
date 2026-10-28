@@ -134,3 +134,19 @@ test('B12 shared-dialog link renders EN/RU, opens via scoped host action, hides 
  view.emit('window:message',{data:{type:'state',signedIn:false,messages:[]}});
  assert.equal(view.element('shared-thread-note').hidden,true);
 });
+
+test('0.10.22 a shared server thread cannot be restored or forked from the chat, and says why',async()=>{
+ const app=extensionHost();try{
+  await app.commands.get('tvijo.signInProject')();
+  assert.equal(app.state().conversationEditable,false);
+  const before=JSON.stringify(app.state().messages);
+  await app.receive({type:'conversationRestore',index:0,scopeKey:app.state().scopeKey});
+  assert.match(app.state().error.text,/shared server thread cannot be rewound/);
+  await app.receive({type:'conversationFork',index:0,scopeKey:app.state().scopeKey});
+  assert.match(app.state().error.text,/shared server thread cannot be rewound/);
+  await app.commands.get('tvijo.conversations')();
+  assert.match(app.state().error.text,/Saved conversations belong to a local workspace/);
+  assert.equal(JSON.stringify(app.state().messages),before);
+  assert.ok(!app.calls.some(c=>c.method==='POST'&&c.route.startsWith('/projects/p-a/threads')),'no server thread is created or changed');
+ }finally{app.close();}
+});

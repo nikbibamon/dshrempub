@@ -114,6 +114,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   let uploading = false;
   let attachmentCount = 0;
   let lastMessages = null;
+  let lastBranchKey = '', conversationEditable = false;
   let lastMessageWorkspace = null;
   let workspaceAvailable = true;
   let lastUsage = null;
@@ -704,7 +705,8 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     // Once the host records the question in history, the live copy is redundant.
     const lastUser = [...items].reverse().find(item => item.role === 'user');
     if (liveQuestion && String(lastUser?.display || lastUser?.content || '').trim() !== liveQuestion) items = [...items, {role:'user', content:liveQuestion, live:true, from:liveFrom}];
-    const key = JSON.stringify(items); if (key === lastMessages && lastMessageWorkspace === activeWorkspaceLabel) return; lastMessages = key; lastMessageWorkspace = activeWorkspaceLabel;
+    const key = JSON.stringify(items), branchKey = (conversationEditable ? '1' : '0') + (running || submitting ? '1' : '0');
+    if (key === lastMessages && lastMessageWorkspace === activeWorkspaceLabel && branchKey === lastBranchKey) return; lastMessages = key; lastBranchKey = branchKey; lastMessageWorkspace = activeWorkspaceLabel;
     messages.replaceChildren();
     if (!items.length) {
       const welcome = document.createElement('section'); welcome.className = 'welcome';
@@ -724,6 +726,17 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       if (item.role === 'assistant') renderMarkdown(document, content, item.content, { post, copyLabel:t('copy'), plainLabel:locale === 'ru' ? 'текст' : 'text', truncatedLabel:locale === 'ru' ? 'Ответ сокращён; полный текст доступен в редакторе.' : 'Answer truncated; full text is available in the editor.' });
       else content.textContent = item.content || '';
       block.append(role, content); messages.append(block);
+      // Only real history rows can be a point to return to: not the live question, not host notes,
+      // and not a shared server thread (it is append-only on the service).
+      const branch = conversationEditable && !item.live && !item.note ? document.createElement('div') : null;
+      if (branch) {
+        branch.className = 'branch-actions';
+        for (const [type, label, hint] of [['conversationRestore', t('restoreHere'), t('restoreHint')], ['conversationFork', t('forkHere'), t('forkHint')]]) {
+          const button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.title = hint; button.setAttribute('aria-label', label);
+          button.disabled = running || submitting;
+          button.addEventListener('click', () => post({type,index})); branch.append(button);
+        }
+      }
       if (item.role === 'assistant') {
         if (typeof item.footer === 'string') { const footer = document.createElement('div'); footer.className = 'task-footer'; footer.textContent = item.footer.slice(0, 4000); block.append(footer); }
         const actions = document.createElement('div'); actions.className = 'answer-actions';
@@ -735,6 +748,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
         if(item.agentRequest){const agent=document.createElement('button');agent.type='button';agent.textContent=locale==='ru'?'Сделать агентом':'Make it an agent';agent.disabled=running || submitting;agent.addEventListener('click',()=>post({type:'makeAgent',index}));actions.append(agent);}
         block.append(actions);
       }
+      if (branch) block.append(branch);
     }
     messages.scrollTop = messages.scrollHeight;
   }
@@ -884,6 +898,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       activeWorkspaceLabel = data.workspaceSelected === false ? '' : data.projectLabel || '';
       liveQuestion = typeof data.liveQuestion === 'string' && data.liveQuestion ? data.liveQuestion : submitting ? liveQuestion : null;
       if (typeof data.liveFrom === 'string') liveFrom = data.liveFrom; else if (!liveQuestion) liveFrom = '';
+      conversationEditable = data.conversationEditable === true;
       render(data.messages || []);
       const sharedNote = document.getElementById('shared-thread-note');
       sharedNote.hidden = !data.sharedThreadUrl;
@@ -895,6 +910,8 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       state.textContent = lastStatus;
       if (!data.busy && !data.attaching) stopActivity();
       running = !!data.busy;
+      // Messages were drawn above with the previous run state; redraw only if the Restore/Fork buttons' state changed.
+      render(lastItems);
       interruptedRuns = Array.isArray(data.interrupted) ? data.interrupted : [];
       recoveryNotes = Array.isArray(data.recoveryNotes) ? data.recoveryNotes : [];
       drawRecovery();

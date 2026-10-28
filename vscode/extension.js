@@ -33,6 +33,7 @@ const agentSave = require('./lib/agent-save');
 const captures = require('./lib/context-captures');
 const terminalContext = require('./lib/terminal-context');
 const conversationExport = require('./lib/export-conversation');
+const conversationBranch = require('./lib/conversation-branch');
 const { createTools, safePath, autoCommand, analyzeCommand, assertWriteSnapshot } = require('./lib/local-tools');
 const diagnosticsFeedback = require('./lib/diagnostics-feedback');
 const { createMetrics } = require('./lib/metrics');
@@ -644,7 +645,7 @@ function activate(context) {
       const boundary = item.role === 'assistant' && typeof content === 'string' ? content.lastIndexOf('\n---\nTask ') : -1;
       return boundary < 0 ? {role:item.role, content,agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined} : {role:item.role, content:content.slice(0,boundary), footer:content.slice(boundary + 5),agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined};
     });
-    messages.push(...rewindNotes.filter(note => note.root === permissionFolder()?.uri.fsPath).map(note => ({role:'assistant', content:note.text})));
+    messages.push(...rewindNotes.filter(note => note.root === permissionFolder()?.uri.fsPath).map(note => ({role:'assistant', content:note.text, note:true})));
     let options = null;
     let pack = null;
     if (signedIn) {
@@ -656,7 +657,7 @@ function activate(context) {
       try { options = chatOptions(auth, selection.pack); } catch { options = null; }
     } else updatePackStatus(null, null);
     if(view!==chatView || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
-    await view.webview.postMessage({ type: 'state', colorTheme:vscode.workspace.getConfiguration('tvijo').get('colorTheme','blue'), orchestration:{enabled:orchestration.enabled(),coordinator:'ds41f',policy:vscode.workspace.getConfiguration('tvijo').get('orchestration.workerPolicy','sol')}, autoCommit:vscode.workspace.getConfiguration('tvijo').get('autoCommit','afterTask'), loadedRules:projectRulesHost.loaded?.() || [],rulesScanTruncated:projectRulesHost.scanTruncated(), runtimeVersion:context.extension?.packageJSON?.version || require('./package.json').version, composerMode:scope ? composerMode({scope}) : null, workspacePath:permissionFolder()?.uri.fsPath || refusedCandidate?.fsPath || '', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, liveQuestion, liveFrom, botSetupNeeded, bridgeEnabled:vscode.workspace.getConfiguration('tvijo').get('bridge.enabled', false) === true, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length || !!(scope && local.history(scope).length), account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError || (projectRulesHost.scanTruncated() && !fullAccessState().enabled?{text:L('Rules scan truncated. Further commands require confirmation for this task.','Сканирование правил усечено. Следующие команды этой задачи требуют подтверждения.'),action:'rulesSettings'}:null) || ((projectRulesHost.loaded?.() || []).some(row=>row.quarantined)?{text:L('Rules changed outside an approved direct edit. Quarantined rules are excluded from future requests until you re-enable them in ⚙.','Правила изменены вне одобренной прямой правки. Правила в карантине исключены из следующих запросов до повторного включения в ⚙.'),action:'rulesSettings'}:null), authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : refusedCandidate ? path.basename(refusedCandidate.fsPath) : L('Choose project','Выбрать проект'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
+    await view.webview.postMessage({ type: 'state', conversationEditable:!!scope && !shared.selection(scope), colorTheme:vscode.workspace.getConfiguration('tvijo').get('colorTheme','blue'), orchestration:{enabled:orchestration.enabled(),coordinator:'ds41f',policy:vscode.workspace.getConfiguration('tvijo').get('orchestration.workerPolicy','sol')}, autoCommit:vscode.workspace.getConfiguration('tvijo').get('autoCommit','afterTask'), loadedRules:projectRulesHost.loaded?.() || [],rulesScanTruncated:projectRulesHost.scanTruncated(), runtimeVersion:context.extension?.packageJSON?.version || require('./package.json').version, composerMode:scope ? composerMode({scope}) : null, workspacePath:permissionFolder()?.uri.fsPath || refusedCandidate?.fsPath || '', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, liveQuestion, liveFrom, botSetupNeeded, bridgeEnabled:vscode.workspace.getConfiguration('tvijo').get('bridge.enabled', false) === true, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length || !!(scope && local.history(scope).length), account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError || (projectRulesHost.scanTruncated() && !fullAccessState().enabled?{text:L('Rules scan truncated. Further commands require confirmation for this task.','Сканирование правил усечено. Следующие команды этой задачи требуют подтверждения.'),action:'rulesSettings'}:null) || ((projectRulesHost.loaded?.() || []).some(row=>row.quarantined)?{text:L('Rules changed outside an approved direct edit. Quarantined rules are excluded from future requests until you re-enable them in ⚙.','Правила изменены вне одобренной прямой правки. Правила в карантине исключены из следующих запросов до повторного включения в ⚙.'),action:'rulesSettings'}:null), authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : refusedCandidate ? path.basename(refusedCandidate.fsPath) : L('Choose project','Выбрать проект'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'ds41f') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
       status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
@@ -2125,7 +2126,7 @@ function activate(context) {
     lastError = null; lastAgentOutcome = null;
     if (shared.selection(auth.scope)) return createSharedThread(auth);
     const previous = historyFor(auth.scope);
-    if (previous.length) await local.archiveHistory(auth.scope, randomUUID(), previous);
+    await archiveConversation(auth, previous, 'new');
     await local.saveHistory(localScope(auth.scope), []);
     agentMaps.delete(currentViewScope(auth.scope));
     attachments = [];
@@ -2137,6 +2138,113 @@ function activate(context) {
     await postChatState();
     if (chatView && await isCurrentAuth(auth)) await chatView.webview.postMessage({type:'draft',scopeKey:auth.viewScope,text:''});
     vscode.window.showInformationMessage('Tvijo: new conversation started.');
+  });
+
+  // Saved conversations. "Clear conversation", Fork and opening another one keep the previous
+  // history here instead of dropping it; older builds archived under the tenant scope, so both
+  // prefixes are read. Only the workspace-scoped prefix is pruned (50 newest).
+  async function writeConversationArchive(auth, history, reason) {
+    if (history.length) await local.archiveHistory(localScope(auth.scope), randomUUID(), history, { reason, at: Date.now() });
+  }
+  async function pruneConversationArchives(auth) {
+    const rows = local.archives(localScope(auth.scope)).map(row => conversationBranch.normalizeArchive(row.id, row.raw)).filter(Boolean);
+    for (const id of conversationBranch.overflow(rows, conversationBranch.MAX_ARCHIVES)) await local.removeArchive(localScope(auth.scope), id);
+  }
+  async function archiveConversation(auth, history, reason) { await writeConversationArchive(auth, history, reason); await pruneConversationArchives(auth); }
+  function savedConversations(auth) {
+    const rows = [];
+    for (const scope of [localScope(auth.scope), auth.scope]) for (const row of local.archives(scope)) {
+      const entry = conversationBranch.normalizeArchive(row.id, row.raw);
+      if (entry) rows.push({ ...entry, scope });
+    }
+    return conversationBranch.sortArchives(rows);
+  }
+  // The conversation changed under the chat: tasks of the old thread are not this thread's.
+  async function conversationChanged(auth, restoredQuestion = '') {
+    lastError = null; lastAgentOutcome = null;
+    agentMaps.delete(currentViewScope(auth.scope));
+    draftSequence++;
+    if (restoredQuestion) {
+      // The question returns in front of whatever is already typed; the mode stays as it is.
+      const key = recoveryScope(auth), pending = draftTimers.get(key), saved = runJournals.draft(key);
+      const text = conversationBranch.mergeDraft(restoredQuestion, pending ? pending.text : saved?.text || '');
+      clearTimeout(pending?.timer); draftTimers.delete(key);
+      try { runJournals.saveDraft(key, text, pending?.mode || saved?.mode || composerMode(auth) || 'chat'); } catch { /* the webview saves the draft again once it receives it */ }
+      await postChatState();
+      if (chatView && await isCurrentAuth(auth)) await chatView.webview.postMessage({ type: 'draft', scopeKey: auth.viewScope, text });
+    } else await postChatState();
+  }
+  let restoreUndo = null;
+  async function branchConversation(message, kind) {
+    ensureIdle();
+    const auth = await requireAuth();
+    if (message.scopeKey !== currentViewScope(auth.scope)) return;
+    if (shared.selection(auth.scope)) throw new core.ServiceError('conversation_shared', L('A shared server thread cannot be rewound: its messages live on the service. Start a new thread, or work in a local workspace conversation.', 'Общий серверный тред нельзя откатить: его сообщения хранятся на сервисе. Начните новый тред или работайте в локальном диалоге рабочей области.'));
+    const history = historyFor(auth.scope), point = conversationBranch.pointAt(history, message.index);
+    if (!point) return;
+    const scopeId = localScope(auth.scope), signature = JSON.stringify(history[message.index]);
+    if (kind === 'restore') {
+      if (!point.removed) { vscode.window.showInformationMessage(L('Tvijo: the conversation already ends here.', 'Tvijo: диалог уже заканчивается здесь.')); return; }
+      const label = L('Restore', 'Восстановить');
+      const pick = await vscode.window.showWarningMessage(L(`Restore the conversation to this point? ${point.removed} later message(s) will be removed from it. Files on disk are not changed (use Rewind for files).`, `Восстановить диалог до этого места? Последующие сообщения (${point.removed}) будут удалены из него. Файлы на диске не меняются (для файлов есть Rewind).`), { modal: true }, label);
+      if (pick !== label) return;
+      ensureIdle();
+      // The window stayed usable behind the modal: do not cut a conversation that has moved on.
+      const now = historyFor(auth.scope);
+      if (now.length !== history.length || JSON.stringify(now[message.index]) !== signature || shared.selection(auth.scope)) throw new core.ServiceError('conversation_changed', L('The conversation changed while you were deciding. Nothing was restored.', 'Диалог изменился, пока вы решали. Ничего не восстановлено.'));
+      await local.saveHistory(scopeId, point.keep);
+      restoreUndo = { scopeId, before: history, after: point.keep };
+      await conversationChanged(auth, point.draft);
+      const undo = L('Undo', 'Отменить');
+      Promise.resolve(vscode.window.showInformationMessage(L(`Tvijo: conversation restored; ${point.removed} message(s) removed.`, `Tvijo: диалог восстановлен; удалено сообщений: ${point.removed}.`), undo)).then(async answer => {
+        if (answer !== undo) return;
+        try { await undoRestoreConversation(); } catch (error) { report(error); }
+      }, () => {});
+      return;
+    }
+    await writeConversationArchive(auth, history, 'fork');
+    await local.saveHistory(scopeId, point.keep);
+    await pruneConversationArchives(auth);
+    restoreUndo = null;
+    await conversationChanged(auth, point.draft);
+    const open = L('Conversations', 'Диалоги');
+    Promise.resolve(vscode.window.showInformationMessage(L(`Tvijo: forked with ${point.keep.length} message(s). The previous conversation is kept under Conversations.`, `Tvijo: ветка создана, сообщений: ${point.keep.length}. Прежний диалог сохранён в «Диалогах».`), open)).then(async answer => {
+      if (answer === open) await vscode.commands.executeCommand('tvijo.conversations');
+    }, () => {});
+  }
+  async function undoRestoreConversation() {
+    ensureIdle();
+    const auth = await requireAuth();
+    const saved = restoreUndo;
+    restoreUndo = null;
+    if (!saved || saved.scopeId !== localScope(auth.scope) || shared.selection(auth.scope) || JSON.stringify(historyFor(auth.scope)) !== JSON.stringify(saved.after)) throw new core.ServiceError('undo_restore', L('The conversation moved on after the restore, so it cannot be undone.', 'Диалог продолжился после восстановления, отменить уже нельзя.'));
+    await local.saveHistory(saved.scopeId, saved.before);
+    await conversationChanged(auth);
+  }
+  command('tvijo.conversations', async () => {
+    ensureIdle();
+    const auth = await requireAuth();
+    if (shared.selection(auth.scope)) throw new core.ServiceError('conversation_shared', L('Saved conversations belong to a local workspace conversation. A shared thread lives on the server.', 'Сохранённые диалоги относятся к локальному диалогу рабочей области. Общий тред хранится на сервере.'));
+    const rows = savedConversations(auth);
+    if (!rows.length) { vscode.window.showInformationMessage(L('Tvijo: no saved conversations yet. Fork, Clear conversation and opening another one keep the previous conversation here.', 'Tvijo: сохранённых диалогов пока нет. Ветка, «Очистить диалог» и открытие другого диалога сохраняют прежний здесь.')); return; }
+    const reasons = { new: L('cleared', 'очищен'), fork: L('before a fork', 'до ветвления'), switch: L('replaced by another', 'заменён другим') };
+    const items = rows.map(row => ({
+      label: conversationBranch.titleOf(row.history) || L('(no question)', '(без вопроса)'),
+      description: [row.at ? new Date(row.at).toLocaleString(uiLocale()) : L('earlier', 'ранее'), L(`${row.history.length} messages`, `сообщений: ${row.history.length}`), reasons[row.reason]].filter(Boolean).join(' · '),
+      row
+    }));
+    const pick = await vscode.window.showQuickPick(items, { title: L('Saved conversations', 'Сохранённые диалоги'), placeHolder: L('Open one — the current conversation is saved here first', 'Откройте нужный — текущий диалог сначала сохранится здесь'), matchOnDescription: true });
+    if (!pick) return;
+    ensureIdle();
+    const fresh = savedConversations(auth).find(row => row.id === pick.row.id && row.scope === pick.row.scope);
+    if (!fresh || shared.selection(auth.scope)) throw new core.ServiceError('conversation_missing', L('That saved conversation is no longer available.', 'Этот сохранённый диалог больше недоступен.'));
+    await writeConversationArchive(auth, historyFor(auth.scope), 'switch');
+    await local.saveHistory(localScope(auth.scope), fresh.history);
+    await local.removeArchive(fresh.scope, fresh.id);
+    await pruneConversationArchives(auth);
+    restoreUndo = null;
+    await conversationChanged(auth);
+    vscode.window.showInformationMessage(L('Tvijo: conversation opened.', 'Tvijo: диалог открыт.'));
   });
 
   // The saved idempotency key is the only durable link to a request whose
@@ -2674,6 +2782,8 @@ function activate(context) {
             const undone=await require('./lib/auto-commit').undo(record);
             if(!undone.ok)throw new core.ServiceError('undo_commit',L('Undo stopped: ','Отмена остановлена: ')+require('./lib/auto-commit').describe(undone.reason,uiLocale())+(undone.observedHashes?.length?'\n'+L('Hashes: ','Хеши: ')+undone.observedHashes.join(', '):''));
             const h=historyFor(auth.scope);h[message.index]={...h[message.index],autoCommit:undefined,display:(h[message.index].display || h[message.index].content)+'\n'+L('Commit undone: ','Коммит отменён: ')+undone.method};await local.saveHistory(localScope(auth.scope),h);await postChatState();
+          } else if (message?.type === 'conversationRestore' || message?.type === 'conversationFork') {
+            await branchConversation(message, message.type === 'conversationRestore' ? 'restore' : 'fork');
           } else if (message?.type === 'makeAgent') {
             ensureIdle();const auth=await requireAuth();if(message.scopeKey!==currentViewScope(auth.scope) || shared.selection(auth.scope))return;
             const item=historyFor(auth.scope)[message.index];if(item?.role==='assistant' && typeof item.agentRequest==='string')await runAgentFlow(item.agentRequest);

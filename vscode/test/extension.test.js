@@ -20,6 +20,7 @@ function host(options = {}) {
   const docs = [];
   const shown = [];
   const warnings = [];
+  const infos = [];
   const requests = [];
   const errors = [];
   const feedback = [];
@@ -100,7 +101,7 @@ function host(options = {}) {
       },
       createStatusBarItem: () => status,
       registerWebviewViewProvider: (_id, value) => { provider = value; return disposable; },
-      showErrorMessage: async message => { errors.push(message); feedback.push(message); }, showInformationMessage: async () => undefined,
+      showErrorMessage: async message => { errors.push(message); feedback.push(message); }, showInformationMessage: async (...args) => { infos.push(args); return options.onInfo ? options.onInfo(...args) : undefined; },
       showWarningMessage: async (...args) => { warnings.push(args); if (options.onWarning) await options.onWarning(...args); return warningAnswer; },
       showTextDocument: async doc => { shown.push(doc); },
       showInputBox: async config => options.inputBox ? options.inputBox(config) : 'Account A editor question',
@@ -167,7 +168,7 @@ function host(options = {}) {
   const accountLocal=tenantState(context);
   const folderScope=scope=>require('node:crypto').createHash('sha256').update(JSON.stringify([scope,require('../lib/active-workspace').identity(require('../lib/active-workspace').createActiveWorkspace({vscode,state:context.workspaceState}).current())])).digest('hex');
   const scopedLocal={...accountLocal,history:scope=>accountLocal.history(folderScope(scope)),saveHistory:(scope,value)=>accountLocal.saveHistory(folderScope(scope),value)};
-  return { vscode, context, posts, docs, shown, warnings, requests, commands, executed, errors, feedback, panels, external, copied, base, local: scopedLocal, rawLocal:accountLocal, folderScope, scope: tenant => scopeKey(base, tenant), receive: (message) => receive({...message,...(message.scopeKey === scopeKey(base,'tenant-a') || message.scopeKey === scopeKey(base,'tenant-b') ? {scopeKey:folderScope(message.scopeKey)} : {})}), workspaceChanged: () => { if (!workspaceChangeListener) return false; workspaceChangeListener({}); return true; }, configurationChanged: (changedKey='tvijo.apiBase') => { for (const listener of configurationChangeListeners) listener({ affectsConfiguration: key => key === changedKey || changedKey.startsWith(key+'.') }); return configurationChangeListeners.length; },
+  return { vscode, context, posts, docs, shown, warnings, infos, requests, commands, executed, errors, feedback, panels, external, copied, base, local: scopedLocal, rawLocal:accountLocal, folderScope, scope: tenant => scopeKey(base, tenant), receive: (message) => receive({...message,...(message.scopeKey === scopeKey(base,'tenant-a') || message.scopeKey === scopeKey(base,'tenant-b') ? {scopeKey:folderScope(message.scopeKey)} : {})}), workspaceChanged: () => { if (!workspaceChangeListener) return false; workspaceChangeListener({}); return true; }, configurationChanged: (changedKey='tvijo.apiBase') => { for (const listener of configurationChangeListeners) listener({ affectsConfiguration: key => key === changedKey || changedKey.startsWith(key+'.') }); return configurationChangeListeners.length; },
     root, storage, botAdapter: () => botAdapter, settings, status, Uri, Position, Range,
     grantError: value => { grantError = value; }, lookup: value => { lookup = value; }, warning: value => { warningAnswer = value; }, chat: value => { chatContent = value; }, editor: value => { activeEditor = value; }, applied: () => appliedEdit, taskSnapshot: value => { taskSnapshot = value; },
     fireDiagnostics,
@@ -3193,5 +3194,161 @@ test('0.10.22 a bridged command that produces no answer does not return the prev
     assert.equal(second.state, 'completed');
     assert.ok(!second.answer);
     assert.equal(second.note, 'no_new_answer');
+  } finally { app.close(); }
+});
+
+// 0.10.22: restore / fork a local conversation at a chosen message.
+const conversationSeed = [
+  { role: 'user', content: 'first question', display: 'first question' },
+  { role: 'assistant', content: 'first answer', display: 'first answer' },
+  { role: 'user', content: 'second question', display: 'second question' },
+  { role: 'assistant', content: 'second answer', display: 'second answer' }
+];
+async function seededConversation(options = {}) {
+  const app = host(options);
+  await app.receive({ type: 'ready' });
+  await app.local.saveHistory(app.scope('tenant-a'), conversationSeed);
+  await app.receive({ type: 'ready' });
+  const state = () => app.posts.filter(p => p.type === 'state').at(-1);
+  return { app, state, scopeKey: () => state().scopeKey };
+}
+
+test('0.10.22 the chat state says a local conversation can be restored or forked', async () => {
+  const { app, state } = await seededConversation();
+  try {
+    assert.equal(state().conversationEditable, true);
+    assert.equal(state().messages.length, 4);
+  } finally { app.close(); }
+});
+
+test('0.10.22 restoring to a question removes it and what followed, and puts the question back in the composer', async () => {
+  const { app, state, scopeKey } = await seededConversation();
+  try {
+    app.warning('Restore');
+    await app.receive({ type: 'conversationRestore', index: 2, scopeKey: scopeKey() });
+    assert.deepEqual(app.local.history(app.scope('tenant-a')), conversationSeed.slice(0, 2));
+    assert.equal(state().messages.length, 2);
+    assert.equal(app.posts.filter(p => p.type === 'draft').at(-1).text, 'second question');
+    assert.equal(app.warnings.at(-1)[1].modal, true);
+    assert.match(app.warnings.at(-1)[0], /2 later message/);
+    assert.equal(app.rawLocal.archives(app.folderScope(app.scope('tenant-a'))).length, 0, 'restore does not litter the saved list');
+  } finally { app.close(); }
+});
+
+test('0.10.22 restoring to an answer keeps that answer; declining the confirmation changes nothing', async () => {
+  const { app, scopeKey } = await seededConversation();
+  try {
+    app.warning(undefined);
+    await app.receive({ type: 'conversationRestore', index: 1, scopeKey: scopeKey() });
+    assert.equal(app.local.history(app.scope('tenant-a')).length, 4);
+    app.warning('Restore');
+    await app.receive({ type: 'conversationRestore', index: 1, scopeKey: scopeKey() });
+    assert.deepEqual(app.local.history(app.scope('tenant-a')), conversationSeed.slice(0, 2));
+    assert.ok(!app.posts.some(p => p.type === 'draft' && p.text), 'an answer returns no question');
+  } finally { app.close(); }
+});
+
+test('0.10.22 restoring at the end of the conversation is a no-op and never asks', async () => {
+  const { app, scopeKey } = await seededConversation();
+  try {
+    await app.receive({ type: 'conversationRestore', index: 3, scopeKey: scopeKey() });
+    assert.equal(app.warnings.length, 0);
+    assert.equal(app.local.history(app.scope('tenant-a')).length, 4);
+    assert.match(app.infos.at(-1)[0], /already ends here/);
+  } finally { app.close(); }
+});
+
+test('0.10.22 the restored question goes in front of a draft the person had already typed', async () => {
+  const { app, scopeKey } = await seededConversation();
+  try {
+    const key = recoveryKeyFor(app);
+    await app.receive({ type: 'composerDraft', scopeKey: scopeKey(), composerScope: key, text: 'typed meanwhile', mode: 'chat' });
+    app.warning('Restore');
+    await app.receive({ type: 'conversationRestore', index: 0, scopeKey: scopeKey() });
+    assert.equal(app.posts.filter(p => p.type === 'draft').at(-1).text, 'first question\n\ntyped meanwhile');
+    assert.equal(app.local.history(app.scope('tenant-a')).length, 0);
+  } finally { app.close(); }
+});
+
+test('0.10.22 Undo after a restore brings the removed messages back', async () => {
+  const { app, state, scopeKey } = await seededConversation({ onInfo: async (_message, ...buttons) => buttons.includes('Undo') ? 'Undo' : undefined });
+  try {
+    app.warning('Restore');
+    await app.receive({ type: 'conversationRestore', index: 2, scopeKey: scopeKey() });
+    for (let turn = 0; turn < 5; turn++) await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(app.local.history(app.scope('tenant-a')), conversationSeed);
+    assert.equal(state().messages.length, 4);
+    assert.equal(app.errors.length, 0);
+  } finally { app.close(); }
+});
+
+test('0.10.22 Undo is refused once the conversation has moved on, and does not overwrite the newer messages', async () => {
+  let pressUndo;
+  const pressed = new Promise(resolve => { pressUndo = resolve; });
+  const { app, state, scopeKey } = await seededConversation({ onInfo: (_message, ...buttons) => buttons.includes('Undo') ? pressed : undefined });
+  try {
+    app.warning('Restore');
+    await app.receive({ type: 'conversationRestore', index: 2, scopeKey: scopeKey() });
+    const newer = [...conversationSeed.slice(0, 2), { role: 'user', content: 'asked after the restore' }, { role: 'assistant', content: 'answered after the restore' }];
+    await app.local.saveHistory(app.scope('tenant-a'), newer);
+    pressUndo('Undo');
+    for (let turn = 0; turn < 5; turn++) await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(app.local.history(app.scope('tenant-a')), newer);
+    assert.match(state().error.text, /cannot be undone/);
+  } finally { app.close(); }
+});
+
+test('0.10.22 forking keeps the whole previous conversation under Conversations and continues from the chosen point', async () => {
+  const { app, state, scopeKey } = await seededConversation();
+  try {
+    await app.receive({ type: 'conversationFork', index: 1, scopeKey: scopeKey() });
+    assert.deepEqual(app.local.history(app.scope('tenant-a')), conversationSeed.slice(0, 2));
+    const archived = app.rawLocal.archives(app.folderScope(app.scope('tenant-a')));
+    assert.equal(archived.length, 1);
+    assert.equal(archived[0].raw.reason, 'fork');
+    assert.deepEqual(archived[0].raw.history, conversationSeed);
+    assert.equal(state().messages.length, 2);
+    assert.equal(app.warnings.length, 0, 'a fork loses nothing, so it does not ask');
+  } finally { app.close(); }
+});
+
+test('0.10.22 opening a saved conversation swaps it with the current one and loses neither', async () => {
+  let titles = [];
+  const { app, state, scopeKey } = await seededConversation({ pick: items => { titles = items; return items[0]; } });
+  try {
+    await app.receive({ type: 'conversationFork', index: 0, scopeKey: scopeKey() });
+    assert.equal(app.local.history(app.scope('tenant-a')).length, 0, 'forking at the first question leaves an empty conversation');
+    await app.commands.get('tvijo.conversations')();
+    assert.equal(titles.length, 1);
+    assert.equal(titles[0].label, 'first question');
+    assert.match(titles[0].description, /4 messages/);
+    assert.match(titles[0].description, /before a fork/);
+    assert.deepEqual(app.local.history(app.scope('tenant-a')), conversationSeed);
+    assert.equal(app.rawLocal.archives(app.folderScope(app.scope('tenant-a'))).length, 0, 'the opened one leaves the list; the empty current one is not saved');
+    assert.equal(state().messages.length, 4);
+  } finally { app.close(); }
+});
+
+test('0.10.22 Clear conversation now lists in Conversations, and conversations saved by older builds are still read', async () => {
+  let titles = [];
+  const { app, scopeKey } = await seededConversation({ pick: items => { titles = items; return undefined; } });
+  try {
+    await app.rawLocal.archiveHistory(app.scope('tenant-a'), 'legacy-1', [{ role: 'user', content: 'old build question' }, { role: 'assistant', content: 'old answer' }]);
+    await app.commands.get('tvijo.newConversation')();
+    assert.equal(app.local.history(app.scope('tenant-a')).length, 0);
+    await app.commands.get('tvijo.conversations')();
+    assert.deepEqual(titles.map(item => item.label).sort(), ['first question', 'old build question']);
+    assert.ok(scopeKey());
+  } finally { app.close(); }
+});
+
+test('0.10.22 a bad index and a foreign scope are refused without touching the history', async () => {
+  const { app, scopeKey } = await seededConversation();
+  try {
+    for (const index of [-1, 4, 1.5, '1', null, undefined]) await app.receive({ type: 'conversationFork', index, scopeKey: scopeKey() });
+    await app.receive({ type: 'conversationRestore', index: 0, scopeKey: 'another-scope' });
+    assert.equal(app.local.history(app.scope('tenant-a')).length, 4);
+    assert.equal(app.rawLocal.archives(app.folderScope(app.scope('tenant-a'))).length, 0);
+    assert.equal(app.warnings.length, 0);
   } finally { app.close(); }
 });
