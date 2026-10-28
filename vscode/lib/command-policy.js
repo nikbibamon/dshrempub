@@ -86,6 +86,7 @@ function tokenDenied(executable, args) {
   if (base === 'dd' && args.some(arg => /^if=/i.test(arg))) return true;
   if (base === 'chmod' && args.some(arg => arg === '777') && args.some(arg => arg.startsWith('/'))) return true;
   if (base === 'git' && gitDanger(args)) return true;
+  if (base === 'crontab' && args.some(arg => /^-[^-]*r/.test(arg) || arg === '--remove')) return true;
   if (args.some((arg, index) => arg === '>' && /^\/dev\/sd[a-z]/i.test(args[index + 1] || ''))) return true;
   return false;
 }
@@ -247,11 +248,13 @@ function isCommandDecision(value, raw) {
 }
 
 function analyzeCommand(raw, { shell = false, extra = false } = {}) {
-  // Extra is an explicit host-shell grant, not a sandbox or a parser proof.
+  // Extra keeps the Full accident floor. OS confinement is checked by the launcher.
   // Retain obvious accident checks; dynamic scripts can have arbitrary effects.
   if (extra) {
     if (typeof raw !== 'string' || !raw.trim() || raw.length > 32768 || raw.includes('\u0000')) return immutableDecision({ok:false,raw,reason:'Invalid host command.'});
     if (BLOCKED_COMMAND.some(pattern=>pattern.test(raw))) return immutableDecision({ok:false,raw,denied:true,reason:'This command is blocked by the local safety rules.'});
+    const floor = inspectShell(raw, 0);
+    if (floor.denied || /(?:^|[\s;&|])(?:\S*\/)?git\s+(?:(?:-C\s+\S+|--no-pager)\s+)*(?:push\b|reset\s+--hard|clean\s+-[a-z]*f|checkout\s+--\s+\.)/i.test(raw) || /(?:^|[\s;&|])(?:\S*\/)?crontab\s+[^;&|\n]*-[a-z]*r\b/i.test(raw) || /\brm\s+-[a-z]*[rf][a-z]*\s+\/root(?:\/|\s|$)/i.test(raw)) return immutableDecision({ok:false,raw,denied:true,reason:'This command is blocked by the local safety rules.'});
     if (process.platform === 'win32') return analyzeCommand(raw); // Native literal commands and review remain available; no POSIX shell.
     return immutableDecision({ok:true,raw,shell:true,extra:true,executable:'/bin/sh',args:Object.freeze(['-c',raw]),operands:Object.freeze([]),auto:false,requiresApproval:false,outward:false});
   }

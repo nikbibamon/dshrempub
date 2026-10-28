@@ -24,6 +24,7 @@
   "tvijo.telegram.allowedServices": [],
   // Advanced / Для администратора: keep the default unless using your own service.
   "tvijo.apiBase": "https://dsh.tvijo.com/api/dshrem/v1",
+  "tvijo.agentReview.codexModel": "gpt-6-astra",
   "tvijo.agentReview.claudeEnabled": false,
   "tvijo.orchestration.enabled": false,
   // Installed subscriptions on the selected host; no automatic paid API fallback.

@@ -3353,18 +3353,14 @@ test('0.10.22 a bad index and a foreign scope are refused without touching the h
   } finally { app.close(); }
 });
 
-test('ExtraFullAccess host integration captures native grant, executes host shell and persists capabilities',async()=>{
+test('ExtraFullAccess native host refuses without a passing sandbox launcher',async()=>{
  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'extra-host-'));
- const app=host({root,chatSequence:[JSON.stringify({tool:'run_command',command:'value=EXTRA_HOST_OK; printf "%s" "$value"'}),JSON.stringify({tool:'finish',answer:'Observed shell output'})]});
+ const app=host({root});
  try {
-  app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);app.settings.set('orchestration.enabled',true);
   await app.receive({type:'ready'});const state=app.posts.filter(p=>p.type==='state').at(-1);
-  app.warning('Enable ExtraFullAccess');await app.receive({type:'agentPreset',scopeKey:state.scopeKey,preset:'extra',requestId:'extra-test'});
-  assert.equal(app.posts.filter(p=>p.type==='state').at(-1).options.agentPreset,'extra');
-  await app.receive({type:'ask',question:'Run one harmless host shell test',agent:true});
-  const cap=app.posts.find(p=>p.type==='agent'&&p.event?.type==='capabilities');assert.equal(cap.event.capabilities.mode,'extra');
-  const result=app.posts.find(p=>p.type==='agent'&&p.event?.type==='result');assert.equal(result.event.result.stdout,'EXTRA_HOST_OK');
-  assert.equal(app.warnings.length,1);assert.equal(app.feedback.length,0);
-  assert.match(JSON.stringify(app.requests),/HOST CAPABILITIES/);
+  await app.receive({type:'agentPreset',scopeKey:state.scopeKey,preset:'extra',requestId:'extra-test'});
+  assert.notEqual(app.posts.filter(p=>p.type==='state').at(-1).options.agentPreset,'extra');
+  assert.match(JSON.stringify(app.warnings),/preflight/);
+  assert.equal(app.requests.filter(item=>item.url.endsWith('/tasks')&&item.method==='POST').length,0);
  }finally{app.close();}
 });

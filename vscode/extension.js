@@ -855,7 +855,7 @@ function activate(context) {
       let rewindStep = 1;
       const checkpointWrite = file => captureRewind({root:folder.uri.fsPath, runId:rewindRunId, step:rewindStep, model:agentModel, title:goal, files:[file]});
       const commandSession = mapSession(auth);
-      const reviewer = require('./lib/agent-review').createAgentReview({root:folder.uri.fsPath,guard,signal:abort.signal,enabled:!!fullGrant?.extra,claudeEnabled:config.get('agentReview.claudeEnabled',false),maxCalls:2});
+      const reviewer = require('./lib/agent-review').createAgentReview({codexModel:config.get('agentReview.codexModel','gpt-6-astra'),root:folder.uri.fsPath,guard,signal:abort.signal,enabled:!!fullGrant?.extra,claudeEnabled:config.get('agentReview.claudeEnabled',false),maxCalls:2});
       const tools = createTools({
         root: folder.uri.fsPath, allowShell: !!fullGrant, extraAccess: !!fullGrant?.extra, agentReview:reviewer,
         codeIntelligence:(action,{signal}) => codeIntelligence.inspect({vscode,root:folder.uri.fsPath,action,guard,signal}),
