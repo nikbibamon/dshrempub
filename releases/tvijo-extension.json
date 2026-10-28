@@ -12,11 +12,11 @@
   "latest_version": "0.10.23",
   "channel": "preview",
   "publication": {
-    "status": "prepared",
-    "published_at": null,
+    "status": "published",
+    "published_at": "2026-10-28",
     "note": {
-      "en": "0.10.23 is prepared and verified locally; anonymous publication verification is pending. Native editors, CLI, MCP and Marketplace remain separate channels.",
-      "ru": "0.10.23 подготовлен и проверен локально; анонимная проверка публикации ожидается. Нативные редакторы, CLI, MCP и Marketplace — отдельные каналы."
+      "en": "GitHub preview0.10.23 is published; anonymous VSIX download matches SHA-256 and size. ExtraFullAccess, capability receipts and bounded local CLI reviews are included. Marketplace, native editors, CLI and MCP retain independent versions.",
+      "ru": "GitHub preview0.10.23 опубликован; анонимно скачанный VSIX совпадает по SHA-256 и размеру. Включены ExtraFullAccess, квитанции возможностей и ограниченное локальное CLI-ревью. Marketplace, нативные редакторы, CLI и MCP сохраняют отдельные версии."
     }
   },
   "package": {
@@ -1014,6 +1014,8 @@
         "tag_commit": "1e9cabfa80d008f2d505c9fe177ef7c1d161c435",
         "github_ci": "https://github.com/nikbibamon/dshrempub/actions/runs/40378532809"
       }
-    }
+    },
+    "anonymous_sha256": "9461cd246c45f68e89d2dcb3d45efdeb5ffecd7ecdfec01f7d8c52bac4f97f56",
+    "anonymous_observed_at": "2026-10-28T20:35:40.862349+00:00"
   }
 }
