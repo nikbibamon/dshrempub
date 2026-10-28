@@ -193,6 +193,20 @@ function createRunJournal(storageRoot, { now = Date.now, io = {} } = {}) {
     if (liveElsewhere(run)) throw new Error('This run is active in another extension host.');
     run.status = 'completed'; run.updatedAt = now(); writeRun(run); return run;
   }
+  function receipt(scope,id,value) {
+    validateScope(scope);validateId(id);
+    const {run}=load(scope,id);if(!run||liveElsewhere(run))throw new Error('Receipt run is unavailable or owned elsewhere.');
+    if(value?.schema!=='tvijo.extra-receipt/v1'||value.task_id!==id)throw new Error('Invalid receipt identity.');
+    const directory=path.join(dir(scope,true),'receipts');ensureDir(directory);
+    atomic(path.join(directory,id+'.json'),value,8*1024*1024);
+    append(scope,id,{type:'receipt',task_id:id,final_status:value.final_status,receipt_sha256:crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex'),receipt_file:'receipts/'+id+'.json'});
+    return value;
+  }
+  function getReceipt(scope,id) {
+    validateScope(scope);validateId(id);const directory=dir(scope);if(!directory)return null;
+    const folder=path.join(directory,'receipts');try{const st=fs.lstatSync(folder);if(!st.isDirectory()||st.isSymbolicLink())throw Error('Unsafe receipt path');}catch(e){if(e.code==='ENOENT')return null;throw e;}
+    const result=read(path.join(folder,id+'.json'),8*1024*1024);return !result.bad&&result.value?.schema==='tvijo.extra-receipt/v1'&&result.value.task_id===id?result.value:null;
+  }
   function get(scope, id) { validateScope(scope); validateId(id); return load(scope, id).run; }
   function list(scope) {
     validateScope(scope); const d = dir(scope); if (!d) return { runs: [], notes: [] };
@@ -227,7 +241,7 @@ function createRunJournal(storageRoot, { now = Date.now, io = {} } = {}) {
   function draft(scope) {
     try { return loadDraft(scope).draft; } catch { return null; }
   }
-  return { begin, append, task, finish, get, list, saveDraft, draft, liveElsewhere };
+  return { begin, append, task, finish, get, list, saveDraft, draft, liveElsewhere, receipt, getReceipt };
 }
 
 module.exports = { createRunJournal, MAX_BYTES, MAX_EVENTS, TTL };

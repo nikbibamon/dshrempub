@@ -1,11 +1,11 @@
 <!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
-## What's new in 0.10.23 — 2026-10-28
+## What's new in 0.10.24 — SPEC-238 candidate (unpublished)
 
-- **ExtraFullAccess.** A separate native approval for the selected trusted project and Tvijo account enables POSIX host-shell scripts, substitutions, normal network commands and bounded account CLI reviews. Existing Full access grants are not upgraded. Commands have the current OS user's rights and can affect files outside the project; literal accident checks are not an OS sandbox. Editor file tools retain path and dirty-buffer protections. Switching account/project or revoking the grant cancels active work. Windows hosts retain literal command execution and CLI review; POSIX shell syntax is explicitly unavailable.
-- **Show actual capabilities.** Each local Agent run records the effective mode, terminal access and available reviewers, and supplies them to the model. The model must not claim a missing terminal without an actual refusal. Plan still refuses writes, commands and reviews.
-- **Bounded local review.** ExtraFullAccess uses the local Agent engine and offers supplied-evidence, advisory Codex/Claude subscription CLI review with finite calls, cancellation and receipts. Provider API keys are not inherited; missing account login, disabled agents or quota failure do not fall back to a paid API. Project Claude pauses are enforced by the review adapter; the trusted host shell is not an OS boundary against arbitrary programs. The agent is instructed to use the review adapter exclusively for consultations and never load provider-key environments. Claude review is off by default. Review does not resume or control another agent's current conversation or give it write authority.
-- **Copilot direction is explicit.** The preserved 0.10.22 bridge lets Copilot call Tvijo through `@tvijo`/`#tvijo`; outbound Tvijo-to-Copilot review is not implemented. Previous bridge and saved-conversation work is included and retained.
-- No automatic permission migration, OS elevation, trading activation or model-route changes. Reload the editor after installing; select ExtraFullAccess for the intended project. This extension release does not rebuild native editors, CLI or MCP.
+- Extra runs Linux tasks in a private repository copy behind an OS sandbox preflight. Root uses cgroups and namespaces, then drops uid and capabilities; it cannot fall back to a host shell. Non-root hosts need a separate explicit confirmation if user namespaces are unavailable.
+- Destructive Git and crontab removal stay denied. Apply and GitHub PR publication show the task diff and require an explicit action; existing dirty buffers are protected.
+- Extra reports verified only after a project-defined check ran successfully after the last write and the tree still matches. A done claim without a check is unverified.
+- Every Extra task writes a local JSON receipt and journal entry with gateway cost/tokens (unknown prices stay unknown), subscription review receipts, checks and sandbox settings. The compact EN/RU receipt has a copy action.
+- Codex account review defaults to gpt-6-astra with a read-only sandbox. This candidate is not a Marketplace publication or production rollout.
 
 Earlier versions: the **Changelog** tab.
 <!-- changelog-latest:end -->
@@ -63,7 +63,7 @@ Choose **Configuration file example** in the help section or run **Tvijo: Open c
 
 # Tvijo DSHREM for VS Code
 
-Version 0.10.23. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.24. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 

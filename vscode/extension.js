@@ -757,7 +757,9 @@ function activate(context) {
   async function runExtraFlow({goal,modelGoal,auth,folder,agentScope,agentHistory,fullGrant,guard}) {
     const extra=require('./lib/extra-sandbox'),config=vscode.workspace.getConfiguration('tvijo');
     const abort=new AbortController(),id=randomUUID(),key=recoveryScope(auth),startedAt=Date.now();
-    let copy,sandbox;
+    let copy,sandbox,engine,receiptSaved=false;
+    const receipts=require('./lib/run-receipt');
+    const persistReceipt=(status,reason)=>{if(receiptSaved)return null;if(!engine)engine=receipts.createRunReceipt({taskId:id,tree:()=>({hash:null,files:new Map()})});const receipt=engine.finish(status,reason);runJournals.receipt(key,id,receipt);receiptSaved=true;return receipt;};
     agentAbort=abort;agentRunning=true;busy=true;lastError=null;
     beginMap(auth,goal.trim(),id);
     runJournals.begin(key,{id,kind:'agent',prompt:goal.trim(),historyScope:agentScope});activeJournals.add(id);
@@ -765,17 +767,20 @@ function activate(context) {
       await guard();await postChatState();
       copy=extra.createTaskCopy(folder.uri.fsPath);
       const mode=fullGrant.sandboxMode||'root-namespaces';
+      engine=receipts.createRunReceipt({taskId:id,baseCommit:copy.baseCommit,root:copy.root,sandboxMode:mode,network:config.get('agent.extraNetwork',true),hostConfirmed:fullGrant.explicitHostConfirmation===true,checks:receipts.projectChecks(copy.root,config.get('agent.extraChecks',[]))});
       if(mode==='host-confirmed'&&!fullGrant.explicitHostConfirmation)throw Error('Separate host-shell confirmation is missing.');
       sandbox=extra.createSandbox({root:copy.root,artifactParent:copy.dir,network:config.get('agent.extraNetwork',true),mode});
       const probe=await sandbox.preflight();if(!probe.available)throw Object.assign(Error('Extra preflight: '+probe.reason),{stopAgent:true});
       await guard();
-      const reviewer=require('./lib/agent-review').createAgentReview({root:folder.uri.fsPath,guard,signal:abort.signal,enabled:true,codexModel:config.get('agentReview.codexModel','gpt-6-astra'),claudeEnabled:config.get('agentReview.claudeEnabled',false),maxCalls:2});
+      const reviewer=require('./lib/agent-review').createAgentReview({root:folder.uri.fsPath,guard,signal:abort.signal,enabled:true,onReceipt:receipt=>engine.recordReview(receipt),codexModel:config.get('agentReview.codexModel','gpt-6-astra'),claudeEnabled:config.get('agentReview.claudeEnabled',false),maxCalls:2});
       const tools=createTools({root:copy.root,allowShell:true,extraAccess:true,extraSandbox:sandbox,agentReview:reviewer,guard,signal:abort.signal,confirmRun:async()=>true,confirmWrite:async()=>true,onCommandLifecycle:observeCommand(auth,mapSession(auth))});
-      const capabilities=await tools.execute({tool:'agent_capabilities'});
+      engine.wrap(tools);
+      const capabilities=await tools.execute({tool:'agent_capabilities'});capabilities.project_checks=engine.checks;capabilities.verified_completion=true;
       runJournals.append(key,id,{type:'capabilities',capabilities});await postAgentEvent(auth,{type:'capabilities',capabilities});
+      const ruleSnapshot=projectRulesHost.snapshot({folder,contextMode:config.get('workspaceContext','ask'),knownSecrets:[auth.access_token,auth.refresh_token].filter(Boolean)});
       const api=core.createClient({base:auth.api_base}),{pack}=await currentPack(auth),model=packs.packModel(config,'agentModel','ds41f',pack);
       const budget=Number(config.get('agentBudgetUsd',2));let spent=0;
-      const result=await runAgent({goal:modelGoal,history:agentHistory,fullAccess:true,extraAccess:true,capabilities,maxSteps:config.get('agentMaxSteps',60),budgetUsd:budget,signal:abort.signal,tools,
+      const result=await runAgent({goal:modelGoal,history:agentHistory,rules:ruleSnapshot.text,fullAccess:true,extraAccess:true,capabilities,maxSteps:config.get('agentMaxSteps',60),budgetUsd:budget,signal:abort.signal,tools,verification:engine,
         ask:async({messages,step,signal})=>{
           await guard();const remaining=budget-spent;if(remaining<=0)throw Object.assign(Error('Agent budget exhausted'),{code:'agent_budget'});
           const account=auth.kind==='project'?accountSnapshot:await api.account(auth.access_token);await guard();
@@ -783,16 +788,25 @@ function activate(context) {
           const idempotencyKey=randomUUID();await local.savePending(auth.scope,{idempotencyKey,apiBase:auth.api_base,tenantId:auth.tenant_id});
           const answer=await api.ask({token:auth.access_token,messages:packs.packMessages(messages,pack),maxUsd:Math.min(1,Math.floor(remaining*1e9)/1e9),idempotencyKey,title:'Extra task '+id+' step '+step,maxTokens:2048,model,mode:'single',method:config.get('reasoningMethod','evidence-first'),signal,
             onGrant:async grant=>{runJournals.task(key,id,grant.id);await mapTask(auth,grant.id,{...grant,title:'Extra step '+step,status:'running',startedAt:Date.now()});await local.savePending(auth.scope,{idempotencyKey,taskId:grant.id,apiBase:auth.api_base,tenantId:auth.tenant_id});}});
-          const price=require('./lib/agent').costOf(answer);spent+=price;
+          const price=engine.recordGateway(answer);
+          if(price===null){await local.savePending(auth.scope,{idempotencyKey,taskId:answer.taskId,apiBase:auth.api_base,tenantId:auth.tenant_id,requiresCostReceipt:true});throw Object.assign(Error('Gateway price unknown; paid calls stopped.'),{code:'usage_unknown'});}
+          spent+=price;
           await clearPending(auth,idempotencyKey);await guard();return answer;
         },onEvent:event=>{runJournals.append(key,id,event);return postAgentEvent(auth,event);}});
       await guard();const diff=extra.changes(copy);
+      const fullReceipt=persistReceipt(result.status==='verified'?'verified':result.status==='blocked'?'blocked':'unverified',result.status==='verified'?null:result.verification?.reason||result.reason);
+      const compact=receipts.compactReceipt(fullReceipt);await postAgentEvent(auth,{type:'receipt',receipt:compact});
       extraTasks.set(id,{copy,hash:diff.hash,authScope:auth.scope,folder,guard,fullGrant});
       await finishMap(auth,'completed');
       const display=result.text+'\n\n'+L('Task copy retained. Review the diff before applying or publishing.','Копия задачи сохранена. Просмотрите diff перед применением или публикацией.');
-      await local.saveHistory(agentScope,[...local.history(agentScope),{role:'user',content:goal.trim(),recoveryRunId:id},{role:'assistant',content:result.text,display,extraTaskId:id,recoveryRunId:id}].slice(-40));
+      await local.saveHistory(agentScope,[...local.history(agentScope),{role:'user',content:goal.trim(),recoveryRunId:id},{role:'assistant',content:result.text,display,extraTaskId:id,receipt:compact,recoveryRunId:id}].slice(-40));
       runJournals.finish(key,id);await metrics.record({event:'agent',outcome:'completed',mode:'extra',model,steps:result.steps,cost_usd:spent,duration_ms:Date.now()-startedAt});
     } catch(error) {
+      const receipt=persistReceipt(abort.signal.aborted?'cancelled':'unverified',error.code||'task_failed');
+      if(receipt){
+        const compact=receipts.compactReceipt(receipt);await postAgentEvent(auth,{type:'receipt',receipt:compact});
+        await local.saveHistory(agentScope,[...local.history(agentScope),{role:'user',content:goal.trim(),recoveryRunId:id},{role:'assistant',content:L('Extra task stopped: ','Задача Extra остановлена: ')+(error.code||'task_failed'),receipt:compact,recoveryRunId:id}].slice(-40));
+      }
       await finishMap(auth,abort.signal.aborted?'cancelled':'failed');
       if(!local.pending(auth.scope))runJournals.finish(key,id);
       if(!abort.signal.aborted)throw error;
@@ -806,6 +820,7 @@ function activate(context) {
     if(diff.hash!==task.hash)throw Error('Task copy changed after completion.');
     if(extra.snapshot(task.copy.source,{paths:task.copy.selected}).hash!==task.copy.baseline.hash)throw Error('Workspace changed since the task began.');
     for(const row of diff.files) {
+      if(row.path.split('/').some(extra.deniedPart))throw Error('Secret-like task files cannot be exported.');
       for(const value of [row.previous,row.content])if(value&&(value.length>128*1024||!Buffer.from(value.toString('utf8')).equals(value)||value.includes(0)))throw Error('Only bounded UTF-8 text changes can be applied in the editor.');
       await showProposedWrite(row.path,row.previous?.toString('utf8')??null,row.content?.toString('utf8')??'');
     }
@@ -821,7 +836,7 @@ function activate(context) {
     };
     await validateBuffers();
     const label=message.publish===true?L('Push and open PR','Отправить и открыть PR'):L('Apply task diff','Применить diff задачи');
-    const choice=await vscode.window.showWarningMessage(L('Apply these task-copy changes to the workspace?','Применить эти изменения из копии задачи в проект?'),{modal:true,detail:diff.files.map(row=>row.path).join('\n')},label);
+    const choice=await vscode.window.showWarningMessage((message.publish===true?L('Push the reviewed changes and open a GitHub PR?','Отправить просмотренные изменения и открыть GitHub PR?'):L('Apply these task-copy changes to the workspace?','Применить эти изменения из копии задачи в проект?')),{modal:true,detail:diff.files.map(row=>row.path).join('\n')},label);
     if(choice!==label)return;
     await task.guard();if(extra.snapshot(task.copy.source,{paths:task.copy.selected}).hash!==task.copy.baseline.hash||extra.changes(task.copy).hash!==task.hash)throw Error('Files changed during diff review.');
     await validateBuffers();
@@ -2940,6 +2955,10 @@ function activate(context) {
             await vscode.workspace.getConfiguration('tvijo').update(message.key, message.value, vscode.ConfigurationTarget.Global);
             if (message.key === 'model' || message.key === 'agentModel') await vscode.workspace.getConfiguration('tvijo').update(message.key === 'model' ? 'agentModel' : 'model',message.value,vscode.ConfigurationTarget.Global);
             await postChatState();
+          } else if (message?.type === 'copyRunReceipt') {
+            const auth=await requireAuth();if(message.scopeKey!==currentViewScope(auth.scope))throw Error('Receipt scope changed.');
+            const receipt=runJournals.getReceipt(recoveryScope(auth),message.id);if(!receipt)throw Error('Receipt unavailable.');
+            await vscode.env.clipboard.writeText(JSON.stringify(receipt,null,2));
           } else if (message?.type === 'extraTaskReview') {
             await reviewExtraTask(message);
           } else if (message?.type === 'fullAccessRevert') {

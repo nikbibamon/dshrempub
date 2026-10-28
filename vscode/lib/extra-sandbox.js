@@ -12,7 +12,7 @@ const {analyzeCommand} = require('./command-policy');
 const SYSTEM = ['/usr', '/bin', '/sbin', '/lib', '/lib64'];
 const ENV = Object.freeze({PATH:'/usr/sbin:/usr/bin:/sbin:/bin',LANG:'C.UTF-8'});
 const LIMITS = Object.freeze({'memory.max':'805306368','memory.swap.max':'0','pids.max':'128','cpu.max':'100000 100000'});
-const deniedPart = name => /^(?:\.env(?:\.|$)|\.codex$|\.claude$|\.ssh$|\.aws$|\.gnupg$|\.npmrc$|\.netrc$|auth\.json$|credentials?(?:\.|$)|secrets?(?:\.|$)|id_rsa|id_ed25519|.*\.(?:pem|key|p12|pfx)$)/i.test(name);
+const deniedPart = name => /^(?:\.env|\.codex$|\.claude$|\.ssh$|\.aws$|\.gnupg$|\.npmrc$|\.netrc$|auth\.json$|credentials?(?:\.|$)|secrets?(?:\.|$)|id_rsa|id_ed25519|.*\.(?:pem|key|p12|pfx)$)/i.test(name);
 function unavailable(reason = 'Extra sandbox launcher has not passed preflight; host shell is forbidden at uid 0.') { return {available:false,reason}; }
 function failure(reason) {return Object.assign(new Error(reason),{code:'extra_sandbox_unavailable',stopAgent:true});}
 function assertExtraSandbox(sandbox) {if (!sandbox || sandbox.ready !== true || typeof sandbox.execute !== 'function') throw failure(unavailable().reason);}
@@ -83,10 +83,10 @@ function ownedTree(root, uid, gid) {
   fs.chownSync(root,uid,gid);
 }
 function git(cwd,args,{input}={}) {return execFileSync('git',['-c','core.hooksPath=/dev/null','-c','core.fsmonitor=false','-c','protocol.file.allow=always',...args],{cwd,env:{...ENV,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0'},maxBuffer:16*1024*1024,input});}
-function snapshot(root, {paths=null}={}) {
+function snapshot(root, {paths=null,includePrivate=false}={}) {
   const files=new Map();let bytes=0;
   function add(relative) {
-    if(relative.split('/').some(n=>n==='.git'||deniedPart(n)))return;
+    if(relative.split('/').some(n=>n==='.git'||(!includePrivate&&deniedPart(n))))return;
     const file=path.resolve(root,relative);if(!within(root,file))throw failure('Unsafe snapshot path.');
     let cursor=root;for(const part of relative.split('/')) {cursor=path.join(cursor,part);try{if(fs.lstatSync(cursor).isSymbolicLink())throw failure('Symlinks are not copied into tasks: '+relative);}catch(e){if(e.code==='ENOENT')return;throw e;}}
     let st;try{st=fs.lstatSync(file);}catch(e){if(e.code==='ENOENT')return;throw e;}
@@ -96,7 +96,7 @@ function snapshot(root, {paths=null}={}) {
     const fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);try {const data=fs.readFileSync(fd);files.set(relative,{data,mode:st.mode&0o777,hash:createHash('sha256').update(data).digest('hex')});}finally{fs.closeSync(fd);}
   }
   function walk(dir,rel='') {for(const row of fs.readdirSync(dir,{withFileTypes:true})) {
-    if(row.name==='.git'||deniedPart(row.name))continue;
+    if(row.name==='.git'||(!includePrivate&&deniedPart(row.name)))continue;
     const relative=rel?rel+'/'+row.name:row.name;
     if(row.isDirectory())walk(path.join(dir,row.name),relative);else add(relative);
   }}
@@ -105,15 +105,17 @@ function snapshot(root, {paths=null}={}) {
   return {hash:hash.digest('hex'),files};
 }
 function createTaskCopy(source, parent=os.tmpdir()) {
-  const base=git(source,['rev-parse','HEAD']).toString().trim();
+  const base=git(source,['rev-parse','HEAD']).toString().trim(),sourcePrefix=git(source,['rev-parse','--show-prefix']).toString().trim();
   const selected=git(source,['ls-files','-z','--cached','--others','--exclude-standard']).toString().split('\0').filter(Boolean),before=snapshot(source,{paths:selected});
   const dir=fs.mkdtempSync(path.join(parent,'tvijo-extra-')),task=path.join(dir,'task');fs.mkdirSync(task,{mode:0o755});safeTask(task);
   // Build a filtered base instead of sharing object storage: a tracked .env
   // blob must not remain readable through `git show` in the task's history.
   git(task,['init','-q']);const baseFiles=new Set();let baseBytes=0;
-  const tree=git(source,['ls-tree','-r','-z','--full-tree',base]).toString().split('\0').filter(Boolean);
+  const tree=git(source,['ls-tree','-r','-z','--full-tree',base,'--',sourcePrefix||'.']).toString().split('\0').filter(Boolean);
   for(const row of tree) {
-    const split=row.indexOf('\t'),[mode,type,oid]=row.slice(0,split).split(' '),name=row.slice(split+1);
+    const split=row.indexOf('\t'),[mode,type,oid]=row.slice(0,split).split(' '),fullName=row.slice(split+1);
+    if(sourcePrefix&&!fullName.startsWith(sourcePrefix))throw failure('Base tree escaped selected project.');
+    const name=fullName.slice(sourcePrefix.length);
     if(name.split('/').some(n=>n==='.git'||deniedPart(n)))continue;
     if(type!=='blob'||mode==='120000')throw failure('Unsupported symlink or submodule in base: '+name);
     const data=git(source,['cat-file','blob',oid]);baseBytes+=data.length;if(baseBytes>256*1024*1024)throw failure('Base tree exceeds bounds.');
@@ -129,7 +131,7 @@ function createTaskCopy(source, parent=os.tmpdir()) {
     fs.mkdirSync(path.dirname(dest),{recursive:true});fs.writeFileSync(dest,file.data,{mode:file.mode,flag:baseFiles.has(name)?'w':'wx'});fs.chmodSync(dest,file.mode);
   }
   if(snapshot(source,{paths:selected}).hash!==before.hash||git(source,['rev-parse','HEAD']).toString().trim()!==base)throw failure('Source changed while making task copy.');
-  return {dir,root:task,baseCommit:base,source:path.resolve(source),baseline:before,baseSnapshot,selected,initial:snapshot(task)};
+  return {dir,root:task,baseCommit:base,sourcePrefix,source:path.resolve(source),baseline:before,baseSnapshot,selected,initial:snapshot(task)};
 }
 function createSandbox({root,artifactParent=path.dirname(root),network=true,mode='root-namespaces',uid,gid}={}) {
   safeTask(root);if(process.getuid?.()===0&&mode!=='root-namespaces')throw failure('Host shell is forbidden at uid 0.');
@@ -193,7 +195,7 @@ if(require.main===module&&process.argv[2]==='--worker') {try{worker(process.argv
 
 function changes(copy, {againstBase=false}={}) {
   const initial=againstBase?copy.baseSnapshot:copy.initial;
-  const current=snapshot(copy.root),rows=[];
+  const current=snapshot(copy.root,{includePrivate:true}),rows=[];
   for(const name of new Set([...initial.files.keys(),...current.files.keys()])) {
     const before=initial.files.get(name),after=current.files.get(name);
     if(before?.hash!==after?.hash||before?.mode!==after?.mode)rows.push({path:name,previous:before?.data??null,content:after?.data??null,mode:after?.mode??null});
@@ -207,19 +209,21 @@ async function publishTask(copy, id) {
   const remote=git(copy.source,['remote','get-url','origin']).toString().trim();
   const match=/^(?:https:\/\/github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/.exec(remote);
   if(!match)throw Error('PR publication requires a GitHub origin without embedded credentials.');
+  const baseBranch=git(copy.source,['symbolic-ref','--short','HEAD']).toString().trim();
   const repo=match[1],branch='tvijo-extra/'+id,dir=fs.mkdtempSync(path.join(os.tmpdir(),'tvijo-extra-publish-'));
   git(dir,['init','-q']);git(dir,['fetch','--quiet','--no-tags','--depth=1',copy.source,copy.baseCommit]);
   git(dir,['symbolic-ref','HEAD','refs/heads/'+branch]);git(dir,['update-ref','refs/heads/'+branch,copy.baseCommit]);git(dir,['read-tree',copy.baseCommit]);
   for(const row of changes(copy,{againstBase:true}).files) {
-    if(row.content===null)git(dir,['update-index','--force-remove','--',row.path]);
-    else {const oid=git(dir,['hash-object','-w','--stdin'],{input:row.content}).toString().trim();git(dir,['update-index','--add','--cacheinfo',row.mode&0o111?'100755':'100644',oid,row.path]);}
+    if(row.path.split('/').some(deniedPart))throw Error('Secret-like task files cannot be published.');
+    if(row.content===null)git(dir,['update-index','--force-remove','--',copy.sourcePrefix+row.path]);
+    else {const oid=git(dir,['hash-object','-w','--stdin'],{input:row.content}).toString().trim();git(dir,['update-index','--add','--cacheinfo',row.mode&0o111?'100755':'100644',oid,copy.sourcePrefix+row.path]);}
   }
   git(dir,['-c','user.name=Tvijo Agent','-c','user.email=agent@tvijo.local','-c','commit.gpgsign=false','commit','--quiet','-m','Extra task '+id]);
   git(dir,['remote','add','origin',remote]);
   const env={...ENV,HOME:os.homedir(),GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0'};
   // No key env vars or API fallback. gh/ssh use only the explicitly approved account action.
   execFileSync('git',['-c','core.hooksPath=/dev/null','-c','credential.helper=!gh auth git-credential','push','origin','HEAD:refs/heads/'+branch],{cwd:dir,env,stdio:['ignore','pipe','pipe'],timeout:60000});
-  const url=execFileSync('gh',['pr','create','--repo',repo,'--head',branch,'--title','Extra task '+id,'--body','Task-copy changes explicitly reviewed in Tvijo. Engine check evidence is in the local task receipt.'],{cwd:dir,env,encoding:'utf8',timeout:60000,stdio:['ignore','pipe','pipe']}).trim();
+  const url=execFileSync('gh',['pr','create','--repo',repo,'--head',branch,'--base',baseBranch,'--title','Extra task '+id,'--body','Task-copy changes explicitly reviewed in Tvijo. Engine check evidence is in the local task receipt.'],{cwd:dir,env,encoding:'utf8',timeout:60000,stdio:['ignore','pipe','pipe']}).trim();
   if(!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+$/.test(url))throw Error('PR URL receipt unavailable; inspect the pushed branch.');
   return {url,branch,commit:git(dir,['rev-parse','HEAD']).toString().trim()};
 }

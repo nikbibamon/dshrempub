@@ -6,6 +6,7 @@ const {OCR_LANGUAGES}=require('./settings-controls');
 const {FULL_ACCESS_LIMITS}=require('./full-access');
 const {ENUM_LABELS,HELP_OVERRIDES}=require('./settings-copy');
 const SETTINGS_HELP = Object.freeze(Object.fromEntries([
+  ["agent.extraChecks", "Project check commands pinned before Extra starts; default package.json test when defined. The model cannot select verification commands.", "Команды проверок проекта закрепляются до Extra; по умолчанию test из package.json, если задан. Модель не выбирает команды верификации."],
   ["agent.extraNetwork", "Allow network in Extra task sandboxes. Default on; recorded in every receipt.", "Разрешить сеть в песочницах Extra. По умолчанию включена; выбор записывается в квитанцию."],
   ["agentReview.codexModel", "Account Codex reviewer model; default gpt-6-astra, always --sandbox read-only.", "Модель ревьюера Codex по подписке; по умолчанию gpt-6-astra, всегда --sandbox read-only."],
   ["agentReview.claudeEnabled", "Allow supplied-evidence Claude subscription reviews in ExtraFullAccess. Off by default. Project policy can still pause Claude. No API fallback or recursive delegation.", "Разрешить рекомендательное ревью переданных материалов через подписку Claude в ExtraFullAccess. По умолчанию выключено. Правила проекта могут приостановить Claude. Без API-подмены и рекурсивных вызовов."],

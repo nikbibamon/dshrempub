@@ -64,3 +64,10 @@ test('Non-root fallback needs the second native confirmation, which is captured 
  assert.match(prompts[1].message,/secrets on disk/);allowHost=true;assert.equal(await access.enable(folder,{extra:true}),true);
  const grant=access.capture(folder);assert.equal(grant.sandboxMode,'host-confirmed');assert.equal(grant.explicitHostConfirmation,true);
 });
+
+test('Selected monorepo subproject copy stays within its declared folder',()=>{
+ const root=temp(),env={PATH:process.env.PATH,HOME:root,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'};
+ const git=(...args)=>execFileSync('git',['-c','user.name=Fixture','-c','user.email=fixture@localhost',...args],{cwd:root,env,stdio:'pipe'});
+ git('init','-q');fs.mkdirSync(path.join(root,'project'));fs.writeFileSync(path.join(root,'project','code.txt'),'selected');fs.writeFileSync(path.join(root,'sibling.txt'),'not selected');git('add','.');git('commit','-qm','base');
+ const copy=extra.createTaskCopy(path.join(root,'project'));assert.equal(copy.sourcePrefix,'project/');assert.equal(fs.readFileSync(path.join(copy.root,'code.txt'),'utf8'),'selected');assert.equal(fs.existsSync(path.join(copy.root,'sibling.txt')),false);assert.equal(fs.existsSync(path.join(copy.root,'project')),false);
+});

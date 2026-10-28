@@ -3383,3 +3383,36 @@ test('SPEC-238 Extra native task edits only its copy and runs without inner conf
   const final=app.posts.filter(p=>p.type==='state').at(-1);assert.ok(final.messages.some(row=>row.extraTaskId));
  }finally{app.close();}
 });
+
+for(const checked of [false,true])test('SPEC-238 native receipt '+(checked?'verified after engine check':'unverified for a zero-run done claim'),{skip:process.platform!=='linux'||process.getuid?.()!==0},async()=>{
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'verified-native-')),{execFileSync}=require('node:child_process');
+ const git=(...args)=>execFileSync('git',['-c','user.name=Fixture','-c','user.email=fixture@localhost',...args],{cwd:root,stdio:'pipe'});
+ git('init','-q');await fs.writeFile(path.join(root,'fixture.txt'),'base');git('add','.');git('commit','-qm','base');
+ const actions=checked?[{tool:'write_file',path:'made.txt',content:'made'},{tool:'run_checks'},{tool:'finish',status:'done',answer:'Checked.'}]:[{tool:'finish',status:'done',answer:'Everything passed without running.'}];
+ const app=host({root,chatSequence:actions.map(a=>JSON.stringify(a))});
+ try{
+  app.settings.set('agent.extraChecks',['/usr/bin/node -e "process.exit(0)"']);app.settings.set('agent.extraNetwork',false);app.settings.set('agentMaxSteps',3);
+  await app.receive({type:'ready'});const state=app.posts.filter(p=>p.type==='state').at(-1);app.warning('Enable ExtraFullAccess');await app.receive({type:'agentPreset',scopeKey:state.scopeKey,preset:'extra',requestId:'verified-'+checked});
+  await app.receive({type:'ask',question:'Run the fixed project check',agent:true});
+  assert.equal(app.feedback.length,0,JSON.stringify(app.feedback));const receiptPost=app.posts.find(p=>p.type==='agent'&&p.event?.type==='receipt');assert.ok(receiptPost);
+  assert.equal(receiptPost.event.receipt.final_status,checked?'verified':'unverified');assert.equal(receiptPost.event.receipt.checks,checked?1:0);
+  if(checked){const checkIndex=app.posts.findIndex(p=>p.type==='agent'&&p.event?.type==='result'&&p.event?.action?.tool==='run_checks');assert.ok(checkIndex>=0);assert.ok(app.posts.indexOf(receiptPost)>checkIndex);}
+  const {createRunJournal}=require('../lib/run-journal'),journal=createRunJournal(app.storage),scope=app.folderScope(app.scope('tenant-a')),id=receiptPost.event.receipt.task_id;
+  // Recovery scope is the folder scope in ordinary local tasks.
+  let files=[];async function find(dir){for(const row of await fs.readdir(dir,{withFileTypes:true})){const file=path.join(dir,row.name);if(row.isDirectory())await find(file);else if(row.name===id+'.json'&&dir.endsWith('receipts'))files.push(file);}}await find(app.storage);
+  assert.equal(files.length,1);const receipt=JSON.parse(await fs.readFile(files[0],'utf8'));assert.equal(receipt.final_status,checked?'verified':'unverified');assert.ok(receipt.api_calls.length);assert.equal(receipt.network,false);assert.equal(receipt.metered_api_cost_usd,actions.length*0.001);
+  const latest=app.posts.filter(p=>p.type==='state').at(-1);assert.ok(latest.messages.some(row=>row.receipt?.task_id===id));
+  await app.receive({type:'copyRunReceipt',id,scopeKey:latest.scopeKey});assert.equal(JSON.parse(app.copied.at(-1)).task_id,id);assert.equal(app.warnings.length,1);
+ }finally{app.close();}
+});
+
+test('SPEC-238 unknown gateway price stops paid calls and leaves a copyable null-cost receipt',{skip:process.platform!=='linux'||process.getuid?.()!==0},async()=>{
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'unknown-price-')),{execFileSync}=require('node:child_process');
+ const git=(...args)=>execFileSync('git',['-c','user.name=Fixture','-c','user.email=fixture@localhost',...args],{cwd:root,stdio:'pipe'});git('init','-q');git('commit','-qm','base','--allow-empty');
+ const app=host({root,chatCost:null,chatSequence:['{"tool":"list_dir","path":"."}']});
+ try{app.settings.set('agent.extraNetwork',false);await app.receive({type:'ready'});const state=app.posts.filter(p=>p.type==='state').at(-1);app.warning('Enable ExtraFullAccess');await app.receive({type:'agentPreset',scopeKey:state.scopeKey,preset:'extra',requestId:'unknown-price'});
+  await app.receive({type:'ask',question:'Inspect',agent:true});assert.equal(app.requests.filter(r=>r.url.endsWith('/chat')).length,1);
+  const latest=app.posts.filter(p=>p.type==='state').at(-1),row=latest.messages.find(r=>r.receipt);assert.ok(row);assert.equal(row.receipt.metered_api_cost_usd,null);assert.equal(row.receipt.final_status,'unverified');
+  await app.receive({type:'copyRunReceipt',id:row.receipt.task_id,scopeKey:latest.scopeKey});const receipt=JSON.parse(app.copied.at(-1));assert.equal(receipt.metered_api_cost_usd,null);assert.equal(receipt.api_calls.length,1);assert.equal(receipt.verification_reason,'usage_unknown');
+ }finally{app.close();}
+});

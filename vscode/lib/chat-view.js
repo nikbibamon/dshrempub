@@ -7,6 +7,7 @@ const { renderMarkdown, safeExternalUrl } = require('./markdown');
 const { renderAgentMap, buildAgentMap } = require('./agent-map');
 const { CHAT_CSS } = require('./chat-presentation');
 const { renderRewind, REWIND_CSS } = require('./rewind-view');
+const {receiptText}=require('./run-receipt');
 const { FULL_ACCESS_LIMITS, EXTRA_LIMITS } = require('./full-access');
 
 function chatHtml(webview) {
@@ -43,6 +44,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   const COPY = ${JSON.stringify(COPY)};
   Object.assign(COPY.en,{modeExtra:'ExtraFullAccess',modeExtraHint:${JSON.stringify(EXTRA_LIMITS.en)},modeFull:'Full access',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.en)},agentSavedHelp:'Agent edits are saved before disk checks. Dirty user buffers are protected.',fullAccessWarning:'Full access is active',fullAccessRevert:'Revert'});
   Object.assign(COPY.ru,{modeExtra:'ExtraFullAccess',modeExtraHint:${JSON.stringify(EXTRA_LIMITS.ru)},modeFull:'Полный доступ',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.ru)},agentSavedHelp:'Правки агента сохраняются до проверок на диске. Пользовательские несохранённые буферы защищены.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
+  const receiptText = ${receiptText.toString()};
   const safeExternalUrl = ${safeExternalUrl.toString()};
   const renderMarkdown = ${renderMarkdown.toString()};
   const renderAgentMap = ${renderAgentMap.toString()};
@@ -453,6 +455,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   }
   function renderAgentEvent(event) {
     if (!event || typeof event !== 'object') return;
+    if (event.type === 'receipt') { agentLine(locale==='ru'?'Квитанция':'Receipt',receiptText(event.receipt,locale),event.receipt?.final_status==='verified'?'ok':'bad');return; }
     if (event.type === 'capabilities') { agentLine(locale === 'ru' ? 'Доступ' : 'Access', (event.capabilities?.mode || 'unknown') + ' · ' + (event.capabilities?.run_command ? (locale === 'ru' ? 'терминал доступен' : 'terminal available') : (locale === 'ru' ? 'без команд' : 'no commands'))); return; }
     if (event.type === 'reset') { agentLog.replaceChildren(); agentLog.className = ''; return; }
     if (event.type === 'start') {
@@ -746,6 +749,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
           const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
           button.addEventListener('click', () => post({type,index})); actions.append(button);
         }
+        if(item.receipt){const summary=document.createElement('p');summary.className='task-receipt';summary.textContent=receiptText(item.receipt,locale);block.append(summary);const copy=document.createElement('button');copy.type='button';copy.textContent=locale==='ru'?'Копировать квитанцию':'Copy receipt';copy.addEventListener('click',()=>post({type:'copyRunReceipt',id:item.receipt.task_id}));actions.append(copy);}
         if(item.extraTaskId){const review=document.createElement('button');review.type='button';review.textContent=locale==='ru'?'Просмотреть diff задачи':'Review task diff';review.disabled=running||submitting;review.addEventListener('click',()=>post({type:'extraTaskReview',id:item.extraTaskId}));actions.append(review);const publish=document.createElement('button');publish.type='button';publish.textContent=locale==='ru'?'Просмотреть и открыть PR':'Review and open PR';publish.disabled=running||submitting;publish.addEventListener('click',()=>post({type:'extraTaskReview',id:item.extraTaskId,publish:true}));actions.append(publish);}
         if(item.autoCommit?.hash){const undo=document.createElement('button');undo.type='button';undo.textContent=locale==='ru'?'Отменить коммит':'Undo commit';undo.disabled=running || submitting;undo.addEventListener('click',()=>post({type:'undoCommit',index}));actions.append(undo);}
         if(item.agentRequest){const agent=document.createElement('button');agent.type='button';agent.textContent=locale==='ru'?'Сделать агентом':'Make it an agent';agent.disabled=running || submitting;agent.addEventListener('click',()=>post({type:'makeAgent',index}));actions.append(agent);}

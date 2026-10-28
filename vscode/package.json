@@ -2,7 +2,7 @@
   "name": "tvijo-dshrem",
   "displayName": "Tvijo DSHREM",
   "description": "Managed coding and bounded reviews for shared projects with a per-task spending cap. Provider API credentials remain on the service.",
-  "version": "0.10.23",
+  "version": "0.10.24",
   "repository": {
     "type": "git",
     "url": "https://github.com/nikbibamon/dshrempub.git",
@@ -767,6 +767,13 @@
             "%tvijo.orchestration.reportFormat.enum.2%",
             "%tvijo.orchestration.reportFormat.enum.3%"
           ]
+        },
+        "tvijo.agent.extraChecks": {
+          "type": "array",
+          "items": {"type": "string"},
+          "default": [],
+          "scope": "resource",
+          "markdownDescription": "%tvijo.agent.extraChecks.description%"
         },
         "tvijo.agent.extraNetwork": {
           "type": "boolean",
