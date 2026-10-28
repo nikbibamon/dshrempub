@@ -6,6 +6,7 @@ const {OCR_LANGUAGES}=require('./settings-controls');
 const {FULL_ACCESS_LIMITS}=require('./full-access');
 const {ENUM_LABELS,HELP_OVERRIDES}=require('./settings-copy');
 const SETTINGS_HELP = Object.freeze(Object.fromEntries([
+  ["agent.extraNetwork", "Allow network in Extra task sandboxes. Default on; recorded in every receipt.", "Разрешить сеть в песочницах Extra. По умолчанию включена; выбор записывается в квитанцию."],
   ["agentReview.codexModel", "Account Codex reviewer model; default gpt-6-astra, always --sandbox read-only.", "Модель ревьюера Codex по подписке; по умолчанию gpt-6-astra, всегда --sandbox read-only."],
   ["agentReview.claudeEnabled", "Allow supplied-evidence Claude subscription reviews in ExtraFullAccess. Off by default. Project policy can still pause Claude. No API fallback or recursive delegation.", "Разрешить рекомендательное ревью переданных материалов через подписку Claude в ExtraFullAccess. По умолчанию выключено. Правила проекта могут приостановить Claude. Без API-подмены и рекурсивных вызовов."],
   ["commitIdentity", "Git uses your configured name and email. Private uses a stable random local ID; Tvijo uses generic attribution. New automatic commits only. No email is hashed or uploaded; IDs are not registered on the website.", "Git использует ваши имя и email. Приватный режим — постоянный случайный локальный ID; Tvijo — общая подпись. Только новые автокоммиты. Email не хешируется и не отправляется; ID не зарегистрирован на сайте."],

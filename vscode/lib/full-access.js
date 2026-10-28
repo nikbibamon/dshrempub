@@ -11,7 +11,7 @@ const EXTRA_LIMITS = Object.freeze({
   ru: 'Extra выполняет команды и правки без подтверждений в собственной копии репозитория, от непривилегированного пользователя в песочнице ОС. Исходный репозиторий и его .git недоступны для записи. HOME хоста, /root, /etc/aios, env-файлы и учётные данные аккаунтов не монтируются. Фильтрация окружения сама по себе не защищает секреты на диске: Extra включается только после успешной проверки песочницы. Сеть задаётся tvijo.agent.extraNetwork. Применение, push и PR требуют явного действия с показом diff. Ревью аккаунтами идёт только через ограниченный agent_review.'
 });
 
-function createFullAccess({ vscode, state, scope, L = en => en, onRevoke = () => {}, extraPreflight = require('./extra-sandbox').unavailable }) {
+function createFullAccess({ vscode, state, scope, L = en => en, onRevoke = () => {}, extraPreflight = () => require('./extra-sandbox').unavailable() }) {
   let epoch = 0;
   const denied = new Set();
   const writes = new Map();
@@ -51,25 +51,32 @@ function createFullAccess({ vscode, state, scope, L = en => en, onRevoke = () =>
     const initial = status(folder);
     if (!initial.available) return false;
     const key = initial.scopeKey, capturedEpoch = epoch;
-    let savedRecord = null;
+    let savedRecord = null, probe = null;
     if (initial.enabled && initial.extra === extra) return true;
     try {
       await guard(); check(folder, key, capturedEpoch);
       if (extra) {
-        const probe = await extraPreflight(folder);
+        probe = await extraPreflight(folder);
         await guard(); check(folder, key, capturedEpoch);
         extraReady.set(key, probe);
-        if (probe?.available !== true) {
+        if (probe?.available !== true && !(probe?.fallback_possible && process.getuid?.() !== 0)) {
           await vscode.window.showWarningMessage(L('Extra unavailable: ', 'Extra недоступен: ') + (probe?.reason || require('./extra-sandbox').unavailable().reason));
           return false;
         }
       }
       const label = extra ? L('Enable ExtraFullAccess', 'Включить ExtraFullAccess') : L('Enable Full access', 'Включить полный доступ');
-      const detail = folder.uri.fsPath + '\n' + (extra ? L(EXTRA_LIMITS.en, EXTRA_LIMITS.ru) : L('Editor file-tool scope: this directory and its descendants. Commands start here but are not confined here. Agent edits are saved for disk checks; existing dirty buffers are refused. Hard command, path, secret, and budget limits and Rewind remain for editor tools and literal command checks, not as an OS sandbox. ', 'Область файловых инструментов редактора: эта папка и её содержимое. Команды запускаются здесь, но не ограничены этой папкой. Агент сохраняет правки для проверок; пользовательские несохранённые буферы защищены. Ограничения файловых инструментов, буквальных команд и бюджета, а также Rewind сохраняются, но не создают изоляцию ОС. ') + L(FULL_ACCESS_LIMITS.en,FULL_ACCESS_LIMITS.ru));
+      const detail = folder.uri.fsPath + '\n' + (extra ? probe?.fallback_possible ? L('The OS sandbox is unavailable. Extra can use an unsandboxed host shell only with a second explicit confirmation. Environment filtering does not protect secrets on disk. Files and accounts outside the copy may be reachable. Apply, push and PR still require the diff action.','Песочница ОС недоступна. Extra может использовать shell хоста без изоляции только после второго явного подтверждения. Фильтрация окружения не защищает секреты на диске. Файлы и аккаунты вне копии могут быть доступны. Применение, push и PR по-прежнему требуют действия с diff.') : L(EXTRA_LIMITS.en, EXTRA_LIMITS.ru) : L('Editor file-tool scope: this directory and its descendants. Commands start here but are not confined here. Agent edits are saved for disk checks; existing dirty buffers are refused. Hard command, path, secret, and budget limits and Rewind remain for editor tools and literal command checks, not as an OS sandbox. ', 'Область файловых инструментов редактора: эта папка и её содержимое. Команды запускаются здесь, но не ограничены этой папкой. Агент сохраняет правки для проверок; пользовательские несохранённые буферы защищены. Ограничения файловых инструментов, буквальных команд и бюджета, а также Rewind сохраняются, но не создают изоляцию ОС. ') + L(FULL_ACCESS_LIMITS.en,FULL_ACCESS_LIMITS.ru));
       const answer = await vscode.window.showWarningMessage(extra ? L('Enable ExtraFullAccess for this folder?', 'Включить ExtraFullAccess для этой папки?') : L('Enable Full access for this folder?', 'Включить полный доступ для этой папки?'), { modal: true, detail }, label);
       check(folder, key, capturedEpoch);
       await guard(); check(folder, key, capturedEpoch);
       if (answer !== label) return false;
+      if (extra && probe?.fallback_possible && !probe.available) {
+        if (process.getuid?.() === 0) return false;
+        const hostLabel=L('Run an unsandboxed host shell','Запустить shell хоста без песочницы');
+        const hostAnswer=await vscode.window.showWarningMessage(L('Sandbox unavailable: a host shell can read secrets on disk and change files outside the copy. Confirm this separate risk.','Песочница недоступна: shell хоста может читать секреты на диске и менять файлы вне копии. Подтвердите этот риск отдельно.'),{modal:true,detail:probe.reason},hostLabel);
+        await guard();check(folder,key,capturedEpoch);if(hostAnswer!==hostLabel)return false;
+        probe={...probe,available:true,mode:'host-confirmed',explicit_host_confirmation:true};extraReady.set(key,probe);
+      }
       denied.add(key);
       await queue(key, async () => {
         check(folder, key, capturedEpoch);
@@ -100,7 +107,7 @@ function createFullAccess({ vscode, state, scope, L = en => en, onRevoke = () =>
   }
   function capture(folder) {
     const current = status(folder);
-    return current.enabled ? { scopeKey: current.scopeKey, epoch, extra: current.extra, approvalId: record(current.scopeKey)?.approvalId } : null;
+    return current.enabled ? { scopeKey: current.scopeKey, epoch, extra: current.extra, sandboxMode:extraReady.get(current.scopeKey)?.mode, explicitHostConfirmation:extraReady.get(current.scopeKey)?.explicit_host_confirmation === true, approvalId: record(current.scopeKey)?.approvalId } : null;
   }
   function assertCurrent(folder, grant) {
     if (!grant || grant.epoch !== epoch || !status(folder).enabled || grant.scopeKey !== identity(folder) || grant.approvalId !== record(grant.scopeKey)?.approvalId || grant.extra !== status(folder).extra) throw new Error(L('Full access grant is no longer current.', 'Разрешение полного доступа больше не действует.'));

@@ -77,5 +77,6 @@
   "tvijo.orchestrationReport.title": "Открыть приватный отчёт задачи",
   "tvijo.orchestration.workerPolicy.enum.3": "Sol + Claude · координатор, исполнитель, рецензент",
   "tvijo.agentReview.claudeEnabled.description": "Разрешить рекомендательное ревью переданных материалов через подписку Claude в ExtraFullAccess. По умолчанию выключено. Правила проекта могут приостановить Claude. Без API-подмены и рекурсивных вызовов.",
-  "tvijo.agentReview.codexModel.description": "Модель ревьюера Codex по подписке; по умолчанию gpt-6-astra, всегда --sandbox read-only."
+  "tvijo.agentReview.codexModel.description": "Модель ревьюера Codex по подписке; по умолчанию gpt-6-astra, всегда --sandbox read-only.",
+  "tvijo.agent.extraNetwork.description": "Разрешить сеть в песочницах Extra. По умолчанию включена; выбор записывается в квитанцию задачи."
 }

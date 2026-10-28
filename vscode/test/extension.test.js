@@ -3353,7 +3353,7 @@ test('0.10.22 a bad index and a foreign scope are refused without touching the h
   } finally { app.close(); }
 });
 
-test('ExtraFullAccess native host refuses without a passing sandbox launcher',async()=>{
+test('ExtraFullAccess native consent cannot be bypassed by selecting the preset',async()=>{
  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'extra-host-'));
  const app=host({root});
  try {
@@ -3362,5 +3362,24 @@ test('ExtraFullAccess native host refuses without a passing sandbox launcher',as
   assert.notEqual(app.posts.filter(p=>p.type==='state').at(-1).options.agentPreset,'extra');
   assert.match(JSON.stringify(app.warnings),/preflight/);
   assert.equal(app.requests.filter(item=>item.url.endsWith('/tasks')&&item.method==='POST').length,0);
+ }finally{app.close();}
+});
+
+test('SPEC-238 Extra native task edits only its copy and runs without inner confirmations',{skip:process.platform!=='linux'||process.getuid?.()!==0},async()=>{
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'extra-native-'));
+ const {execFileSync}=require('node:child_process');const git=(...args)=>execFileSync('git',['-c','user.name=Fixture','-c','user.email=fixture@localhost',...args],{cwd:root,stdio:'pipe'});
+ git('init','-q');await fs.writeFile(path.join(root,'source.txt'),'user');git('add','.');git('commit','-qm','base');
+ const app=host({root,chatSequence:[JSON.stringify({tool:'write_file',path:'agent.txt',content:'copy only'}),JSON.stringify({tool:'run_command',command:'/usr/bin/node -e "console.log(require(\'fs\').readFileSync(\'agent.txt\',\'utf8\'))"'}),JSON.stringify({tool:'finish',status:'done',answer:'Copy checked.'})]});
+ try {
+  app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',3);app.settings.set('agent.extraNetwork',false);
+  await app.receive({type:'ready'});const state=app.posts.filter(p=>p.type==='state').at(-1);app.warning('Enable ExtraFullAccess');
+  await app.receive({type:'agentPreset',scopeKey:state.scopeKey,preset:'extra',requestId:'spec238'});
+  assert.equal(app.posts.filter(p=>p.type==='state').at(-1).options.agentPreset,'extra');
+  await app.receive({type:'ask',question:'Write and check in the task copy',agent:true});
+  assert.equal(require('node:fs').existsSync(path.join(root,'agent.txt')),false);assert.equal(await fs.readFile(path.join(root,'source.txt'),'utf8'),'user');
+  const events=app.posts.filter(p=>p.type==='agent').map(p=>p.event);const run=events.find(e=>e.type==='result'&&e.action?.tool==='run_command');
+  assert.equal(run?.result?.ok,true,JSON.stringify(app.feedback));assert.match(run.result.stdout,/copy only/);assert.equal(run.result.sandbox,'root-namespaces');
+  assert.equal(app.warnings.length,1);assert.equal(app.feedback.length,0);
+  const final=app.posts.filter(p=>p.type==='state').at(-1);assert.ok(final.messages.some(row=>row.extraTaskId));
  }finally{app.close();}
 });

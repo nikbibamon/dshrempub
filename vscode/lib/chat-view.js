@@ -7,7 +7,7 @@ const { renderMarkdown, safeExternalUrl } = require('./markdown');
 const { renderAgentMap, buildAgentMap } = require('./agent-map');
 const { CHAT_CSS } = require('./chat-presentation');
 const { renderRewind, REWIND_CSS } = require('./rewind-view');
-const { FULL_ACCESS_LIMITS } = require('./full-access');
+const { FULL_ACCESS_LIMITS, EXTRA_LIMITS } = require('./full-access');
 
 function chatHtml(webview) {
   const nonce = randomBytes(16).toString('base64');
@@ -41,8 +41,8 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
 <div id="notice" role="alert"><p id="notice-text"></p><button id="notice-action" type="button">Resolve task</button><button id="notice-close" class="icon" type="button" aria-label="Dismiss">×</button></div>
 <script nonce="${nonce}">
   const COPY = ${JSON.stringify(COPY)};
-  Object.assign(COPY.en,{modeExtra:'ExtraFullAccess',modeExtraHint:'Host shell and bounded account CLI reviews. Commands can affect files outside the project. Project policy and budgets remain. Uses the local Agent engine.',modeFull:'Full access',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.en)},agentSavedHelp:'Agent edits are saved before disk checks. Dirty user buffers are protected.',fullAccessWarning:'Full access is active',fullAccessRevert:'Revert'});
-  Object.assign(COPY.ru,{modeExtra:'ExtraFullAccess',modeExtraHint:'Shell хоста и ограниченное CLI-ревью через подписку. Команды могут менять файлы вне проекта. Правила проекта и бюджет сохраняются. Использует локальный Agent.',modeFull:'Полный доступ',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.ru)},agentSavedHelp:'Правки агента сохраняются до проверок на диске. Пользовательские несохранённые буферы защищены.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
+  Object.assign(COPY.en,{modeExtra:'ExtraFullAccess',modeExtraHint:${JSON.stringify(EXTRA_LIMITS.en)},modeFull:'Full access',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.en)},agentSavedHelp:'Agent edits are saved before disk checks. Dirty user buffers are protected.',fullAccessWarning:'Full access is active',fullAccessRevert:'Revert'});
+  Object.assign(COPY.ru,{modeExtra:'ExtraFullAccess',modeExtraHint:${JSON.stringify(EXTRA_LIMITS.ru)},modeFull:'Полный доступ',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.ru)},agentSavedHelp:'Правки агента сохраняются до проверок на диске. Пользовательские несохранённые буферы защищены.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
   const safeExternalUrl = ${safeExternalUrl.toString()};
   const renderMarkdown = ${renderMarkdown.toString()};
   const renderAgentMap = ${renderAgentMap.toString()};
@@ -746,6 +746,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
           const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
           button.addEventListener('click', () => post({type,index})); actions.append(button);
         }
+        if(item.extraTaskId){const review=document.createElement('button');review.type='button';review.textContent=locale==='ru'?'Просмотреть diff задачи':'Review task diff';review.disabled=running||submitting;review.addEventListener('click',()=>post({type:'extraTaskReview',id:item.extraTaskId}));actions.append(review);const publish=document.createElement('button');publish.type='button';publish.textContent=locale==='ru'?'Просмотреть и открыть PR':'Review and open PR';publish.disabled=running||submitting;publish.addEventListener('click',()=>post({type:'extraTaskReview',id:item.extraTaskId,publish:true}));actions.append(publish);}
         if(item.autoCommit?.hash){const undo=document.createElement('button');undo.type='button';undo.textContent=locale==='ru'?'Отменить коммит':'Undo commit';undo.disabled=running || submitting;undo.addEventListener('click',()=>post({type:'undoCommit',index}));actions.append(undo);}
         if(item.agentRequest){const agent=document.createElement('button');agent.type='button';agent.textContent=locale==='ru'?'Сделать агентом':'Make it an agent';agent.disabled=running || submitting;agent.addEventListener('click',()=>post({type:'makeAgent',index}));actions.append(agent);}
         block.append(actions);

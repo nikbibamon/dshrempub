@@ -28,9 +28,9 @@ test('capability receipt and model prompt distinguish Full, Extra and unproven u
  assert.match(prompt,/HOST CAPABILITIES/);assert.match(prompt,/MODE: EXTRA FULL ACCESS/);assert.match(prompt,/actual refusal/);assert.doesNotMatch(systemPrompt({planMode:true,extraAccess:true}),/MODE: EXTRA FULL ACCESS/);
  assert.equal((await createTools({root:dir}).execute({tool:'agent_review'})).reason,'extra_access_required');
 });
-test('extra account environment preserves account discovery but never billing keys or injection variables',()=>{
+test('Extra project commands do not inherit account discovery, billing keys or injection variables',()=>{
  const env=cleanEnv({PATH:'/bin',HOME:'/home/agent',CODEX_HOME:'/config/codex',OPENAI_API_KEY:'secret',ANTHROPIC_API_KEY:'secret',ANTHROPIC_BASE_URL:'http://wrong',NODE_OPTIONS:'--eval bad',BASH_ENV:'/bad'},true);
- assert.equal(env.HOME,'/home/agent');assert.equal(env.CODEX_HOME,'/config/codex');
+ assert.equal(env.HOME,undefined);assert.equal(env.CODEX_HOME,undefined);
  for(const key of ['OPENAI_API_KEY','ANTHROPIC_API_KEY','ANTHROPIC_BASE_URL','NODE_OPTIONS','BASH_ENV'])assert.equal(env[key],undefined);
  assert.equal(cleanEnv({HOME:'/home/agent'}).HOME,undefined);
 });

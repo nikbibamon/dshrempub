@@ -768,6 +768,12 @@
             "%tvijo.orchestration.reportFormat.enum.3%"
           ]
         },
+        "tvijo.agent.extraNetwork": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "markdownDescription": "%tvijo.agent.extraNetwork.description%"
+        },
         "tvijo.agentReview.codexModel": {
           "type": "string",
           "default": "gpt-6-astra",
