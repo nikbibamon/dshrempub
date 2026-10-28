@@ -1,12 +1,16 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const {spawn,execFileSync}=require('node:child_process');
+const {randomUUID}=require('node:crypto');
 const {createSandbox,LIMITS}=require('../lib/extra-sandbox');
 const skip=process.platform!=='linux'?'Linux namespaces are required':process.getuid()!==0?'root trusted-launcher host probe requires uid 0':false;
 
 test('SPEC-238 root host: actual preflight and SPEC-207 escape probes',{skip,timeout:40000},async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'extra-host-probes-')),task=path.join(dir,'task'),repo=path.join(dir,'user-repository');
  fs.mkdirSync(task,{mode:0o755});fs.mkdirSync(repo);fs.mkdirSync(path.join(repo,'.git'));
+ fs.mkdirSync(path.join(dir,'another-task'),{mode:0o755});
+ const hostUnit='tvijo-extra-host-probe-'+randomUUID()+'.service';
+ execFileSync('/usr/bin/systemd-run',['--quiet','--collect','--unit='+hostUnit,'--property=RuntimeMaxSec=120','/usr/bin/sleep','120'],{stdio:'pipe'});
  const canary=path.join(dir,'host-secret-canary');fs.writeFileSync(canary,'OWNED TEST CANARY ONLY',{mode:0o600,flag:'wx'});
  const sentinel=spawn('/usr/bin/sleep',['120'],{stdio:'ignore'});
  const sandbox=createSandbox({root:task,artifactParent:dir,network:false});
@@ -20,7 +24,7 @@ test('SPEC-238 root host: actual preflight and SPEC-207 escape probes',{skip,tim
  function unreadable(p){try{fs.accessSync(p,fs.constants.R_OK);return false;}catch{return true;}}
  for(const [name,p] of Object.entries(${JSON.stringify({host_secret:canary,codex_auth:'/root/.codex/auth.json',ssh:'/root/.ssh',env:'/root/ai-os-workspaces/.env',env_glob:'/root/ai-os-workspaces',other_task:dir+'/another-task'})}))probe(name,unreadable(p));
  for(const [name,p] of Object.entries(${JSON.stringify({repository:repo+'/escape-write',git:repo+'/.git/escape-write'})})){let denied=false;try{fs.writeFileSync(p,'ESCAPE',{flag:'wx'});}catch{denied=true;}probe(name,denied);}
- for(const [name,bin,args] of [['crontab','crontab',['-l']],['systemctl','systemctl',['stop','tvijo-extra-host-probe-nonproduction.service']]]){let denied=false;try{cp.execFileSync(bin,args,{stdio:'ignore',timeout:2000});}catch{denied=true;}probe(name,denied);}
+ for(const [name,bin,args] of [['crontab','crontab',['-l']],['systemctl','systemctl',['stop',${JSON.stringify(hostUnit)}]]]){let denied=false;try{cp.execFileSync(bin,args,{stdio:'ignore',timeout:2000});}catch{denied=true;}probe(name,denied);}
  let killed=false;try{process.kill(${sentinel.pid},'SIGTERM');killed=true;}catch{}probe('kill_host_process',!killed);
  probe('uid',process.getuid()!==0);probe('environment',!process.env.SPEC238_PARENT_SECRET&&!process.env.OPENAI_API_KEY&&!process.env.ANTHROPIC_API_KEY);
  const status=fs.readFileSync('/proc/self/status','utf8');probe('no_new_privileges',/NoNewPrivs:\\s+1/.test(status));
@@ -41,5 +45,6 @@ test('SPEC-238 root host: actual preflight and SPEC-207 escape probes',{skip,tim
   const report=JSON.parse(result.stdout.trim());assert.deepEqual(report.failures,[]);assert.equal(report.results.every(p=>p.pass),true);
   assert.equal(fs.existsSync(path.join(repo,'escape-write')),false);assert.equal(fs.existsSync(path.join(repo,'.git/escape-write')),false);
   assert.doesNotThrow(()=>process.kill(sentinel.pid,0));
- } finally {sentinel.kill('SIGTERM');delete process.env.SPEC238_PARENT_SECRET;}
+  assert.doesNotThrow(()=>execFileSync('/usr/bin/systemctl',['is-active','--quiet',hostUnit],{stdio:'pipe'}));
+ } finally {sentinel.kill('SIGTERM');delete process.env.SPEC238_PARENT_SECRET;execFileSync('/usr/bin/systemctl',['stop',hostUnit],{stdio:'pipe'});}
 });
