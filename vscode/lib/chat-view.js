@@ -41,8 +41,8 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
 <div id="notice" role="alert"><p id="notice-text"></p><button id="notice-action" type="button">Resolve task</button><button id="notice-close" class="icon" type="button" aria-label="Dismiss">×</button></div>
 <script nonce="${nonce}">
   const COPY = ${JSON.stringify(COPY)};
-  Object.assign(COPY.en,{modeFull:'Full access',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.en)},agentSavedHelp:'Agent edits are saved before disk checks. Dirty user buffers are protected.',fullAccessWarning:'Full access is active',fullAccessRevert:'Revert'});
-  Object.assign(COPY.ru,{modeFull:'Полный доступ',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.ru)},agentSavedHelp:'Правки агента сохраняются до проверок на диске. Пользовательские несохранённые буферы защищены.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
+  Object.assign(COPY.en,{modeExtra:'ExtraFullAccess',modeExtraHint:'Host shell and bounded account CLI reviews. Commands can affect files outside the project. Project policy and budgets remain. Uses the local Agent engine.',modeFull:'Full access',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.en)},agentSavedHelp:'Agent edits are saved before disk checks. Dirty user buffers are protected.',fullAccessWarning:'Full access is active',fullAccessRevert:'Revert'});
+  Object.assign(COPY.ru,{modeExtra:'ExtraFullAccess',modeExtraHint:'Shell хоста и ограниченное CLI-ревью через подписку. Команды могут менять файлы вне проекта. Правила проекта и бюджет сохраняются. Использует локальный Agent.',modeFull:'Полный доступ',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.ru)},agentSavedHelp:'Правки агента сохраняются до проверок на диске. Пользовательские несохранённые буферы защищены.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
   const safeExternalUrl = ${safeExternalUrl.toString()};
   const renderMarkdown = ${renderMarkdown.toString()};
   const renderAgentMap = ${renderAgentMap.toString()};
@@ -264,7 +264,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     }
   }
   function updateWorkflowLabel() {
-    if (orchestrationState.enabled && uiMode !== 'chat') { document.getElementById('workflow-label').textContent = 'DSH · ds41f + ' + orchestrationState.policy; return; }
+    if (orchestrationState.enabled && uiMode !== 'chat' && !(uiMode === 'agent' && optionState?.agentPreset === 'extra')) { document.getElementById('workflow-label').textContent = 'DSH · ds41f + ' + orchestrationState.policy; return; }
     if (!optionState) { document.getElementById('workflow-label').textContent = t('options'); return; }
     const selected = uiMode === 'chat' ? optionState.model : optionState.agentModel;
     const model = (optionState.models || []).find(item => item.id === selected) || { id: selected, name: selected };
@@ -334,7 +334,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     optionState = options && Array.isArray(options.models) ? options : null;
     optionsMenu.replaceChildren();
     updateMode();
-    if (orchestrationState.enabled && uiMode !== 'chat') {
+    if (orchestrationState.enabled && uiMode !== 'chat' && !(uiMode === 'agent' && optionState?.agentPreset === 'extra')) {
       const fixed=document.createElement('p');fixed.textContent='DSH · ds41f + '+orchestrationState.policy;optionsMenu.append(fixed);
       const settings=document.createElement('button');settings.type='button';settings.textContent=locale==='ru'?'Настройки и статус DSH':'DSH settings and status';settings.addEventListener('click',()=>{closeOptions();post({type:'settings'});});optionsMenu.append(settings);
       return;
@@ -370,7 +370,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       { key: 'workspaceContext', value: 'on', current: optionState.contextMode, label: t('contextOn'), hint: '' },
       { key: 'workspaceContext', value: 'off', current: optionState.contextMode, label: t('contextOff'), hint: '' }
     ]);
-    if (optionState.agentPreset !== 'full') group('applySection', [
+    if (!['full','extra'].includes(optionState.agentPreset)) group('applySection', [
       { key: 'autoApply', value: false, current: optionState.autoApply, label: t('autoApplyOff'), hint: '' },
       { key: 'autoApply', value: true, current: optionState.autoApply, label: t('autoApplyOn'), hint: '' }
     ]);
@@ -388,7 +388,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   }
   function updateMode() {
     const preset = uiMode === 'plan' ? 'plan' : optionState?.agentPreset || 'auto';
-    const labelKey = uiMode === 'chat' ? 'modeChat' : uiMode === 'plan' ? 'modePlan' : ({manual:'modeManual',edit:'modeEdit',auto:'modeAuto',full:'modeFull',custom:'modeCustom'}[preset] || 'modeCustom');
+    const labelKey = uiMode === 'chat' ? 'modeChat' : uiMode === 'plan' ? 'modePlan' : ({manual:'modeManual',edit:'modeEdit',auto:'modeAuto',full:'modeFull',extra:'modeExtra',custom:'modeCustom'}[preset] || 'modeCustom');
     const label = t(labelKey);
     modeButton.textContent = label;
     modeButton.className = 'mini-select ' + (uiMode === 'chat' ? '' : uiMode);
@@ -397,7 +397,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     modeButton.setAttribute('aria-expanded', String(!modeMenu.hidden));
     renderModeMenu();
     question.placeholder = uiMode === 'chat' ? t('ask') : t('mentionHint');
-    document.getElementById('mode-help').textContent = t(uiMode === 'chat' ? 'modeChatHelp' : uiMode === 'agent' ? 'modeAgentHelp' : 'modePlanHelp') + (uiMode === 'agent' && ['full','auto'].includes(preset) ? ' ' + t('agentSavedHelp') : '') + ' ' + t('shellHelp');
+    document.getElementById('mode-help').textContent = t(uiMode === 'chat' ? 'modeChatHelp' : uiMode === 'agent' ? 'modeAgentHelp' : 'modePlanHelp') + (uiMode === 'agent' && ['full','extra','auto'].includes(preset) ? ' ' + t('agentSavedHelp') : '') + ' ' + t('shellHelp');
     updateWorkflowLabel();
   }
   function renderModeMenu() {
@@ -408,6 +408,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       {mode:'edit', label:t('modeEdit'), hint:t('modeEditHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'edit'},
       {mode:'plan', label:t('modePlan'), hint:t('modePlanHint'), checked:uiMode === 'plan'},
       {mode:'auto', label:t('modeAuto'), hint:t('modeAutoHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'auto'},
+      {mode:'extra', label:t('modeExtra'), hint:t('modeExtraHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'extra', disabled:fullAccess?.available !== true},
       {mode:'full', label:t('modeFull'), hint:t('modeFullHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'full', disabled:fullAccess?.available !== true}
     ];
     if (optionState?.agentPreset === 'custom') rows.push({mode:'custom', label:t('modeCustom'), hint:'', checked:uiMode === 'agent'});
@@ -438,7 +439,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     if (!workspaceAvailable) { closeModeMenu(); openFolderBrowser(); return; }
     if (mode === 'custom') { closeModeMenu(true); uiMode = 'agent'; modeExplicit = true; updateMode(); saveDraft(); return; }
     const preset = mode === 'plan' ? 'plan' : mode;
-    if (mode === 'full' && fullAccess?.available !== true) return;
+    if (['full','extra'].includes(mode) && fullAccess?.available !== true) return;
     pendingModeRequestId = String(scopeKey || '') + ':' + (++modeRequestSequence);
     closeModeMenu(true); controls();
     post({type:'agentPreset',preset,requestId:pendingModeRequestId});
@@ -452,6 +453,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   }
   function renderAgentEvent(event) {
     if (!event || typeof event !== 'object') return;
+    if (event.type === 'capabilities') { agentLine(locale === 'ru' ? 'Доступ' : 'Access', (event.capabilities?.mode || 'unknown') + ' · ' + (event.capabilities?.run_command ? (locale === 'ru' ? 'терминал доступен' : 'terminal available') : (locale === 'ru' ? 'без команд' : 'no commands'))); return; }
     if (event.type === 'reset') { agentLog.replaceChildren(); agentLog.className = ''; return; }
     if (event.type === 'start') {
       agentLog.replaceChildren(); agentLog.className = 'visible';
@@ -881,7 +883,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       const rulesPanel=document.getElementById('loaded-rules');rulesPanel.replaceChildren();
       for(const rule of data.loadedRules || []){const row=document.createElement('div');row.className='rule-row';const toggle=document.createElement('button');toggle.type='button';toggle.textContent=(rule.quarantined?'⚠ ':rule.disabled?'☐ ':'☑ ')+rule.file+' · '+rule.bytes+' B'+(rule.truncated?(locale==='ru'?' · обрезано':' · truncated'):'')+(rule.status==='rejected'?' · '+rule.reason:'')+(rule.quarantined?(locale==='ru'?' · карантин — включить снова':' · quarantined — re-enable'):'');toggle.disabled=running;toggle.addEventListener('click',()=>post({type:rule.quarantined?'reenableRule':'toggleRule',id:rule.quarantined?(rule.quarantineId || rule.id):rule.id}));row.append(toggle);rulesPanel.append(row);}
       renderRunSession(data.runSession);
-      if (data.workflow && !data.options && !(orchestrationState.enabled && uiMode !== 'chat')) { window.tvijoWorkflow = data.workflow; document.getElementById('workflow-label').textContent = data.workflow; }
+      if (data.workflow && !data.options && !(orchestrationState.enabled && uiMode !== 'chat' && !(uiMode === 'agent' && optionState?.agentPreset === 'extra'))) { window.tvijoWorkflow = data.workflow; document.getElementById('workflow-label').textContent = data.workflow; }
       const packPicker = document.getElementById('pack-picker');
       packPicker.hidden = !data.signedIn || !data.pack;
       packPicker.textContent = data.pack ? data.pack.label + ' ▾' : '';

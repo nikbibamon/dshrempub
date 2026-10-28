@@ -5,10 +5,12 @@ const PRESETS = Object.freeze({
   edit: Object.freeze({ agentAutoApply: true, agentAutoRun: false }),
   plan: Object.freeze({ agentAutoApply: false, agentAutoRun: false }),
   auto: Object.freeze({ agentAutoApply: true, agentAutoRun: true }),
+  extra: Object.freeze({ agentAutoApply: true, agentAutoRun: true }),
   full: Object.freeze({ agentAutoApply: true, agentAutoRun: true })
 });
 
-function presetFor(autoApply, autoRun, fullAccess = false) {
+function presetFor(autoApply, autoRun, fullAccess = false, extraAccess = false) {
+  if (extraAccess) return 'extra';
   if (fullAccess) return 'full';
   if (autoApply === false && autoRun === false) return 'manual';
   if (autoApply === true && autoRun === false) return 'edit';

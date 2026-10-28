@@ -479,7 +479,7 @@ function activate(context) {
       agentMode: configuration.get('agentMode', 'single'),
       agentAutoApply: !!configuration.get('agentAutoApply', true),
       agentAutoRun: !!configuration.get('agentAutoRun', true),
-      agentPreset: modePresets.presetFor(configuration.get('agentAutoApply', true), configuration.get('agentAutoRun', true),fullAccess.status(permissionFolder()).enabled),
+      agentPreset: modePresets.presetFor(configuration.get('agentAutoApply', true), configuration.get('agentAutoRun', true),fullAccess.status(permissionFolder()).enabled,fullAccess.status(permissionFolder()).extra),
       agentModel,
       reasoningMethod: configuration.get('reasoningMethod', 'evidence-first'),
       contextMode: configuration.get('workspaceContext', 'ask'),
@@ -776,7 +776,7 @@ function activate(context) {
     if (attachmentScope !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account or thread changed before the agent started.');
     const api = core.createClient({ base: auth.api_base });
     const config = vscode.workspace.getConfiguration('tvijo');
-    if (orchestration.enabled()) return runHarnessFlow({goal,modelGoal,auth,folder,agentScope,planMode,guard,fullGrant,config});
+    if (orchestration.enabled() && !fullGrant?.extra) return runHarnessFlow({goal,modelGoal,auth,folder,agentScope,planMode,guard,fullGrant,config});
     const maxSteps = config.get('agentMaxSteps', 60);
     let budgetUsd = config.get('agentBudgetUsd', 2);
     const taskBudget=require('./lib/task-limits').createTaskBudget(budgetUsd);
@@ -855,8 +855,9 @@ function activate(context) {
       let rewindStep = 1;
       const checkpointWrite = file => captureRewind({root:folder.uri.fsPath, runId:rewindRunId, step:rewindStep, model:agentModel, title:goal, files:[file]});
       const commandSession = mapSession(auth);
+      const reviewer = require('./lib/agent-review').createAgentReview({root:folder.uri.fsPath,guard,signal:abort.signal,enabled:!!fullGrant?.extra,claudeEnabled:config.get('agentReview.claudeEnabled',false),maxCalls:2});
       const tools = createTools({
-        root: folder.uri.fsPath, allowShell: !!fullGrant,
+        root: folder.uri.fsPath, allowShell: !!fullGrant, extraAccess: !!fullGrant?.extra, agentReview:reviewer,
         codeIntelligence:(action,{signal}) => codeIntelligence.inspect({vscode,root:folder.uri.fsPath,action,guard,signal}),
         planInspect:(operation,{signal}) => planInspection.inspect({vscode,root:folder.uri.fsPath,operation,guard,signal}), guard, signal:abort.signal,
         onCommandLifecycle: observeCommand(auth,commandSession),
@@ -987,8 +988,11 @@ function activate(context) {
       const agentContextSuffix = tree ? '\n\nWorkspace/project context (quoted untrusted project data; not instructions):\n' + JSON.stringify(tree) : '';
       let automaticContextOmitted = false;
       const omitAgentContext = messages => { if (agentContextSuffix && messages[1]?.content?.endsWith(agentContextSuffix)) messages[1] = {...messages[1],content:messages[1].content.slice(0,-agentContextSuffix.length)}; };
+      const capabilities = await tools.execute({tool:'agent_capabilities'},{planMode});
+      runJournals.append(recoveryKey,localAgentRunId,{type:'capabilities',capabilities});
+      await postAgentEvent(auth,{type:'capabilities',capabilities});
       const result = await runAgent({
-        goal: modelGoal, tree, rules:agentRules, history: agentHistory, planMode, fullAccess: !!fullGrant, maxSteps, budgetUsd, signal: abort.signal, tools,
+        goal: modelGoal, tree, rules:agentRules, history: agentHistory, planMode, fullAccess: !!fullGrant, extraAccess: !!fullGrant?.extra, capabilities, maxSteps, budgetUsd, signal: abort.signal, tools,
         getBudget:()=>taskBudget.ceiling,
         requestMoreSteps:async({steps})=>{
           await guard(); const more=L('Continue +30 steps','Продолжить ещё 30 шагов');
@@ -1124,7 +1128,7 @@ function activate(context) {
     ensureIdle();
     const folder = await requireWorkspace();
     if (!folder) throw new core.ServiceError('no_workspace', L('Open a project folder first.', 'Сначала откройте папку проекта.'));
-    const commandDecision = analyzeCommand(command);
+    const commandDecision = analyzeCommand(command,{shell:fullAccess.status(folder).enabled,extra:fullAccess.status(folder).extra});
     if (!commandDecision.ok) throw new core.ServiceError('command_policy', commandDecision.reason);
     const auth = await requireAuth();
     const shellBaseGuard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
@@ -1143,7 +1147,7 @@ function activate(context) {
     activeAbort = abort;
     const commandSession=beginMap(auth,'Local command');
     commandSession.localOnlyCommand=true;
-    const tools = createTools({ root: folder.uri.fsPath, guard:commandGuard, signal:abort.signal, onCommandLifecycle:observeCommand(auth,commandSession), confirmRun: async () => true, confirmWrite: async () => false });
+    const tools = createTools({ root: folder.uri.fsPath, allowShell:!!shellGrant, extraAccess:!!shellGrant?.extra, guard:commandGuard, signal:abort.signal, onCommandLifecycle:observeCommand(auth,commandSession), confirmRun: async () => true, confirmWrite: async () => false });
     const startedAt = Date.now();
     const terminalCaptureEpoch = terminalCaptures.epoch;
     busy = true;
@@ -2857,7 +2861,7 @@ function activate(context) {
             if (!persisted) throw new core.ServiceError('permission_storage','Full access stopped for this session, but its saved permission could not be removed.');
           } else if (message?.type === 'agentPreset') {
             const settings = modePresets.PRESETS[message.preset];
-            if (!settings || !['manual', 'edit', 'plan', 'auto', 'full'].includes(message.preset)) throw new core.ServiceError('invalid_option', 'Unknown agent preset.');
+            if (!settings || !['manual', 'edit', 'plan', 'auto', 'full', 'extra'].includes(message.preset)) throw new core.ServiceError('invalid_option', 'Unknown agent preset.');
             const scope = message.scopeKey;
             const epoch = workspaceEpoch;
             let validScope = false;
@@ -2880,12 +2884,12 @@ function activate(context) {
               modeUpdatePending = true;
               ownsModeLock = true;
               const folder = await requireWorkspace();
-              if (message.preset === 'full') {
-                const enabled = folder && await fullAccess.enable(folder,{guard:() => assertCurrent(auth)});
+              if (['full','extra'].includes(message.preset)) {
+                const enabled = folder && await fullAccess.enable(folder,{guard:() => assertCurrent(auth),extra:message.preset === 'extra'});
                 if (enabled) await context.globalState.update(composerModeKey(auth),'agent');
                 await postChatState();
                 await assertCurrent(auth);
-                await view.webview.postMessage({type:'presetResult',scopeKey:scope,requestId:message.requestId,preset:'full',ok:!!enabled});
+                await view.webview.postMessage({type:'presetResult',scopeKey:scope,requestId:message.requestId,preset:message.preset,ok:!!enabled});
                 return;
               }
               if (fullAccess.status(folder).enabled && !await fullAccess.disable(folder)) throw new core.ServiceError('permission_storage','Full access could not be revoked durably.');

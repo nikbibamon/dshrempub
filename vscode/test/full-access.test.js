@@ -110,3 +110,24 @@ test('judgefix2 Full access consent and helper plainly document inherited-enviro
  for(const locale of ['en','ru']){const x=setup(locale);assert.equal(await x.access.enable(x.first),true);assert.ok(FULL_ACCESS_LIMITS?.[locale]);assert.ok(x.prompts[0].options.detail.includes(FULL_ACCESS_LIMITS[locale]));assert.ok(SETTINGS_HELP['tvijo.agentAutoRun'][locale].includes(FULL_ACCESS_LIMITS[locale]));}
  assert.match(FULL_ACCESS_LIMITS.en,/quarantined, not prevented/);assert.match(FULL_ACCESS_LIMITS.en,/rewrites its own environment is not stopped/);
 });
+
+test('ExtraFullAccess is a separate approval and invalidates captured Full grants',async()=>{
+ const x=setup();await x.access.enable(x.first);const full=x.access.capture(x.first);
+ assert.equal(full.extra,false);assert.equal(x.access.status(x.first).extra,false);
+ x.vscode.window.showWarningMessage=async()=>undefined;
+ assert.equal(await x.access.enable(x.first,{extra:true}),false);
+ assert.equal(x.access.status(x.first).extra,false);
+ x.vscode.window.showWarningMessage=async(_m,_o,label)=>{assert.equal(label,'Enable ExtraFullAccess');return label;};
+ assert.equal(await x.access.enable(x.first,{extra:true}),true);
+ assert.equal(x.access.status(x.first).extra,true);
+ assert.throws(()=>x.access.assertCurrent(x.first,full));
+ const extra=x.access.capture(x.first);assert.equal(x.access.assertCurrent(x.first,extra),true);
+ const restart=createFullAccess({vscode:x.vscode,state:x.state,scope:()=>a});assert.equal(restart.status(x.first).extra,true);
+ await x.access.disable(x.first);assert.throws(()=>x.access.assertCurrent(x.first,extra));
+});
+
+test('legacy Full approval never silently acquires extra host capabilities',async()=>{
+ const x=setup();x.values.set(PREFIX+a,{schema:1,scopeKey:a,enabled:true,approvedAt:1,approvalId:'legacy'});
+ assert.equal(x.access.status(x.first).enabled,true);assert.equal(x.access.status(x.first).extra,false);
+ const grant=x.access.capture(x.first);x.setScope(()=>b);assert.throws(()=>x.access.assertCurrent(x.first,grant));
+});

@@ -24,6 +24,7 @@
   "tvijo.telegram.allowedServices": [],
   // Advanced / Для администратора: keep the default unless using your own service.
   "tvijo.apiBase": "https://dsh.tvijo.com/api/dshrem/v1",
+  "tvijo.agentReview.claudeEnabled": false,
   "tvijo.orchestration.enabled": false,
   // Installed subscriptions on the selected host; no automatic paid API fallback.
   // Подписки, установленные на выбранном хосте; без автоматической подмены на платный API.

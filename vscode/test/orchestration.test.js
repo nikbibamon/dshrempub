@@ -74,7 +74,7 @@ test('no provider keys, tokens, shell hooks or gateway credentials reach control
 });
 test('actual host dispatch branch uses settings before the existing engine',()=>{
  const source=fs.readFileSync(path.join(__dirname,'../extension.js'),'utf8');
- assert.match(source,/if \(orchestration\.enabled\(\)\) return runHarnessFlow/);
+ assert.match(source,/if \(orchestration\.enabled\(\) && !fullGrant\?\.extra\) return runHarnessFlow/);
  assert.match(source,/orchestration\.run\(/);assert.match(source,/vscode\.workspace\.isTrusted !== true/);
  assert.match(source,/agentAbort\?\.abort\(\); await orchestration\.invalidate/);
 });

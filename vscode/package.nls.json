@@ -75,5 +75,6 @@
   "tvijo.orchestration.reportFormat.enum.2": "Rainbow report",
   "tvijo.orchestration.reportFormat.enum.3": "Both light and dark reports",
   "tvijo.orchestrationReport.title": "Open private task report",
-  "tvijo.orchestration.workerPolicy.enum.3": "Sol + Claude · coordinator, implementer, reviewer"
+  "tvijo.orchestration.workerPolicy.enum.3": "Sol + Claude · coordinator, implementer, reviewer",
+  "tvijo.agentReview.claudeEnabled.description": "Allow supplied-evidence Claude subscription reviews in ExtraFullAccess. Off by default. Project policy can still pause Claude. No API fallback or recursive delegation."
 }

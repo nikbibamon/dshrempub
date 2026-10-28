@@ -55,10 +55,14 @@ function truncate(text, limit = MAX_OUTPUT) {
   return text.length > limit ? text.slice(0, limit) + '\n… [truncated]' : text;
 }
 
-function cleanEnv(source = process.env) {
+function cleanEnv(source = process.env, extra = false) {
   const env = {};
   for (const key of ['PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'SYSTEMROOT', 'WINDIR', 'TMPDIR', 'TEMP', 'TMP']) {
     if (typeof source[key] === 'string') env[key] = source[key];
+  }
+  if (extra) {
+    for (const key of ['HOME','USERPROFILE','APPDATA','LOCALAPPDATA','CODEX_HOME','CLAUDE_CONFIG_DIR','XDG_CONFIG_HOME','XDG_CACHE_HOME']) if (typeof source[key] === 'string') env[key] = source[key];
+    return env; // Host shell grant includes normal network/Git access, never provider keys.
   }
   // Preserve the complete counted config before adding the host transport policy.
   for(const [key,value] of Object.entries(source))if(/^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/.test(key))env[key]=value;
@@ -185,14 +189,15 @@ function assertShellPaths(root, cwd, decision) {
   }
 }
 
-async function runCommand(root, action, confirm, { signal, onLifecycle = () => {}, guard = async()=>{}, allowShell = false } = {}) {
+async function runCommand(root, action, confirm, { signal, onLifecycle = () => {}, guard = async()=>{}, allowShell = false, extraAccess = false } = {}) {
   const shell = typeof allowShell === 'function' ? !!allowShell() : !!allowShell;
-  const decision = isCommandDecision(action.commandDecision, action.command) && (!action.commandDecision.shell || shell) ? action.commandDecision : analyzeCommand(action.command, { shell });
+  const extra = typeof extraAccess === 'function' ? !!extraAccess() : !!extraAccess;
+  const decision = isCommandDecision(action.commandDecision, action.command) && (!action.commandDecision.shell || shell) && (!action.commandDecision.extra || extra) ? action.commandDecision : analyzeCommand(action.command, { shell, extra });
   const command = typeof action.command === 'string' ? action.command : '';
   if (!decision.ok) throw new Error(decision.reason);
   const cwd = action.cwd ? safePath(root, action.cwd) : root;
   const executable = path.basename(decision.executable).toLowerCase().replace(/\.exe$/,'');
-  const assertRemovalPaths = () => { if (decision.shell) assertShellPaths(root, cwd, decision); else if (executable === 'rm') {
+  const assertRemovalPaths = () => { if (decision.extra && extra) return; if (decision.shell) assertShellPaths(root, cwd, decision); else if (executable === 'rm') {
     // Bound every removal operand, including those before an option terminator.
     // This also covers GNU option abbreviations without guessing their effect.
     let operandsOnly = false;
@@ -216,7 +221,7 @@ async function runCommand(root, action, confirm, { signal, onLifecycle = () => {
     const id = randomUUID();
     let child;
     try {
-      child = spawn(decision.executable, decision.args, { shell: false, cwd, env: cleanEnv(), stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
+      child = spawn(decision.executable, decision.args, { shell: false, cwd, env: cleanEnv(process.env, extra), stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
     } catch (error) {
       onLifecycle({ type:'error', id, status:'failed', startedAt:null, endedAt:Date.now(), error:error.message });
       resolve({ ok:false, command, cwd, error:error.message }); return;
@@ -408,14 +413,25 @@ async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
   return { ok: true, path: action.path, bytes: Buffer.byteLength(content, 'utf8') };
 }
 
-function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {}, planInspect = null, codeIntelligence = null, allowShell = false }) {
+function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {}, planInspect = null, codeIntelligence = null, allowShell = false, extraAccess = false, agentReview = null }) {
   return {
     root,
     async execute(action, context = {}) {
       await guard();
       if (!action || typeof action.tool !== 'string') throw new Error('A tool name is required.');
-      if (context.planMode && ['write_file', 'replace_in_file', 'run_command'].includes(action.tool)) return { ok: false, refused: true, reason: 'plan_mode' };
+      if (context.planMode && ['write_file', 'replace_in_file', 'run_command', 'agent_review'].includes(action.tool)) return { ok: false, refused: true, reason: 'plan_mode' };
       switch (action.tool) {
+        case 'agent_capabilities': {
+          const extra = !context.planMode && (typeof extraAccess === 'function' ? !!extraAccess() : !!extraAccess);
+          const value = {ok:true, mode:context.planMode ? 'plan' : extra ? 'extra' : allowShell ? 'full' : 'agent', run_command:!context.planMode, host_shell:extra && process.platform !== 'win32', shell_syntax:extra && process.platform !== 'win32' ? 'posix' : 'literal', editor_file_scope:root, review:extra && !!agentReview, copilot:'Use @tvijo or #tvijo from Copilot Chat; outbound Copilot review is not implemented.'};
+          if (extra && agentReview) value.agents = await agentReview.status();
+          await guard(); return value;
+        }
+        case 'agent_review': {
+          const extra = typeof extraAccess === 'function' ? !!extraAccess() : !!extraAccess;
+          if (!extra || !agentReview) return {ok:false,refused:true,reason:'extra_access_required'};
+          const value = await agentReview.review(action); await guard(); return value;
+        }
         case 'list_dir': return { ok: true, entries: await listDirectory(root, action.path) };
         case 'read_file': return { ok: true, ...(await readFile(root, action.path, action.start, action.end)) };
         case 'search': return { ok: true, ...(context.planMode
@@ -433,7 +449,7 @@ function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite =
         }
         case 'write_file': return await writeFile(root, action, confirmWrite, applyWrite, beforeWrite, 'write_file');
         case 'replace_in_file': return await replaceInFile(root, action, confirmWrite, applyWrite, beforeWrite);
-        case 'run_command': await guard(); return await runCommand(root, action, confirmRun, { signal:context.signal || signal, onLifecycle:onCommandLifecycle, guard, allowShell });
+        case 'run_command': await guard(); return await runCommand(root, action, confirmRun, { signal:context.signal || signal, onLifecycle:onCommandLifecycle, guard, allowShell, extraAccess });
         default: throw new Error('Unknown tool: ' + action.tool);
       }
     }
