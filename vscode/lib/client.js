@@ -33,6 +33,7 @@ const REFUSAL_MESSAGES = {
   preview_context_limit: 'This request exceeds your remaining preview token allowance. Start a new conversation or reduce attachments. Your draft is preserved.',
   charge_pending: 'The task has an unresolved provider charge. Check this task before sending another request; no automatic retry was made.',
   model_request_failed: 'The model request failed. Check the task result and spending before sending again.',
+  model_output_unavailable: 'The model returned no usable output for this step; its cost is recorded. No automatic retry was made.',
   usage_recovery_unavailable: 'Usage could not be verified. The task remains held for reconciliation; no automatic retry was made.',
   usage_reconciliation_required: 'Task usage needs reconciliation. Check the task before sending another request.',
   previous_task_not_settled: 'Another task on this account is unresolved. Open Recent tasks and spending to inspect it.',
@@ -162,7 +163,13 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
     if (!grant?.id) throw new ServiceError('incomplete', 'Service returned a task without an id');
     if (onGrant) await onGrant(grant);
     if (beforeChat) { const result = beforeChat(); if (result && typeof result.then === 'function') throw new ServiceError('invalid_guard', 'The final dispatch guard must be synchronous.'); }
-    const response = await request(`/tasks/${encodeURIComponent(grant.id)}/chat`, { method: 'POST', token, signal, timeoutMs: 210_000, body: { messages, max_tokens: maxTokens } });
+    let response;
+    try { response = await request(`/tasks/${encodeURIComponent(grant.id)}/chat`, { method: 'POST', token, signal, timeoutMs: 210_000, body: { messages, max_tokens: maxTokens } }); }
+    catch (error) {
+      // The task exists and may be charged: name it, so its spending can be checked.
+      if (error instanceof ServiceError) { error.taskId = grant.id; if (!error.message.includes(grant.id)) error.message += ' Task ' + grant.id + '.'; }
+      throw error;
+    }
     const content = response?.choices?.[0]?.message?.content;
     if (typeof content !== 'string') throw new ServiceError('no_output', 'Service returned no assistant text');
     return { taskId: grant.id, content, execution: { model:response.model_alias ?? response.model ?? response.task?.model_alias ?? response.task?.model, route:response.route ?? response.task?.route, calls:response.calls ?? response.task?.calls, agent_tree:response.agent_tree ?? response.task?.agent_tree }, usage: response.usage ?? null, cost: response.task ?? null, evidence: Array.isArray(response.evidence) ? response.evidence : [] };

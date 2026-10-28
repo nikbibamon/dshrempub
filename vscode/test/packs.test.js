@@ -157,7 +157,7 @@ test('only localized public pack labels and summaries reach the webview selectio
 test('0.10.8 settings retain automatic pack selection and add local auto-commit only', () => {
   const properties = require('../package.json').contributes.configuration.properties;
   const original = ['service', 'model', 'agentMode', 'reasoningMethod', 'workspaceContext', 'workspaceContextMaxBytes', 'autoApply', 'agentModel', 'agentMaxSteps', 'agentBudgetUsd', 'agentAutoRun', 'agentAutoApply', 'telegram.enabled', 'telegram.ownerId', 'ocrLanguages', 'apiBase', 'telegram.allowedServices'].map(key => 'tvijo.' + key);
-  assert.deepEqual(Object.keys(properties).filter(key => !original.includes(key)), ['tvijo.pack','tvijo.autoCommit',...['enabled','profile','workerPolicy','controllerPath','pythonPath','statePath'].map(key=>'tvijo.orchestration.'+key),'tvijo.colorTheme','tvijo.commitIdentity','tvijo.orchestration.agentCount','tvijo.orchestration.reportFormat']);
+  assert.deepEqual(Object.keys(properties).filter(key => !original.includes(key)), ['tvijo.pack','tvijo.bridge.enabled','tvijo.autoCommit',...['enabled','profile','workerPolicy','controllerPath','pythonPath','statePath'].map(key=>'tvijo.orchestration.'+key),'tvijo.colorTheme','tvijo.commitIdentity','tvijo.orchestration.agentCount','tvijo.orchestration.reportFormat','tvijo.agentReview.claudeEnabled']);
   assert.equal(properties['tvijo.autoCommit'].default,'afterTask');assert.deepEqual(properties['tvijo.autoCommit'].enum,['afterTask','off']);
   assert.ok(original.every(key => Object.hasOwn(properties, key)));
   assert.equal(properties['tvijo.pack'].type, 'string');

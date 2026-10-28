@@ -15,7 +15,8 @@ test('sidebar keeps a rejected question and prevents a duplicate submit', () => 
   submit();
   submit();
   assert.equal(view.outgoing.filter((item) => item.type === 'ask').length, 1);
-  assert.equal(question.value, 'Why is this slow?');
+  // 0.10.18: the composer clears on send and gets the text back only on refusal.
+  assert.equal(question.value, '');
   view.emit('window:message', { data: { type: 'submission', ok: false, question: 'Why is this slow?' } });
   assert.equal(question.value, 'Why is this slow?');
   assert.equal(view.element('send').disabled, false);
@@ -592,7 +593,9 @@ test('compact view has localized privacy, scoped project title and an always acc
   const view = sidebar({}, {projectLabel:'My project',legacyHistory:true,busy:true});
   assert.equal(view.element('workspace-choice').textContent,'My project');
   assert.equal(view.element('cancel').hidden,false);
-  assert.equal(view.element('send').hidden,true);
+  // 0.10.18: Send stays visible while running and queues the next message.
+  assert.equal(view.element('send').hidden,false);
+  assert.match(view.element('send').title,/Queue message/);
   view.emit('cancel:click',{});
   assert.equal(view.outgoing.at(-1).type,'cancel');
   view.emit('lang:click',{});

@@ -14,6 +14,7 @@ const THEME_CSS = `
   nav button{padding:7px 9px;color:var(--muted);border-radius:0;border-bottom:2px solid transparent}nav button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
   #messages{flex:1;overflow:auto;padding:12px 12px 6px}.message{margin:0 0 13px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55}.role{font-weight:650;margin-bottom:3px;color:var(--muted)}.assistant{border-left:2px solid var(--accent);padding-left:9px}
   .answer-actions{display:flex;gap:4px;margin-top:6px}.answer-actions button{font-size:11px;color:var(--muted);padding:3px 6px}
+  .branch-actions{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;opacity:.55}.message:hover .branch-actions,.branch-actions:focus-within{opacity:1}.branch-actions button{font-size:11px;color:var(--muted);padding:3px 6px}
   .welcome{margin:auto;max-width:260px;text-align:center;color:var(--muted);line-height:1.55}.welcome-mark{font-size:24px;color:var(--accent);margin-bottom:4px}.welcome strong{display:block;color:var(--text);font-size:16px;font-weight:600;margin-bottom:4px}.welcome p{margin:0}
   #context-panel{display:none;margin:4px 10px 8px;padding:8px;background:var(--raised);border:1px solid var(--border);border-radius:8px;color:var(--muted)}#context-panel.visible{display:block}.context-row{display:flex;align-items:center;gap:7px;padding:3px 0}.context-row span:first-child{flex:1;overflow-wrap:anywhere;color:var(--text)}
   #state{padding:2px 10px;color:var(--muted);font-size:11px;min-height:16px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:16vh;overflow:auto}
@@ -33,7 +34,18 @@ const THEME_CSS = `
   #messages:has(.welcome){display:flex;flex-direction:column;justify-content:center}
   @media(max-width:340px){header{flex-wrap:wrap}#brand{min-width:75px}#account-status{flex-wrap:wrap}#budget{white-space:normal;overflow-wrap:anywhere;margin-left:0}#signin{font-size:11px;padding:4px}header .icon{min-width:23px;padding:3px}#lang{padding:4px 2px}}
   nav{flex-wrap:wrap}.product-links{display:flex;flex-wrap:wrap;gap:3px;padding:2px 8px;border-top:1px solid var(--border);min-width:0}.product-links button{font-size:10px;color:var(--accent);padding:3px 6px;min-width:0;max-width:100%;white-space:normal;word-break:normal;overflow-wrap:break-word;text-align:left}#usage-items{font-size:11px;overflow-wrap:anywhere}#usage-items p{margin:7px 0}#context-panel:has(#usage-items:not([hidden])){flex:1;overflow:auto;max-height:70vh}
-  .composer-actions{flex-wrap:wrap;min-width:0}.composer-actions .spacer{flex:1 1 0;min-width:0}#workflow{min-width:0;max-width:100%;overflow-wrap:anywhere}#mode-help,#context-help{margin:0;color:var(--muted);font-size:10px;line-height:1.4;overflow-wrap:anywhere}#context-help{padding:2px 0 6px}
+  .composer-actions{flex-wrap:wrap;min-width:0}.composer-actions .spacer{flex:1 1 0;min-width:0}#workflow{min-width:0;max-width:100%;overflow-wrap:anywhere}#mode-help,#context-help{margin:0;color:var(--muted);font-size:10px;line-height:1.4;overflow-wrap:anywhere}
+#settings-drawer #mode-help{margin:0 0 8px}
+#bridge-note{margin:0 0 8px;font-size:11px;color:var(--muted)}
+#bot-setup-note{margin:0 0 8px;font-size:11px;color:var(--muted)}
+#bot-setup-note button{border:1px solid var(--border);padding:3px 6px;margin-top:4px}
+#followups{display:flex;flex-direction:column;gap:4px;max-height:18vh;overflow:auto}
+.followup{display:flex;gap:6px;align-items:center;padding:4px 6px;border:1px dashed var(--border);border-radius:6px;color:var(--muted);font-size:11px}
+.followup span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.followup button{color:var(--muted);padding:2px 4px}
+.message.user.live{opacity:.75}
+#notice{position:relative;padding-right:28px}
+#notice #notice-close{position:absolute;top:4px;right:4px;border:0;background:transparent;padding:2px 6px;color:var(--muted)}#context-help{padding:2px 0 6px}
   @media(max-width:420px){.product-links{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.product-links button{width:100%;box-sizing:border-box}.composer-actions .spacer{display:none}#workflow{flex:1 1 auto}}
   [hidden]{display:none!important}
   .toolbar-hidden{display:none!important}.view-panel{display:none}#context-panel.visible{display:block}
@@ -45,7 +57,8 @@ const COPY = {
     chat:'Chat', context:'Context', terminal:'Terminal', new:'New session', settings:'Settings', account:'Account',
     title:'Build with context.', intro:'Ask about this file, your project, or a focused task.',
     hint:'Add private project context, then ask when you are ready.', empty:'No context attached yet.', terminalInfo:'Open your project terminal in VS Code. Commands use your own local credentials.',
-    ask:'Ask about your project…', send:'Send message', plus:'Add context', addFile:'Add file…', workspace:'Choose workspace file…', selection:'Use editor selection', path:'Paste workspace path…',
+    restoreHere:'Restore conversation here', restoreHint:'Go back to this point in the conversation. Later messages are removed (you can undo right after).', forkHere:'Fork conversation here', forkHint:'Start a new conversation from this point. The current one is kept under Conversations.',
+    ask:'Ask about your project…', send:'Send message', queueSend:'Queue message — sent after the current answer', queued:'Queued', queueRemove:'Remove from queue', queueSendNow:'Send now', queuePaused:'Queue paused: the previous request did not finish. Send the next message when ready.', dismiss:'Dismiss', botSetupNote:'Telegram bot is turned on in settings but not set up for this account.', botSetup:'Set up bot', botSettings:'Turn off in settings', bridgeArrived:'Message from', bridgeOn:'Bridge on: messages from local tools (Claude Code) are queued here; each runs in the mode it names (default Agent with the current preset).', plus:'Add context', addFile:'Add file…', workspace:'Choose workspace file…', selection:'Use editor selection', path:'Paste workspace path…',
     signIn:'Sign in', signedIn:'Account', limited:'Limited free preview', ready:'Ready', loading:'Connecting…', answering:'Answering…', preparing:'Preparing attachment…',
     theme:'Theme', themeDark:'Dark', themeLight:'Light', themeSystem:'System', language:'Switch language', model:'Service & workflow', cancel:'Cancel task', clear:'Remove all context', remove:'Remove', preview:'Preview text',
     copy:'Copy', openAnswer:'Open in editor', user:'You', assistant:'DSHREM', ocr:'Image text (OCR)', fileContext:'File context',
@@ -71,7 +84,8 @@ const COPY = {
     chat:'Чат', context:'Контекст', terminal:'Терминал', new:'Новая сессия', settings:'Настройки', account:'Аккаунт',
     title:'Работайте с контекстом.', intro:'Спросите об этом файле, проекте или задаче.',
     hint:'Добавьте приватный контекст проекта и задайте вопрос.', empty:'Контекст пока не добавлен.', terminalInfo:'Откройте терминал проекта в VS Code. Команды используют ваши локальные учётные данные.',
-    ask:'Спросите о проекте…', send:'Отправить сообщение', plus:'Добавить контекст', addFile:'Добавить файл…', workspace:'Выбрать файл проекта…', selection:'Использовать выделение', path:'Вставить путь в проекте…',
+    restoreHere:'Восстановить диалог отсюда', restoreHint:'Вернуться к этому месту диалога. Последующие сообщения удаляются (сразу после можно отменить).', forkHere:'Ответвить диалог отсюда', forkHint:'Начать новый диалог с этого места. Текущий сохранится в «Диалогах».',
+    ask:'Спросите о проекте…', send:'Отправить сообщение', queueSend:'В очередь — отправится после текущего ответа', queued:'В очереди', queueRemove:'Убрать из очереди', queueSendNow:'Отправить', queuePaused:'Очередь на паузе: предыдущий запрос не завершился. Отправьте следующее сообщение, когда будете готовы.', dismiss:'Закрыть', botSetupNote:'Telegram-бот включён в настройках, но для этого аккаунта не настроен.', botSetup:'Настроить бота', botSettings:'Выключить в настройках', bridgeArrived:'Сообщение от', bridgeOn:'Мост включён: сообщения от локальных инструментов (Claude Code) встают в очередь; каждое выполняется в указанном в нём режиме (по умолчанию агент с текущим пресетом).', plus:'Добавить контекст', addFile:'Добавить файл…', workspace:'Выбрать файл проекта…', selection:'Использовать выделение', path:'Вставить путь в проекте…',
     signIn:'Войти', signedIn:'Аккаунт', limited:'Ограниченный бесплатный доступ', ready:'Готово', loading:'Подключение…', answering:'Отвечаю…', preparing:'Подготовка вложения…',
     theme:'Тема', themeDark:'Тёмная', themeLight:'Светлая', themeSystem:'Системная', language:'Сменить язык', model:'Сервис и сценарий', cancel:'Отменить задачу', clear:'Удалить весь контекст', remove:'Удалить', preview:'Предпросмотр текста',
     copy:'Копировать', openAnswer:'Открыть в редакторе', user:'Вы', assistant:'DSHREM', ocr:'Текст изображения (OCR)', fileContext:'Контекст файла',

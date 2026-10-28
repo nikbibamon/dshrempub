@@ -24,25 +24,25 @@ ${PALETTE_CSS}
 nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(--vscode-contrastBorder,var(--border));border-radius:999px;background:var(--surface);color:var(--text)}#elapsed-chip{white-space:nowrap}#agent-map-button{white-space:nowrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
 </style></head><body>
 <section id="folder-browser" aria-labelledby="folder-title" hidden><div class="drawer-heading"><strong id="folder-title"></strong><button id="folder-close" type="button">×</button></div><div class="drawer-tools"><button id="folder-active" type="button"></button><button id="folder-recent" type="button"></button></div><p id="folder-hint"></p><div id="folder-rows"></div></section>
-<aside id="settings-drawer" aria-label="Chat settings" hidden><div class="drawer-heading"><strong id="drawer-title">Chat settings</strong><button id="drawer-close" class="icon" type="button" aria-label="Close settings">×</button></div>
+<aside id="settings-drawer" aria-label="Chat settings" hidden><div class="drawer-heading"><strong id="drawer-title">Chat settings</strong><button id="drawer-close" class="icon" type="button" aria-label="Close settings">×</button></div><p id="mode-help" role="note"></p>
 <nav aria-label="Workspace"><button id="tab-chat" type="button" aria-selected="true">Chat</button><button id="tab-context" type="button" aria-selected="false">Context</button><button id="tab-usage" type="button" aria-selected="false">Usage</button><button id="tab-terminal" type="button" aria-selected="false">Terminal</button></nav>
 <div class="drawer-tools"><button id="signin" type="button">Sign in</button><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="engineering" type="button" aria-pressed="false">Engineering view</button><button id="extension-settings" type="button">Extension settings…</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button></div>
 <div class="drawer-tools"><span id="elapsed-chip" class="run-chip" aria-label="Elapsed time">Elapsed —</span><button id="agent-map-button" class="run-chip" type="button" title="Observed running agents; opens Agent Map" aria-expanded="false" aria-controls="agent-map">Agents —</button><button id="pack-picker" type="button" hidden aria-haspopup="dialog"></button></div>
 <details id="recovery" hidden><summary id="recovery-title">Interrupted runs</summary><p id="recovery-notes" role="status"></p><div id="recovery-list"></div></details>
 <div class="product-links"><button id="product-guide" type="button">Tvijo AI guide</button><button id="connections" type="button">Connections</button><button id="tasks" type="button">Server task history</button><button id="context-select" type="button">Select project context…</button><button id="context-preview" type="button">Preview context</button><button id="quick-edit" type="button">Quick edit</button></div>
 <p id="shared-thread-note" hidden><a id="shared-thread-link" href="#"></a></p><p id="history-note" class="mini-select"></p>
-<div class="drawer-tools"><span id="account-identity"></span><span id="account-verification"></span><button id="runtime-version" type="button"></button></div><div class="drawer-tools"><button id="auto-commit" type="button"></button><button id="signout" type="button"></button></div><p id="rules-scan-note" hidden></p><section id="loaded-rules"></section><div id="account-status" role="status"><span class="dot">●</span><span id="connection-label">Connecting…</span><span id="budget"></span></div></aside>
+<div class="drawer-tools"><span id="account-identity"></span><span id="account-verification"></span><button id="runtime-version" type="button"></button></div><div class="drawer-tools"><button id="auto-commit" type="button"></button><button id="signout" type="button"></button></div><p id="bridge-note" hidden></p><p id="bot-setup-note" hidden><span id="bot-setup-text"></span> <button id="bot-setup" type="button"></button> <button id="bot-settings" type="button"></button></p><p id="rules-scan-note" hidden></p><section id="loaded-rules"></section><div id="account-status" role="status"><span class="dot">●</span><span id="connection-label">Connecting…</span><span id="budget"></span></div></aside>
 <section id="rewind" aria-labelledby="rewind-title" hidden><div id="rewind-heading"><h2 id="rewind-title">Rewind</h2><button id="rewind-close" type="button">Back to chat</button></div><p id="rewind-hint"></p><p id="rewind-status" role="status"></p><div id="rewind-list"></div></section><main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
 <div id="agent-log" role="log" aria-live="polite"></div>
-<form id="form"><button id="composer-signin" type="button">Sign in</button><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><p id="mode-help" role="note"></p><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="workspace-choice" type="button">Choose project…</button><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode" aria-haspopup="menu" aria-controls="mode-menu" aria-expanded="false">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="settings-drawer">⚙</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
+<form id="form"><button id="composer-signin" type="button">Sign in</button><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><div id="followups" hidden></div><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="workspace-choice" type="button">Choose project…</button><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode" aria-haspopup="menu" aria-controls="mode-menu" aria-expanded="false">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="settings-drawer">⚙</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
 <div id="plus-menu" role="menu" aria-label="Actions"><button id="attach" data-action-id="tvijo.attachFile" type="button" role="menuitem">Attach file…</button><button id="mention-file" data-action-id="tvijo.mentionFile" type="button" role="menuitem">Mention file…</button><button id="attach-problems" data-action-id="tvijo.attachProblems" type="button" role="menuitem">@problems</button><button id="attach-terminal" data-action-id="tvijo.attachTerminal" type="button" role="menuitem">@terminal</button><button id="workspace" type="button" role="menuitem">Choose workspace file…</button><button id="selection" type="button" role="menuitem">Use editor selection</button><button id="path" type="button" role="menuitem">Paste workspace path…</button><button id="clear-conversation" data-action-id="tvijo.newConversation" type="button" role="menuitem">Clear conversation</button><button id="rewind-action" data-action-id="tvijo.rewind" type="button" role="menuitem">Rewind…</button><button id="export-conversation" data-action-id="tvijo.export" type="button" role="menuitem">Export conversation as Markdown</button><button id="switch-model" data-action-id="tvijo.chooseWorkflow" type="button" role="menuitem">Switch model</button><button id="all-actions" type="button" role="menuitem">All commands…</button></div>
 <div id="mode-menu" role="menu" aria-label="Mode" hidden></div><div id="options-menu" role="menu" aria-label="Model and method"></div>
-<div id="notice" role="alert"><p id="notice-text"></p><button id="notice-action" type="button">Resolve task</button></div>
+<div id="notice" role="alert"><p id="notice-text"></p><button id="notice-action" type="button">Resolve task</button><button id="notice-close" class="icon" type="button" aria-label="Dismiss">×</button></div>
 <script nonce="${nonce}">
   const COPY = ${JSON.stringify(COPY)};
-  Object.assign(COPY.en,{modeFull:'Full access',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.en)},agentSavedHelp:'Agent edits are saved before disk checks. Dirty user buffers are protected.',fullAccessWarning:'Full access is active',fullAccessRevert:'Revert'});
-  Object.assign(COPY.ru,{modeFull:'Полный доступ',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.ru)},agentSavedHelp:'Правки агента сохраняются до проверок на диске. Пользовательские несохранённые буферы защищены.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
+  Object.assign(COPY.en,{modeExtra:'ExtraFullAccess',modeExtraHint:'Host shell and bounded account CLI reviews. Commands can affect files outside the project. Project policy and budgets remain. Uses the local Agent engine.',modeFull:'Full access',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.en)},agentSavedHelp:'Agent edits are saved before disk checks. Dirty user buffers are protected.',fullAccessWarning:'Full access is active',fullAccessRevert:'Revert'});
+  Object.assign(COPY.ru,{modeExtra:'ExtraFullAccess',modeExtraHint:'Shell хоста и ограниченное CLI-ревью через подписку. Команды могут менять файлы вне проекта. Правила проекта и бюджет сохраняются. Использует локальный Agent.',modeFull:'Полный доступ',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.ru)},agentSavedHelp:'Правки агента сохраняются до проверок на диске. Пользовательские несохранённые буферы защищены.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
   const safeExternalUrl = ${safeExternalUrl.toString()};
   const renderMarkdown = ${renderMarkdown.toString()};
   const renderAgentMap = ${renderAgentMap.toString()};
@@ -114,6 +114,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   let uploading = false;
   let attachmentCount = 0;
   let lastMessages = null;
+  let lastBranchKey = '', conversationEditable = false;
   let lastMessageWorkspace = null;
   let workspaceAvailable = true;
   let lastUsage = null;
@@ -164,6 +165,10 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     }
   }
   const queue = [];
+  // Messages typed while an answer is running; sent one by one when it ends.
+  const followUps = [];
+  let followPaused = false;
+  let liveQuestion = null, lastSubmitted = null, liveFrom = '', submittedBridgeId = null;
   const saved = vscode.getState?.();
   const draftModeExplicit = saved?.draftModeExplicit && typeof saved.draftModeExplicit === 'object' ? {...saved.draftModeExplicit} : {};
   let modeExplicit = false;
@@ -259,7 +264,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     }
   }
   function updateWorkflowLabel() {
-    if (orchestrationState.enabled && uiMode !== 'chat') { document.getElementById('workflow-label').textContent = 'DSH · ds41f + ' + orchestrationState.policy; return; }
+    if (orchestrationState.enabled && uiMode !== 'chat' && !(uiMode === 'agent' && optionState?.agentPreset === 'extra')) { document.getElementById('workflow-label').textContent = 'DSH · ds41f + ' + orchestrationState.policy; return; }
     if (!optionState) { document.getElementById('workflow-label').textContent = t('options'); return; }
     const selected = uiMode === 'chat' ? optionState.model : optionState.agentModel;
     const model = (optionState.models || []).find(item => item.id === selected) || { id: selected, name: selected };
@@ -268,6 +273,12 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   }
   function closeOptions() { optionsMenu.className = ''; document.getElementById('workflow').setAttribute('aria-expanded', 'false'); }
   const ACTIVITY = ['✻','✶','✷','✸','✹','✺','✹','✸','✷','✶'];
+  // Playful words only while the model thinks; real stages keep their plain labels.
+  const THINK = {
+    en: ['Wibbling','Churning','Unfurling','Reticulating','Finagling','Herding','Effecting','Musing','Cogitating','Percolating','Spelunking','Ruminating','Meandering','Deciphering','Concocting','Unravelling','Hatching','Germinating','Smooshing','Puttering','Envisioning','Ideating','Manifesting','Philosophising','Vibing','Transmuting','Honking','Inferring','Tinkering','Combobulating','Crunching','Crafting','Channelling','Mustering','Noodling','Discombobulating','Creating','Mulling','Determining','Coalescing','Cerebrating','Booping','Schlepping','Simmering','Cooking','Spinning','Actioning','Stewing','Perusing','Wrangling','Wondering','Flibbertigibbeting','Puzzling','Elucidating','Sailing','Thinking','Navigating','Floating'],
+    ru: ['Думаю','Размышляю','Кумекаю','Прикидываю','Варю','Мозгую','Распутываю','Колдую','Смекаю','Вынашиваю','Перевариваю','Тасую','Плету','Настраиваюсь','Сочиняю','Ковыряюсь','Расшифровываю','Мастерю','Взвешиваю','Медитирую','Чешу репу','Собираю пазл','Шуршу','Брожу по коду','Нащупываю','Заглядываю','Соображаю','Химичу','Докапываюсь','Плыву']
+  };
+  let thinkSeed = 0, thinking = false;
   function stopActivity() {
     if (activityTimer) clearTimer(activityTimer);
     activityTimer = null; activity.className = '';
@@ -276,13 +287,16 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     if (stage === 'done') { stopActivity(); return; }
     const label = { prepare:'activityPrepare', scan:'activityScan', context:'activityScan', grant:'activityGrant', quote:'activityQuote', model:'activityModel', settle:'activitySettle' }[stage];
     activityStarted = Date.now(); spinIndex = 0;
-    activityLabel.textContent = label ? t(label) : (stage || '');
+    thinking = stage === 'model' || stage === 'inbox'; thinkSeed = Math.floor(Math.random() * 1000);
+    const thinkWord = () => { const words = THINK[locale] || THINK.en; return words[(thinkSeed + Math.floor((Date.now() - activityStarted) / 3000)) % words.length] + '…'; };
+    activityLabel.textContent = thinking ? thinkWord() : label ? t(label) : (stage || '');
     activityDetail.textContent = detail || '';
     activityTime.textContent = '0s';
     activity.className = 'visible';
     if (activityTimer) clearTimer(activityTimer);
     activityTimer = setTimer(() => {
       activitySpin.textContent = ACTIVITY[spinIndex++ % ACTIVITY.length];
+      if (thinking) activityLabel.textContent = thinkWord();
       activityTime.textContent = Math.max(0, Math.round((Date.now() - activityStarted) / 1000)) + 's';
     }, 120);
   }
@@ -320,7 +334,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     optionState = options && Array.isArray(options.models) ? options : null;
     optionsMenu.replaceChildren();
     updateMode();
-    if (orchestrationState.enabled && uiMode !== 'chat') {
+    if (orchestrationState.enabled && uiMode !== 'chat' && !(uiMode === 'agent' && optionState?.agentPreset === 'extra')) {
       const fixed=document.createElement('p');fixed.textContent='DSH · ds41f + '+orchestrationState.policy;optionsMenu.append(fixed);
       const settings=document.createElement('button');settings.type='button';settings.textContent=locale==='ru'?'Настройки и статус DSH':'DSH settings and status';settings.addEventListener('click',()=>{closeOptions();post({type:'settings'});});optionsMenu.append(settings);
       return;
@@ -356,7 +370,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       { key: 'workspaceContext', value: 'on', current: optionState.contextMode, label: t('contextOn'), hint: '' },
       { key: 'workspaceContext', value: 'off', current: optionState.contextMode, label: t('contextOff'), hint: '' }
     ]);
-    if (optionState.agentPreset !== 'full') group('applySection', [
+    if (!['full','extra'].includes(optionState.agentPreset)) group('applySection', [
       { key: 'autoApply', value: false, current: optionState.autoApply, label: t('autoApplyOff'), hint: '' },
       { key: 'autoApply', value: true, current: optionState.autoApply, label: t('autoApplyOn'), hint: '' }
     ]);
@@ -366,6 +380,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     noticeText.textContent = text || '';
     noticeActionButton.hidden = !action; noticeActionButton.textContent = action === 'chooseFolder' ? (locale==='ru'?'Выбрать папку':'Choose folder') : action === 'addWorkspaceFolder' ? (locale==='ru'?'Добавить как папку рабочей области':'Add as workspace folder') : action === 'rulesSettings' ? (locale==='ru'?'Проверить правила в ⚙':'Review rules in ⚙') : action === 'account' ? t('signIn') : action === 'context' ? t('contextPreview') : t('resolvePending');
     notice.className = text ? 'visible' : '';
+    document.getElementById('notice-close').setAttribute('aria-label', t('dismiss'));
   }
   function drawQuote(q) {
     const amount = v => Number.isSafeInteger(v) && v >= 0 ? (v / 1000000).toLocaleString(locale === 'ru' ? 'ru-RU' : 'en-US', {maximumFractionDigits:6}) : '—';
@@ -373,7 +388,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   }
   function updateMode() {
     const preset = uiMode === 'plan' ? 'plan' : optionState?.agentPreset || 'auto';
-    const labelKey = uiMode === 'chat' ? 'modeChat' : uiMode === 'plan' ? 'modePlan' : ({manual:'modeManual',edit:'modeEdit',auto:'modeAuto',full:'modeFull',custom:'modeCustom'}[preset] || 'modeCustom');
+    const labelKey = uiMode === 'chat' ? 'modeChat' : uiMode === 'plan' ? 'modePlan' : ({manual:'modeManual',edit:'modeEdit',auto:'modeAuto',full:'modeFull',extra:'modeExtra',custom:'modeCustom'}[preset] || 'modeCustom');
     const label = t(labelKey);
     modeButton.textContent = label;
     modeButton.className = 'mini-select ' + (uiMode === 'chat' ? '' : uiMode);
@@ -382,7 +397,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     modeButton.setAttribute('aria-expanded', String(!modeMenu.hidden));
     renderModeMenu();
     question.placeholder = uiMode === 'chat' ? t('ask') : t('mentionHint');
-    document.getElementById('mode-help').textContent = t(uiMode === 'chat' ? 'modeChatHelp' : uiMode === 'agent' ? 'modeAgentHelp' : 'modePlanHelp') + (uiMode === 'agent' && ['full','auto'].includes(preset) ? ' ' + t('agentSavedHelp') : '') + (engineering ? ' ' + t('shellHelp') : '');
+    document.getElementById('mode-help').textContent = t(uiMode === 'chat' ? 'modeChatHelp' : uiMode === 'agent' ? 'modeAgentHelp' : 'modePlanHelp') + (uiMode === 'agent' && ['full','extra','auto'].includes(preset) ? ' ' + t('agentSavedHelp') : '') + ' ' + t('shellHelp');
     updateWorkflowLabel();
   }
   function renderModeMenu() {
@@ -393,6 +408,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       {mode:'edit', label:t('modeEdit'), hint:t('modeEditHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'edit'},
       {mode:'plan', label:t('modePlan'), hint:t('modePlanHint'), checked:uiMode === 'plan'},
       {mode:'auto', label:t('modeAuto'), hint:t('modeAutoHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'auto'},
+      {mode:'extra', label:t('modeExtra'), hint:t('modeExtraHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'extra', disabled:fullAccess?.available !== true},
       {mode:'full', label:t('modeFull'), hint:t('modeFullHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'full', disabled:fullAccess?.available !== true}
     ];
     if (optionState?.agentPreset === 'custom') rows.push({mode:'custom', label:t('modeCustom'), hint:'', checked:uiMode === 'agent'});
@@ -423,7 +439,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     if (!workspaceAvailable) { closeModeMenu(); openFolderBrowser(); return; }
     if (mode === 'custom') { closeModeMenu(true); uiMode = 'agent'; modeExplicit = true; updateMode(); saveDraft(); return; }
     const preset = mode === 'plan' ? 'plan' : mode;
-    if (mode === 'full' && fullAccess?.available !== true) return;
+    if (['full','extra'].includes(mode) && fullAccess?.available !== true) return;
     pendingModeRequestId = String(scopeKey || '') + ':' + (++modeRequestSequence);
     closeModeMenu(true); controls();
     post({type:'agentPreset',preset,requestId:pendingModeRequestId});
@@ -437,6 +453,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   }
   function renderAgentEvent(event) {
     if (!event || typeof event !== 'object') return;
+    if (event.type === 'capabilities') { agentLine(locale === 'ru' ? 'Доступ' : 'Access', (event.capabilities?.mode || 'unknown') + ' · ' + (event.capabilities?.run_command ? (locale === 'ru' ? 'терминал доступен' : 'terminal available') : (locale === 'ru' ? 'без команд' : 'no commands'))); return; }
     if (event.type === 'reset') { agentLog.replaceChildren(); agentLog.className = ''; return; }
     if (event.type === 'start') {
       agentLog.replaceChildren(); agentLog.className = 'visible';
@@ -475,6 +492,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     document.getElementById('folder-recent').textContent=locale==='ru'?'Недавние папки':'Recent folders';
     document.getElementById('signout').textContent=locale==='ru'?'Выйти':'Sign out';
     document.getElementById('drawer-title').textContent = t('chatSettings');
+    document.getElementById('bot-setup-text').textContent = t('botSetupNote'); document.getElementById('bot-setup').textContent = t('botSetup'); document.getElementById('bot-settings').textContent = t('botSettings');
     for (const [id,key] of [['drawer-close','closeSettings'],['settings','settings']]) {
       document.getElementById(id).title = t(key); document.getElementById(id).setAttribute('aria-label',t(key));
     }
@@ -642,20 +660,55 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     add(ru ? 'Квота подписки и экономия кеша не измерены. — означает неизвестно.' : 'Subscription quota and cache savings are not measured. — means unknown.');
   }
   question.addEventListener('input', saveDraft);
+  function drawFollowUps() {
+    const box = document.getElementById('followups'); box.replaceChildren(); box.hidden = !followUps.length;
+    if (followPaused && followUps.length) { const note = document.createElement('div'); note.className = 'followup'; note.textContent = t('queuePaused'); box.append(note); }
+    for (const [index, item] of followUps.entries()) {
+      const row = document.createElement('div'); row.className = 'followup';
+      const text = document.createElement('span'); text.textContent = t('queued') + (item.from ? ' · ' + item.from : '') + ': ' + item.text; text.title = item.text;
+      row.append(text);
+      if (followPaused && index === 0) { const now = document.createElement('button'); now.type = 'button'; now.textContent = t('queueSendNow'); now.addEventListener('click', () => { followPaused = false; drawFollowUps(); drainFollowUps(); }); row.append(now); }
+      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.title = t('queueRemove'); remove.setAttribute('aria-label', t('queueRemove'));
+      remove.addEventListener('click', () => { const [gone] = followUps.splice(index, 1); if (gone?.bridgeId) post({type:'bridgeCancel', id:gone.bridgeId}); if (!followUps.length) followPaused = false; drawFollowUps(); });
+      row.append(remove); box.append(row);
+    }
+  }
+  function submitText(text, mode, from = '', bridgeId = null) {
+    submitting = true; liveQuestion = text; lastSubmitted = text; liveFrom = from; submittedBridgeId = bridgeId; controls();
+    // Clear the composer at once; a refused request puts the text back.
+    if (question.value.trim() === text) { question.value = ''; saveDraft(); }
+    post({type:'ask', question:text, agent: mode !== 'chat', plan: mode === 'plan', ...(from ? {from} : {}), ...(bridgeId ? {bridgeId} : {})});
+    render(lastItems);
+  }
+  function drainFollowUps() {
+    if (!followUps.length || followPaused || running || submitting || preparing || uploading || pending || pendingModeRequestId || !scopeKey) return;
+    const next = followUps.shift(); drawFollowUps();
+    if (next.mode !== 'chat' && !workspaceAvailable) { followUps.unshift(next); followPaused = true; drawFollowUps(); return; }
+    submitText(next.text, next.mode, next.from || '', next.bridgeId || null);
+  }
   function controls() {
     const blocked = running || preparing || submitting || uploading;
-    send.disabled = blocked || !!pendingModeRequestId || !scopeKey;
+    send.disabled = preparing || uploading || !!pendingModeRequestId || !scopeKey;
+    const queues = running || submitting;
+    send.hidden = false;
+    send.title = t(queues ? 'queueSend' : 'send'); send.setAttribute('aria-label', t(queues ? 'queueSend' : 'send'));
+    document.getElementById('auto-commit').disabled = blocked;
     for (const id of ['attach','workspace','selection','path','plus','workflow','mode']) document.getElementById(id).disabled = blocked;
     document.getElementById('cancel').hidden = !running;
-    send.hidden = running;
     document.getElementById('cancel').textContent = running ? (uiMode !== 'chat' ? t('agentStop') : t('cancel')) : t('resolvePending');
     document.getElementById('cancel').title = running ? (uiMode !== 'chat' ? t('agentStop') : t('cancel')) : t('resolvePending');
     document.getElementById('clear-context').disabled = blocked;
     for (const button of attached.querySelectorAll('button')) button.disabled = blocked;
     renderModeMenu();
   }
+  let lastItems = [];
   function render(items) {
-    const key = JSON.stringify(items); if (key === lastMessages && lastMessageWorkspace === activeWorkspaceLabel) return; lastMessages = key; lastMessageWorkspace = activeWorkspaceLabel;
+    lastItems = items;
+    // Once the host records the question in history, the live copy is redundant.
+    const lastUser = [...items].reverse().find(item => item.role === 'user');
+    if (liveQuestion && String(lastUser?.display || lastUser?.content || '').trim() !== liveQuestion) items = [...items, {role:'user', content:liveQuestion, live:true, from:liveFrom}];
+    const key = JSON.stringify(items), branchKey = (conversationEditable ? '1' : '0') + (running || submitting ? '1' : '0');
+    if (key === lastMessages && lastMessageWorkspace === activeWorkspaceLabel && branchKey === lastBranchKey) return; lastMessages = key; lastBranchKey = branchKey; lastMessageWorkspace = activeWorkspaceLabel;
     messages.replaceChildren();
     if (!items.length) {
       const welcome = document.createElement('section'); welcome.className = 'welcome';
@@ -669,12 +722,23 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     }
     for (const [index, item] of items.entries()) {
       const block = document.createElement('article');
-      block.className = 'message ' + (item.role === 'assistant' ? 'assistant' : 'user');
-      const role = document.createElement('div'); role.className = 'role'; role.textContent = item.role === 'assistant' ? t('assistant') : t('user');
+      block.className = 'message ' + (item.role === 'assistant' ? 'assistant' : 'user') + (item.live ? ' live' : '');
+      const role = document.createElement('div'); role.className = 'role'; role.textContent = item.role === 'assistant' ? t('assistant') : item.from ? item.from : t('user');
       const content = document.createElement('div');
       if (item.role === 'assistant') renderMarkdown(document, content, item.content, { post, copyLabel:t('copy'), plainLabel:locale === 'ru' ? 'текст' : 'text', truncatedLabel:locale === 'ru' ? 'Ответ сокращён; полный текст доступен в редакторе.' : 'Answer truncated; full text is available in the editor.' });
       else content.textContent = item.content || '';
       block.append(role, content); messages.append(block);
+      // Only real history rows can be a point to return to: not the live question, not host notes,
+      // and not a shared server thread (it is append-only on the service).
+      const branch = conversationEditable && !item.live && !item.note ? document.createElement('div') : null;
+      if (branch) {
+        branch.className = 'branch-actions';
+        for (const [type, label, hint] of [['conversationRestore', t('restoreHere'), t('restoreHint')], ['conversationFork', t('forkHere'), t('forkHint')]]) {
+          const button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.title = hint; button.setAttribute('aria-label', label);
+          button.disabled = running || submitting;
+          button.addEventListener('click', () => post({type,index})); branch.append(button);
+        }
+      }
       if (item.role === 'assistant') {
         if (typeof item.footer === 'string') { const footer = document.createElement('div'); footer.className = 'task-footer'; footer.textContent = item.footer.slice(0, 4000); block.append(footer); }
         const actions = document.createElement('div'); actions.className = 'answer-actions';
@@ -686,6 +750,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
         if(item.agentRequest){const agent=document.createElement('button');agent.type='button';agent.textContent=locale==='ru'?'Сделать агентом':'Make it an agent';agent.disabled=running || submitting;agent.addEventListener('click',()=>post({type:'makeAgent',index}));actions.append(agent);}
         block.append(actions);
       }
+      if (branch) block.append(branch);
     }
     messages.scrollTop = messages.scrollHeight;
   }
@@ -782,6 +847,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       if (scopeKey !== nextScope || composerScope !== nextComposerScope) {
         const legacyTime = draftTimes[nextScope];
         const legacyScopedDraft = scopeKey === null && saved?.composerScope === undefined && nextScope && typeof drafts[nextScope] === 'string' && (!Number.isFinite(legacyTime) || Date.now() - legacyTime < draftTtl) ? drafts[nextScope] : undefined;
+        const leavingScope = scopeKey !== null;
         if (scopeKey) drafts[composerScope || scopeKey] = question.value;
         scopeKey = nextScope;
         composerScope = nextComposerScope;
@@ -800,7 +866,10 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
         uiMode = hostMode || (modeExplicit && ['chat','agent','plan'].includes(restoredMode) ? restoredMode : ['agent','plan'].includes(restoredMode) ? restoredMode : 'agent');
         if (hostMode) modeExplicit = true;
         if (scopeKey) draftTimes[draftKey] = cachedDraft && Number.isFinite(cachedTime) ? cachedTime : data.composerDraft?.updatedAt || Date.now();
-        submitting = false; uploading = false; queue.length = 0;
+        // The first scope after load is not a scope change: messages that arrived before the
+        // state stay queued. Only leaving a real scope cancels what was waiting for it.
+        if (leavingScope) for (const item of followUps) if (item.bridgeId) post({type:'bridgeCancel', id:item.bridgeId, reason:'scope'});
+        submitting = false; uploading = false; queue.length = 0; if (leavingScope) followUps.length = 0; followPaused = false; liveQuestion = null; drawFollowUps();
         saveState();
       }
       if (data.locale && data.locale !== locale) setLocale(data.locale);
@@ -808,11 +877,13 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       document.getElementById('runtime-version').textContent = 'Tvijo ' + (data.runtimeVersion || '—') + ' ↻';
       document.getElementById('runtime-version').title = locale === 'ru' ? 'После обновления: перезагрузить окно' : 'After updating: reload window';
       document.getElementById('auto-commit').textContent=(locale==='ru'?'Автокоммит: ':'Auto-commit: ')+(data.autoCommit==='off'?(locale==='ru'?'выкл':'off'):(locale==='ru'?'вкл':'on'));
+      document.getElementById('bot-setup-note').hidden = !data.botSetupNeeded;
+      const bridgeNote = document.getElementById('bridge-note'); bridgeNote.hidden = !data.bridgeEnabled; bridgeNote.textContent = t('bridgeOn');
       const scanNote=document.getElementById('rules-scan-note');scanNote.hidden=!data.rulesScanTruncated;scanNote.textContent=locale==='ru'?'Сканирование правил усечено — команды требуют подтверждения.':'Rules scan truncated — commands require confirmation.';
       const rulesPanel=document.getElementById('loaded-rules');rulesPanel.replaceChildren();
       for(const rule of data.loadedRules || []){const row=document.createElement('div');row.className='rule-row';const toggle=document.createElement('button');toggle.type='button';toggle.textContent=(rule.quarantined?'⚠ ':rule.disabled?'☐ ':'☑ ')+rule.file+' · '+rule.bytes+' B'+(rule.truncated?(locale==='ru'?' · обрезано':' · truncated'):'')+(rule.status==='rejected'?' · '+rule.reason:'')+(rule.quarantined?(locale==='ru'?' · карантин — включить снова':' · quarantined — re-enable'):'');toggle.disabled=running;toggle.addEventListener('click',()=>post({type:rule.quarantined?'reenableRule':'toggleRule',id:rule.quarantined?(rule.quarantineId || rule.id):rule.id}));row.append(toggle);rulesPanel.append(row);}
       renderRunSession(data.runSession);
-      if (data.workflow && !data.options && !(orchestrationState.enabled && uiMode !== 'chat')) { window.tvijoWorkflow = data.workflow; document.getElementById('workflow-label').textContent = data.workflow; }
+      if (data.workflow && !data.options && !(orchestrationState.enabled && uiMode !== 'chat' && !(uiMode === 'agent' && optionState?.agentPreset === 'extra'))) { window.tvijoWorkflow = data.workflow; document.getElementById('workflow-label').textContent = data.workflow; }
       const packPicker = document.getElementById('pack-picker');
       packPicker.hidden = !data.signedIn || !data.pack;
       packPicker.textContent = data.pack ? data.pack.label + ' ▾' : '';
@@ -827,6 +898,9 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       else showNotice('');
       workspaceAvailable = data.workspaceSelected !== false;
       activeWorkspaceLabel = data.workspaceSelected === false ? '' : data.projectLabel || '';
+      liveQuestion = typeof data.liveQuestion === 'string' && data.liveQuestion ? data.liveQuestion : submitting ? liveQuestion : null;
+      if (typeof data.liveFrom === 'string') liveFrom = data.liveFrom; else if (!liveQuestion) liveFrom = '';
+      conversationEditable = data.conversationEditable === true;
       render(data.messages || []);
       const sharedNote = document.getElementById('shared-thread-note');
       sharedNote.hidden = !data.sharedThreadUrl;
@@ -838,6 +912,8 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       state.textContent = lastStatus;
       if (!data.busy && !data.attaching) stopActivity();
       running = !!data.busy;
+      // Messages were drawn above with the previous run state; redraw only if the Restore/Fork buttons' state changed.
+      render(lastItems);
       interruptedRuns = Array.isArray(data.interrupted) ? data.interrupted : [];
       recoveryNotes = Array.isArray(data.recoveryNotes) ? data.recoveryNotes : [];
       drawRecovery();
@@ -856,6 +932,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       updateMode();
       legacyHistory = !!data.legacyHistory;
       document.getElementById('history-note').textContent = t(legacyHistory || legacyDraft ? 'legacyPrivacy' : 'historyPrivacy');
+      drainFollowUps();
     } else if (data.type === 'presetResult') {
       if (data.scopeKey !== scopeKey || !pendingModeRequestId || data.requestId !== pendingModeRequestId) return;
       if (data.ok) { uiMode = data.preset === 'plan' ? 'plan' : 'agent'; modeExplicit = true; saveDraft(); }
@@ -869,10 +946,15 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       renderUsage(data.usage); setTab('usage');
     } else if (data.type === 'submission') {
       if (data.scopeKey !== undefined && data.scopeKey !== scopeKey) return;
-      submitting = false;
+      const ownSubmission = typeof data.question === 'string' && data.question === lastSubmitted;
+      submitting = false; liveQuestion = null; if (ownSubmission) lastSubmitted = null;
       controls();
       if (data.ok && question.value.trim() === data.question) { question.value = ''; saveDraft(); }
-      if (!data.ok) question.focus();
+      if (!data.ok) {
+        if (!question.value.trim() && ownSubmission) { question.value = data.question; saveDraft(); }
+        if (followUps.length) { followPaused = true; drawFollowUps(); }
+        question.focus();
+      } else drainFollowUps();
     } else if (data.type === 'draft') {
       if (data.scopeKey !== undefined && data.scopeKey !== scopeKey) return;
       question.value = typeof data.text === 'string' ? data.text.slice(0, 20000) : '';
@@ -881,6 +963,16 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     } else if (data.type === 'activity') {
       if (data.scopeKey !== undefined && data.scopeKey !== scopeKey) return;
       startActivity(data.stage, data.detail);
+    } else if (data.type === 'inbox') {
+      if (typeof data.text !== 'string' || !data.text.trim()) return;
+      const bridgeId = typeof data.id === 'string' ? data.id : null;
+      if (bridgeId) post({type:'inboxAck', id:bridgeId});
+      // The host re-hands accepted messages after a view reload; one copy per id.
+      if (bridgeId && (bridgeId === submittedBridgeId || followUps.some(item => item.bridgeId === bridgeId))) return;
+      followUps.push({text:data.text.trim().slice(0, 20000), mode:['chat','agent','plan'].includes(data.mode) ? data.mode : 'agent', from:typeof data.from === 'string' ? data.from.slice(0, 40) : '', bridgeId});
+      drawFollowUps();
+      if (!running) startActivity('inbox', t('bridgeArrived') + ' ' + (followUps.at(-1).from || ''));
+      drainFollowUps();
     } else if (data.type === 'attachmentDone') {
       uploading = false; controls(); uploadNext();
     } else if (data.type === 'openOptions') {
@@ -890,9 +982,10 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   });
   document.getElementById('form').addEventListener('submit', event => {
     event.preventDefault(); const text = question.value.trim() || (attachmentCount ? t('attachmentOnly') : ''); if (!text || send.disabled || pendingModeRequestId) return;
-    submitting = true; controls();
-    if (uiMode !== 'chat' && !workspaceAvailable) { submitting = false; controls(); openFolderBrowser(); return; }
-    post({type:'ask', question:text, agent: uiMode !== 'chat', plan: uiMode === 'plan'});
+    if (running || submitting) { followUps.push({text, mode:uiMode}); question.value = ''; saveDraft(); drawFollowUps(); return; }
+    if (uiMode !== 'chat' && !workspaceAvailable) { openFolderBrowser(); return; }
+    followPaused = false;
+    submitText(text, uiMode);
   });
   question.addEventListener('keydown', event => {
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); document.getElementById('form').requestSubmit(); }
@@ -925,6 +1018,9 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   document.getElementById('signin').addEventListener('click', () => post({type:lastSignedIn ? 'account' : 'account'}));
   document.getElementById('cancel').addEventListener('click', () => post({type:'cancel'}));
   noticeActionButton.addEventListener('click', () => {if(currentNotice?.action==='rulesSettings'){setDrawer(true);return;}post({type: ['chooseFolder','addWorkspaceFolder'].includes(currentNotice?.action) ? currentNotice.action : currentNotice?.action === 'account' ? 'account' : currentNotice?.action === 'context' ? 'contextPreview' : 'cancel'});});
+  document.getElementById('bot-setup').addEventListener('click', () => post({type:'botSetup'}));
+  document.getElementById('bot-settings').addEventListener('click', () => post({type:'botSettings'}));
+  document.getElementById('notice-close').addEventListener('click', () => { showNotice(''); post({type:'dismissNotice'}); });
   document.getElementById('context-preview').addEventListener('click', () => post({ type: 'contextPreview' }));
   document.getElementById('quick-edit').addEventListener('click', () => post({ type: 'quickEdit' }));
   document.getElementById('workflow').addEventListener('click', () => { renderOptions(optionState); plusMenu.className = ''; document.getElementById('plus').setAttribute('aria-expanded','false'); const open = optionsMenu.className !== 'open'; optionsMenu.className = open ? 'open' : ''; document.getElementById('workflow').setAttribute('aria-expanded', String(open)); });

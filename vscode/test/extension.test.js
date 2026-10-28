@@ -20,6 +20,7 @@ function host(options = {}) {
   const docs = [];
   const shown = [];
   const warnings = [];
+  const infos = [];
   const requests = [];
   const errors = [];
   const feedback = [];
@@ -100,7 +101,7 @@ function host(options = {}) {
       },
       createStatusBarItem: () => status,
       registerWebviewViewProvider: (_id, value) => { provider = value; return disposable; },
-      showErrorMessage: async message => { errors.push(message); feedback.push(message); }, showInformationMessage: async () => undefined,
+      showErrorMessage: async message => { errors.push(message); feedback.push(message); }, showInformationMessage: async (...args) => { infos.push(args); return options.onInfo ? options.onInfo(...args) : undefined; },
       showWarningMessage: async (...args) => { warnings.push(args); if (options.onWarning) await options.onWarning(...args); return warningAnswer; },
       showTextDocument: async doc => { shown.push(doc); },
       showInputBox: async config => options.inputBox ? options.inputBox(config) : 'Account A editor question',
@@ -167,7 +168,7 @@ function host(options = {}) {
   const accountLocal=tenantState(context);
   const folderScope=scope=>require('node:crypto').createHash('sha256').update(JSON.stringify([scope,require('../lib/active-workspace').identity(require('../lib/active-workspace').createActiveWorkspace({vscode,state:context.workspaceState}).current())])).digest('hex');
   const scopedLocal={...accountLocal,history:scope=>accountLocal.history(folderScope(scope)),saveHistory:(scope,value)=>accountLocal.saveHistory(folderScope(scope),value)};
-  return { vscode, context, posts, docs, shown, warnings, requests, commands, executed, errors, feedback, panels, external, copied, base, local: scopedLocal, rawLocal:accountLocal, folderScope, scope: tenant => scopeKey(base, tenant), receive: (message) => receive({...message,...(message.scopeKey === scopeKey(base,'tenant-a') || message.scopeKey === scopeKey(base,'tenant-b') ? {scopeKey:folderScope(message.scopeKey)} : {})}), workspaceChanged: () => { if (!workspaceChangeListener) return false; workspaceChangeListener({}); return true; }, configurationChanged: (changedKey='tvijo.apiBase') => { for (const listener of configurationChangeListeners) listener({ affectsConfiguration: key => key === changedKey || changedKey.startsWith(key+'.') }); return configurationChangeListeners.length; },
+  return { vscode, context, posts, docs, shown, warnings, infos, requests, commands, executed, errors, feedback, panels, external, copied, base, local: scopedLocal, rawLocal:accountLocal, folderScope, scope: tenant => scopeKey(base, tenant), receive: (message) => receive({...message,...(message.scopeKey === scopeKey(base,'tenant-a') || message.scopeKey === scopeKey(base,'tenant-b') ? {scopeKey:folderScope(message.scopeKey)} : {})}), workspaceChanged: () => { if (!workspaceChangeListener) return false; workspaceChangeListener({}); return true; }, configurationChanged: (changedKey='tvijo.apiBase') => { for (const listener of configurationChangeListeners) listener({ affectsConfiguration: key => key === changedKey || changedKey.startsWith(key+'.') }); return configurationChangeListeners.length; },
     root, storage, botAdapter: () => botAdapter, settings, status, Uri, Position, Range,
     grantError: value => { grantError = value; }, lookup: value => { lookup = value; }, warning: value => { warningAnswer = value; }, chat: value => { chatContent = value; }, editor: value => { activeEditor = value; }, applied: () => appliedEdit, taskSnapshot: value => { taskSnapshot = value; },
     fireDiagnostics,
@@ -2916,7 +2917,7 @@ for(const method of ['literal-copy','npm-directory'])test('limitation: Full acce
   await fs.writeFile(path.join(x.root,'advice.txt'),'COMMAND_RULE_CANARY');await fs.writeFile(path.join(x.root,'AGENTS.md'),'ORIGINAL_RULE_CANARY');
   await fs.writeFile(path.join(x.root,'package.json'),JSON.stringify({scripts:{'change-rules':'mkdir -p .clinerules && cp advice.txt .clinerules/a.md'}}));await fs.writeFile(path.join(x.root,'.npmrc'),'cache='+path.join(x.root,'npm-cache')+'\n');
   x.app.warning('Run command');const n=x.app.warnings.length;await x.run();assert.equal(x.results()[0].ok,true,JSON.stringify(x.results()));assert.equal(x.results()[1].ok,true);
-  assert.equal(x.app.warnings.length-n,method==='literal-copy'?2:1,'literal rule operands ask; every command after a rules mutation asks');
+  assert.equal(x.app.warnings.length-n,method==='literal-copy'?1:0,'literal rule operands ask; quarantine alone does not pause Full access');
   let state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.error.action,'rulesSettings');const row=state.loadedRules.find(row=>row.file===target);assert.equal(row.quarantined,true);
   assert.match(state.messages.at(-1).content,/quarantined/);const oldCalls=x.calls().length;await x.run();assert.doesNotMatch(JSON.stringify(x.calls().slice(oldCalls)),/COMMAND_RULE_CANARY/);
   state=x.app.posts.filter(p=>p.type==='state').at(-1);const {sidebar}=require('./helpers/sidebar');
@@ -3005,11 +3006,12 @@ test('judgefix2 production final answer explicitly reports hook commit withdrawa
  finally{x.close();}
 });
 
-test('judgefix2 production scan truncation stops Full access command auto-approval and is visible EN/RU',async()=>{
- const x=await savedAgentFixture({actions:[{tool:'run_command',command:'printf unapproved'},{tool:'finish',status:'blocked',answer:'Scan limit'}]});
+test('0.10.16 scan truncation does not pause Full access; the settings note still reports it EN/RU',async()=>{
+ const x=await savedAgentFixture({actions:[{tool:'run_command',command:'printf approved && printf chained'},{tool:'finish',status:'done',answer:'Scan limit'}]});
  try{
-  await Promise.all(Array.from({length:1030},(_,i)=>fs.mkdir(path.join(x.root,'scan-dir-'+i))));x.app.warning('Cancel');const n=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,n+1);assert.equal(x.results()[0].refused,true);
-  const state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.rulesScanTruncated,true);assert.match(state.error.text,/scan truncated/);const {sidebar}=require('./helpers/sidebar');for(const locale of ['en','ru']){const view=sidebar({}, {...state,locale});view.element('notice-action').click();assert.equal(view.element('settings-drawer').hidden,false);assert.equal(view.element('rules-scan-note').hidden,false);assert.match(view.element('rules-scan-note').textContent,/truncated|усечено/);}
+  await Promise.all(Array.from({length:1030},(_,i)=>fs.mkdir(path.join(x.root,'scan-dir-'+i))));const n=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,n);assert.equal(x.results()[0].ok,true,JSON.stringify(x.results()));assert.equal(x.results()[0].stdout,'approvedchained');
+  const state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.rulesScanTruncated,true);assert.doesNotMatch(String(state.error?.text||''),/scan truncated/);assert.doesNotMatch(state.messages.at(-1).content,/require confirmation/);
+  const {sidebar}=require('./helpers/sidebar');for(const locale of ['en','ru']){const view=sidebar({}, {...state,locale,error:{text:'x',action:'rulesSettings'}});view.element('notice-action').click();assert.equal(view.element('rules-scan-note').hidden,false);assert.match(view.element('rules-scan-note').textContent,/truncated|усечено/);}
  }finally{x.close();}
 });
 
@@ -3152,4 +3154,217 @@ test('settings host serializes actual config writes, correlates errors and keeps
    await panel.receive({type:'saveSetting',key,value,requestId:1});const failure=app.posts.filter(p=>p.type==='settingsSaved'&&p.key===key).at(-1);assert.match(failure.error,/catalog|workflow picker/);assert.equal(calls.length,count);
   }
  }finally{release();controls.installedOcrLanguages=original;app.close();}
+});
+
+test('0.10.21 a bridged ask records running then completed with the answer in the outbox', async () => {
+  const app = host();
+  try {
+    app.settings.set('workspaceContext', 'off');
+    const outbox = path.join(app.context.globalStorageUri.fsPath, 'outbox', 'bridge-1.json');
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_BRIDGE_QUESTION', bridgeId: 'bridge-1' });
+    const status = JSON.parse(await fs.readFile(outbox, 'utf8'));
+    assert.equal(status.state, 'completed');
+    assert.ok(status.answer.length > 0);
+    assert.equal(app.requests.filter(item => item.url.endsWith('/chat')).length, 1);
+  } finally { app.close(); }
+});
+
+test('0.10.22 a bridged ask that cannot record running does not start the paid task', async () => {
+  const app = host();
+  try {
+    app.settings.set('workspaceContext', 'off');
+    const storage = app.context.globalStorageUri.fsPath;
+    await fs.rm(path.join(storage, 'outbox'), { recursive: true, force: true });
+    await fs.writeFile(path.join(storage, 'outbox'), 'a file where the status folder should be');
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_UNRECORDED', bridgeId: 'bridge-ro' });
+    assert.equal(app.requests.filter(item => item.url.endsWith('/chat')).length, 0);
+  } finally { app.close(); }
+});
+
+test('0.10.22 a bridged command that produces no answer does not return the previous answer', async () => {
+  const app = host();
+  try {
+    app.settings.set('workspaceContext', 'off');
+    const outbox = id => path.join(app.context.globalStorageUri.fsPath, 'outbox', id + '.json');
+    await app.receive({ type: 'ask', question: 'SYNTHETIC_FIRST', bridgeId: 'bridge-a' });
+    const first = JSON.parse(await fs.readFile(outbox('bridge-a'), 'utf8'));
+    assert.ok(first.answer.length > 0);
+    await app.receive({ type: 'ask', question: '/help', bridgeId: 'bridge-b' });
+    const second = JSON.parse(await fs.readFile(outbox('bridge-b'), 'utf8'));
+    assert.equal(second.state, 'completed');
+    assert.ok(!second.answer);
+    assert.equal(second.note, 'no_new_answer');
+  } finally { app.close(); }
+});
+
+// 0.10.22: restore / fork a local conversation at a chosen message.
+const conversationSeed = [
+  { role: 'user', content: 'first question', display: 'first question' },
+  { role: 'assistant', content: 'first answer', display: 'first answer' },
+  { role: 'user', content: 'second question', display: 'second question' },
+  { role: 'assistant', content: 'second answer', display: 'second answer' }
+];
+async function seededConversation(options = {}) {
+  const app = host(options);
+  await app.receive({ type: 'ready' });
+  await app.local.saveHistory(app.scope('tenant-a'), conversationSeed);
+  await app.receive({ type: 'ready' });
+  const state = () => app.posts.filter(p => p.type === 'state').at(-1);
+  return { app, state, scopeKey: () => state().scopeKey };
+}
+
+test('0.10.22 the chat state says a local conversation can be restored or forked', async () => {
+  const { app, state } = await seededConversation();
+  try {
+    assert.equal(state().conversationEditable, true);
+    assert.equal(state().messages.length, 4);
+  } finally { app.close(); }
+});
+
+test('0.10.22 restoring to a question removes it and what followed, and puts the question back in the composer', async () => {
+  const { app, state, scopeKey } = await seededConversation();
+  try {
+    app.warning('Restore');
+    await app.receive({ type: 'conversationRestore', index: 2, scopeKey: scopeKey() });
+    assert.deepEqual(app.local.history(app.scope('tenant-a')), conversationSeed.slice(0, 2));
+    assert.equal(state().messages.length, 2);
+    assert.equal(app.posts.filter(p => p.type === 'draft').at(-1).text, 'second question');
+    assert.equal(app.warnings.at(-1)[1].modal, true);
+    assert.match(app.warnings.at(-1)[0], /2 later message/);
+    assert.equal(app.rawLocal.archives(app.folderScope(app.scope('tenant-a'))).length, 0, 'restore does not litter the saved list');
+  } finally { app.close(); }
+});
+
+test('0.10.22 restoring to an answer keeps that answer; declining the confirmation changes nothing', async () => {
+  const { app, scopeKey } = await seededConversation();
+  try {
+    app.warning(undefined);
+    await app.receive({ type: 'conversationRestore', index: 1, scopeKey: scopeKey() });
+    assert.equal(app.local.history(app.scope('tenant-a')).length, 4);
+    app.warning('Restore');
+    await app.receive({ type: 'conversationRestore', index: 1, scopeKey: scopeKey() });
+    assert.deepEqual(app.local.history(app.scope('tenant-a')), conversationSeed.slice(0, 2));
+    assert.ok(!app.posts.some(p => p.type === 'draft' && p.text), 'an answer returns no question');
+  } finally { app.close(); }
+});
+
+test('0.10.22 restoring at the end of the conversation is a no-op and never asks', async () => {
+  const { app, scopeKey } = await seededConversation();
+  try {
+    await app.receive({ type: 'conversationRestore', index: 3, scopeKey: scopeKey() });
+    assert.equal(app.warnings.length, 0);
+    assert.equal(app.local.history(app.scope('tenant-a')).length, 4);
+    assert.match(app.infos.at(-1)[0], /already ends here/);
+  } finally { app.close(); }
+});
+
+test('0.10.22 the restored question goes in front of a draft the person had already typed', async () => {
+  const { app, scopeKey } = await seededConversation();
+  try {
+    const key = recoveryKeyFor(app);
+    await app.receive({ type: 'composerDraft', scopeKey: scopeKey(), composerScope: key, text: 'typed meanwhile', mode: 'chat' });
+    app.warning('Restore');
+    await app.receive({ type: 'conversationRestore', index: 0, scopeKey: scopeKey() });
+    assert.equal(app.posts.filter(p => p.type === 'draft').at(-1).text, 'first question\n\ntyped meanwhile');
+    assert.equal(app.local.history(app.scope('tenant-a')).length, 0);
+  } finally { app.close(); }
+});
+
+test('0.10.22 Undo after a restore brings the removed messages back', async () => {
+  const { app, state, scopeKey } = await seededConversation({ onInfo: async (_message, ...buttons) => buttons.includes('Undo') ? 'Undo' : undefined });
+  try {
+    app.warning('Restore');
+    await app.receive({ type: 'conversationRestore', index: 2, scopeKey: scopeKey() });
+    for (let turn = 0; turn < 5; turn++) await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(app.local.history(app.scope('tenant-a')), conversationSeed);
+    assert.equal(state().messages.length, 4);
+    assert.equal(app.errors.length, 0);
+  } finally { app.close(); }
+});
+
+test('0.10.22 Undo is refused once the conversation has moved on, and does not overwrite the newer messages', async () => {
+  let pressUndo;
+  const pressed = new Promise(resolve => { pressUndo = resolve; });
+  const { app, state, scopeKey } = await seededConversation({ onInfo: (_message, ...buttons) => buttons.includes('Undo') ? pressed : undefined });
+  try {
+    app.warning('Restore');
+    await app.receive({ type: 'conversationRestore', index: 2, scopeKey: scopeKey() });
+    const newer = [...conversationSeed.slice(0, 2), { role: 'user', content: 'asked after the restore' }, { role: 'assistant', content: 'answered after the restore' }];
+    await app.local.saveHistory(app.scope('tenant-a'), newer);
+    pressUndo('Undo');
+    for (let turn = 0; turn < 5; turn++) await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(app.local.history(app.scope('tenant-a')), newer);
+    assert.match(state().error.text, /cannot be undone/);
+  } finally { app.close(); }
+});
+
+test('0.10.22 forking keeps the whole previous conversation under Conversations and continues from the chosen point', async () => {
+  const { app, state, scopeKey } = await seededConversation();
+  try {
+    await app.receive({ type: 'conversationFork', index: 1, scopeKey: scopeKey() });
+    assert.deepEqual(app.local.history(app.scope('tenant-a')), conversationSeed.slice(0, 2));
+    const archived = app.rawLocal.archives(app.folderScope(app.scope('tenant-a')));
+    assert.equal(archived.length, 1);
+    assert.equal(archived[0].raw.reason, 'fork');
+    assert.deepEqual(archived[0].raw.history, conversationSeed);
+    assert.equal(state().messages.length, 2);
+    assert.equal(app.warnings.length, 0, 'a fork loses nothing, so it does not ask');
+  } finally { app.close(); }
+});
+
+test('0.10.22 opening a saved conversation swaps it with the current one and loses neither', async () => {
+  let titles = [];
+  const { app, state, scopeKey } = await seededConversation({ pick: items => { titles = items; return items[0]; } });
+  try {
+    await app.receive({ type: 'conversationFork', index: 0, scopeKey: scopeKey() });
+    assert.equal(app.local.history(app.scope('tenant-a')).length, 0, 'forking at the first question leaves an empty conversation');
+    await app.commands.get('tvijo.conversations')();
+    assert.equal(titles.length, 1);
+    assert.equal(titles[0].label, 'first question');
+    assert.match(titles[0].description, /4 messages/);
+    assert.match(titles[0].description, /before a fork/);
+    assert.deepEqual(app.local.history(app.scope('tenant-a')), conversationSeed);
+    assert.equal(app.rawLocal.archives(app.folderScope(app.scope('tenant-a'))).length, 0, 'the opened one leaves the list; the empty current one is not saved');
+    assert.equal(state().messages.length, 4);
+  } finally { app.close(); }
+});
+
+test('0.10.22 Clear conversation now lists in Conversations, and conversations saved by older builds are still read', async () => {
+  let titles = [];
+  const { app, scopeKey } = await seededConversation({ pick: items => { titles = items; return undefined; } });
+  try {
+    await app.rawLocal.archiveHistory(app.scope('tenant-a'), 'legacy-1', [{ role: 'user', content: 'old build question' }, { role: 'assistant', content: 'old answer' }]);
+    await app.commands.get('tvijo.newConversation')();
+    assert.equal(app.local.history(app.scope('tenant-a')).length, 0);
+    await app.commands.get('tvijo.conversations')();
+    assert.deepEqual(titles.map(item => item.label).sort(), ['first question', 'old build question']);
+    assert.ok(scopeKey());
+  } finally { app.close(); }
+});
+
+test('0.10.22 a bad index and a foreign scope are refused without touching the history', async () => {
+  const { app, scopeKey } = await seededConversation();
+  try {
+    for (const index of [-1, 4, 1.5, '1', null, undefined]) await app.receive({ type: 'conversationFork', index, scopeKey: scopeKey() });
+    await app.receive({ type: 'conversationRestore', index: 0, scopeKey: 'another-scope' });
+    assert.equal(app.local.history(app.scope('tenant-a')).length, 4);
+    assert.equal(app.rawLocal.archives(app.folderScope(app.scope('tenant-a'))).length, 0);
+    assert.equal(app.warnings.length, 0);
+  } finally { app.close(); }
+});
+
+test('ExtraFullAccess host integration captures native grant, executes host shell and persists capabilities',async()=>{
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'extra-host-'));
+ const app=host({root,chatSequence:[JSON.stringify({tool:'run_command',command:'value=EXTRA_HOST_OK; printf "%s" "$value"'}),JSON.stringify({tool:'finish',answer:'Observed shell output'})]});
+ try {
+  app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);app.settings.set('orchestration.enabled',true);
+  await app.receive({type:'ready'});const state=app.posts.filter(p=>p.type==='state').at(-1);
+  app.warning('Enable ExtraFullAccess');await app.receive({type:'agentPreset',scopeKey:state.scopeKey,preset:'extra',requestId:'extra-test'});
+  assert.equal(app.posts.filter(p=>p.type==='state').at(-1).options.agentPreset,'extra');
+  await app.receive({type:'ask',question:'Run one harmless host shell test',agent:true});
+  const cap=app.posts.find(p=>p.type==='agent'&&p.event?.type==='capabilities');assert.equal(cap.event.capabilities.mode,'extra');
+  const result=app.posts.find(p=>p.type==='agent'&&p.event?.type==='result');assert.equal(result.event.result.stdout,'EXTRA_HOST_OK');
+  assert.equal(app.warnings.length,1);assert.equal(app.feedback.length,0);
+  assert.match(JSON.stringify(app.requests),/HOST CAPABILITIES/);
+ }finally{app.close();}
 });

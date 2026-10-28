@@ -37,6 +37,7 @@
   "tvijo.agentBudgetUsd.description": "Default $2 per local Agent task. At 80% usage the agent offers +$2, +$5 or +$10 for this run only. Nothing is added without your choice. Service/account limits still apply. DSH Harness keeps its original root budget.",
   "tvijo.agentAutoRun.description": "Skips per-command approval for literal allowlisted Agent commands. Plan refuses commands. Git transports also block fetch/clone in inherited environments. Commands run with your user's rights. Push is blocked for inherited environments; a program that rewrites its own environment is not stopped. Rules files changed by commands are quarantined, not prevented.",
   "tvijo.agentAutoApply.description": "Skips per-file approval for local Agent edits. Use when you can review opened diffs. Auto saves eligible edits to disk before checks; Plan refuses writes.",
+  "tvijo.bridge.enabled.description": "Accept messages from local tools on this host (for example Claude Code) through the `inbox` folder in the extension storage. Each message is queued in the chat like a typed one and runs with the current mode, including Full access. Off by default.",
   "tvijo.telegram.enabled.description": "Enables the owner-only Telegram connector on this extension host after bot configuration. Use only on a host that should run your bot. It requires a separately stored bot token and owner ID.",
   "tvijo.telegram.ownerId.description": "Legacy native value, not the active bot owner. Use Configure Telegram bot to set the owner for the signed-in account. The active owner is saved per account; changing this field alone does not transfer control. Bot tokens belong in SecretStorage.",
   "tvijo.telegram.ownerId.deprecated": "Use **Tvijo: Configure Telegram bot** to change the account-local owner.",
@@ -74,5 +75,6 @@
   "tvijo.orchestration.reportFormat.enum.2": "Rainbow report",
   "tvijo.orchestration.reportFormat.enum.3": "Both light and dark reports",
   "tvijo.orchestrationReport.title": "Open private task report",
-  "tvijo.orchestration.workerPolicy.enum.3": "Sol + Claude · coordinator, implementer, reviewer"
+  "tvijo.orchestration.workerPolicy.enum.3": "Sol + Claude · coordinator, implementer, reviewer",
+  "tvijo.agentReview.claudeEnabled.description": "Allow supplied-evidence Claude subscription reviews in ExtraFullAccess. Off by default. Project policy can still pause Claude. No API fallback or recursive delegation."
 }

@@ -37,6 +37,7 @@ const ACTIONS = [
   ['tvijo.clearAttachments', 'Clear attachments', '/clear'],
   ['tvijo.addFileToKnowledge', 'Add current file to knowledge base', 'explicit upload with confirmation'],
   ['tvijo.newConversation', 'Clear conversation', '/new'],
+  ['tvijo.conversations', 'Saved conversations (forks and cleared chats)', '/conversations'],
   ['tvijo.cancelPending', 'Cancel pending task', '/cancel'],
   ['tvijo.account', 'Account and credit', '/account'],
   ['tvijo.tasks', 'Recent tasks and spending', '/tasks'],
@@ -52,6 +53,7 @@ const ACTIONS = [
 
 const SLASH = {
   rewind: 'tvijo.rewind',
+  conversations: 'tvijo.conversations', диалоги: 'tvijo.conversations',
   code: 'tvijo.codingTask', codediff: 'tvijo.openCodingTask', codeapply: 'tvijo.applyCoding',
   usage: 'tvijo.usage', connections: 'tvijo.connections', guide: 'tvijo.productGuide',
   terminal: 'tvijo.terminal', learn: 'tvijo.learn', feedback: 'tvijo.feedback',

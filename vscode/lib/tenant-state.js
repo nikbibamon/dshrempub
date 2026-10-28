@@ -37,7 +37,13 @@ function tenantState(context) {
       return pending && context.globalState.get(key(scope, 'legacy-reconciled')) !== (pending.idempotencyKey || pending.taskId) ? pending : null;
     },
     markLegacyReconciled: (scope, pending) => context.globalState.update(key(scope, 'legacy-reconciled'), pending.idempotencyKey || pending.taskId),
-    archiveHistory: (scope, id, history) => context.workspaceState.update(key(scope, `archive.${id}`), history)
+    // Older builds stored a bare array; readers accept both (see conversation-branch.normalizeArchive).
+    archiveHistory: (scope, id, history, meta = {}) => context.workspaceState.update(key(scope, `archive.${id}`), { schema: 1, at: meta.at ?? Date.now(), reason: meta.reason, history }),
+    archives: scope => {
+      const prefix = key(scope, 'archive.');
+      return context.workspaceState.keys().filter(name => name.startsWith(prefix)).map(name => ({ id: name.slice(prefix.length), raw: context.workspaceState.get(name) })).filter(row => row.raw);
+    },
+    removeArchive: (scope, id) => context.workspaceState.update(key(scope, `archive.${id}`), undefined)
   };
 }
 module.exports = { scopeKey, tenantState };

@@ -1,4 +1,16 @@
-## Native code navigation and learning guide (0.10.14)
+<!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
+## What's new in 0.10.23 — 2026-10-28
+
+- **ExtraFullAccess.** A separate native approval for the selected trusted project and Tvijo account enables POSIX host-shell scripts, substitutions, normal network commands and bounded account CLI reviews. Existing Full access grants are not upgraded. Commands have the current OS user's rights and can affect files outside the project; literal accident checks are not an OS sandbox. Editor file tools retain path and dirty-buffer protections. Switching account/project or revoking the grant cancels active work. Windows hosts retain literal command execution and CLI review; POSIX shell syntax is explicitly unavailable.
+- **Show actual capabilities.** Each local Agent run records the effective mode, terminal access and available reviewers, and supplies them to the model. The model must not claim a missing terminal without an actual refusal. Plan still refuses writes, commands and reviews.
+- **Bounded local review.** ExtraFullAccess uses the local Agent engine and offers supplied-evidence, advisory Codex/Claude subscription CLI review with finite calls, cancellation and receipts. Provider API keys are not inherited; missing account login, disabled agents or quota failure do not fall back to a paid API. Project Claude pauses are enforced by the review adapter; the trusted host shell is not an OS boundary against arbitrary programs. The agent is instructed to use the review adapter exclusively for consultations and never load provider-key environments. Claude review is off by default. Review does not resume or control another agent's current conversation or give it write authority.
+- **Copilot direction is explicit.** The preserved 0.10.22 bridge lets Copilot call Tvijo through `@tvijo`/`#tvijo`; outbound Tvijo-to-Copilot review is not implemented. Previous bridge and saved-conversation work is included and retained.
+- No automatic permission migration, OS elevation, trading activation or model-route changes. Reload the editor after installing; select ExtraFullAccess for the intended project. This extension release does not rebuild native editors, CLI or MCP.
+
+Earlier versions: the **Changelog** tab.
+<!-- changelog-latest:end -->
+
+## Native code navigation and learning guide (since 0.10.14)
 
 Plan and Agent can ask installed editor language extensions for document symbols,
 definitions and references before reading larger source files. The `code_intelligence`
@@ -51,7 +63,7 @@ Choose **Configuration file example** in the help section or run **Tvijo: Open c
 
 # Tvijo DSHREM for VS Code
 
-Version 0.10.9. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.23. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
@@ -284,6 +296,19 @@ Manual/Edit review and Quick Edit changes remain buffers for review.
 Markdown export includes conversation display text only and redacts known auth
 tokens and common credential patterns. Credential detection is best effort; review
 the exported document before sharing it.
+
+## Restore or fork a conversation
+
+Every message in a local conversation has **Restore conversation here** and
+**Fork conversation here**. On a question they act on the conversation as it was before
+you sent it, and the question returns to the composer; on an answer, the conversation
+ends with that answer. Restore removes the later messages after a confirmation and offers
+**Undo** until something newer is added. Fork starts a new conversation from the same
+point and keeps the previous one. **Tvijo: Saved conversations** (`/conversations`) lists
+the kept conversations (the 50 newest, including those cleared with **Clear conversation**)
+and opens one, saving the current conversation in its place. Neither action changes files
+(use Rewind for that), and a shared server thread cannot be restored or forked. Saved
+conversations stay in this workspace's editor storage, like the conversation itself.
 
 ## Rewind (local checkpoints)
 
@@ -641,9 +666,6 @@ response contract are available, states remain **Unknown**. This extension does 
 grant or change consent. Use **Tvijo: Resources** for the verified Learn, Knowledge
 base, Axes skills, privacy, terms and changelog pages. These commands are also in
 **Settings and how it works** and **All commands**.
-
-Version 0.10.0 is a prepared candidate. Backend integration, full test-suite and native
-host acceptance are pending; this note does not claim a published or installable release.
 
 ## Commands
 

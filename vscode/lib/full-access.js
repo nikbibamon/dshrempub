@@ -4,7 +4,7 @@ const {randomUUID} = require('node:crypto');
 
 const PREFIX = 'tvijo.fullAccess.v1.';
 const VALID_SCOPE = /^[a-f0-9]{64}$/;
-const FULL_ACCESS_LIMITS=Object.freeze({"en": "Commands run with your user's rights. Push is blocked for inherited environments; a program that rewrites its own environment is not stopped. Rules files changed by commands are quarantined, not prevented.", "ru": "Команды выполняются с правами вашего пользователя. Push блокируется при унаследованном окружении; программа, заменяющая собственное окружение, не останавливается. Изменения файлов правил командами помещаются в карантин, а не предотвращаются."});
+const FULL_ACCESS_LIMITS=Object.freeze({"en": "The agent works without pausing: no confirmations for edits, checks or chains like cd app && npm test | tail. sudo, destructive Git and removals outside the folder stay blocked. Commands run with your user's rights. Push is blocked for inherited environments; a program that rewrites its own environment is not stopped. Rules files changed by commands are quarantined, not prevented.", "ru": "Агент работает без пауз: без подтверждений правок, проверок и цепочек вида cd app && npm test | tail. sudo, разрушительный Git и удаление вне папки по-прежнему заблокированы. Команды выполняются с правами вашего пользователя. Push блокируется при унаследованном окружении; программа, заменяющая собственное окружение, не останавливается. Изменения файлов правил командами помещаются в карантин, а не предотвращаются."});
 
 function createFullAccess({ vscode, state, scope, L = en => en, onRevoke = () => {} }) {
   let epoch = 0;
@@ -28,7 +28,7 @@ function createFullAccess({ vscode, state, scope, L = en => en, onRevoke = () =>
     const available = vscode.workspace.isTrusted === true && !!key;
     const stored = available && record(key);
     const enabled = !!stored && !denied.has(key);
-    return { available, enabled, scopeKey: key, folder: folder?.name || folder?.uri?.fsPath?.split(/[\\/]/).filter(Boolean).pop() || '' };
+    return { available, enabled, extra: enabled && stored.level === 'extra', scopeKey: key, folder: folder?.name || folder?.uri?.fsPath?.split(/[\\/]/).filter(Boolean).pop() || '' };
   }
   function check(folder, key, capturedEpoch) {
     if (capturedEpoch !== epoch || !status(folder).available || identity(folder) !== key) throw new Error(L('Full access approval expired because workspace trust or folder identity changed.', 'Одобрение полного доступа устарело: доверие или папка изменились.'));
@@ -40,24 +40,24 @@ function createFullAccess({ vscode, state, scope, L = en => en, onRevoke = () =>
     current.finally(() => { if (writes.get(key) === current) writes.delete(key); }).catch(() => {});
     return current;
   }
-  async function enable(folder, { guard = async () => {} } = {}) {
+  async function enable(folder, { guard = async () => {}, extra = false } = {}) {
     const initial = status(folder);
     if (!initial.available) return false;
     const key = initial.scopeKey, capturedEpoch = epoch;
     let savedRecord = null;
-    if (initial.enabled) return true;
+    if (initial.enabled && initial.extra === extra) return true;
     try {
       await guard(); check(folder, key, capturedEpoch);
-      const label = L('Enable Full access', 'Включить полный доступ');
-      const detail = folder.uri.fsPath + '\n' + L('Editor file-tool scope: this directory and its descendants. Commands start here but are not confined here. Agent edits are saved for disk checks; existing dirty buffers are refused. Hard command, path, secret, and budget limits and Rewind remain for editor tools and literal command checks, not as an OS sandbox. ', 'Область файловых инструментов редактора: эта папка и её содержимое. Команды запускаются здесь, но не ограничены этой папкой. Правки агента сохраняются для проверок; пользовательские несохранённые буферы защищены. Ограничения файловых инструментов, буквальных команд и бюджета, а также Rewind сохраняются, но не создают изоляцию ОС. ') + L(FULL_ACCESS_LIMITS.en,FULL_ACCESS_LIMITS.ru);
-      const answer = await vscode.window.showWarningMessage(L('Enable Full access for this folder?', 'Включить полный доступ для этой папки?'), { modal: true, detail }, label);
+      const label = extra ? L('Enable ExtraFullAccess', 'Включить ExtraFullAccess') : L('Enable Full access', 'Включить полный доступ');
+      const detail = folder.uri.fsPath + '\n' + (extra ? L('ExtraFullAccess runs POSIX shell scripts (literal commands on Windows), network commands and advisory CLI reviews with this OS account rights. Commands are NOT confined to the project and literal checks are NOT an OS sandbox. Existing files must be preserved. Account CLI review is bounded and advisory; subscriptions and project policy still apply. API keys are not inherited. No automatic elevation or access to other accounts. ', 'ExtraFullAccess выполняет POSIX shell-скрипты (буквальные команды на Windows), сетевые команды и рекомендательное CLI-ревью с правами текущего пользователя ОС. Команды НЕ ограничены проектом; проверка текста НЕ является песочницей ОС. Существующие файлы нужно сохранять. CLI-ревью ограничено и носит рекомендательный характер; подписки и правила проекта сохраняются. API-ключи не наследуются. Повышения прав и доступа к чужим аккаунтам нет. ') : '') + L('Editor file-tool scope: this directory and its descendants. Commands start here but are not confined here. Agent edits are saved for disk checks; existing dirty buffers are refused. Hard command, path, secret, and budget limits and Rewind remain for editor tools and literal command checks, not as an OS sandbox. ', 'Область файловых инструментов редактора: эта папка и её содержимое. Команды запускаются здесь, но не ограничены этой папкой. Правки агента сохраняются для проверок; пользовательские несохранённые буферы защищены. Ограничения файловых инструментов, буквальных команд и бюджета, а также Rewind сохраняются, но не создают изоляцию ОС. ') + (extra ? '' : L(FULL_ACCESS_LIMITS.en,FULL_ACCESS_LIMITS.ru));
+      const answer = await vscode.window.showWarningMessage(extra ? L('Enable ExtraFullAccess for this folder?', 'Включить ExtraFullAccess для этой папки?') : L('Enable Full access for this folder?', 'Включить полный доступ для этой папки?'), { modal: true, detail }, label);
       check(folder, key, capturedEpoch);
       await guard(); check(folder, key, capturedEpoch);
       if (answer !== label) return false;
       denied.add(key);
       await queue(key, async () => {
         check(folder, key, capturedEpoch);
-        savedRecord = { schema: 1, scopeKey: key, enabled: true, approvedAt: Date.now(), approvalId:randomUUID() };
+        savedRecord = { schema: 1, scopeKey: key, enabled: true, level: extra ? 'extra' : 'full', approvedAt: Date.now(), approvalId:randomUUID() };
         await state.update(PREFIX + key, savedRecord);
         await guard();
         check(folder, key, capturedEpoch);
@@ -84,10 +84,10 @@ function createFullAccess({ vscode, state, scope, L = en => en, onRevoke = () =>
   }
   function capture(folder) {
     const current = status(folder);
-    return current.enabled ? { scopeKey: current.scopeKey, epoch } : null;
+    return current.enabled ? { scopeKey: current.scopeKey, epoch, extra: current.extra, approvalId: record(current.scopeKey)?.approvalId } : null;
   }
   function assertCurrent(folder, grant) {
-    if (!grant || grant.epoch !== epoch || !status(folder).enabled || grant.scopeKey !== identity(folder)) throw new Error(L('Full access grant is no longer current.', 'Разрешение полного доступа больше не действует.'));
+    if (!grant || grant.epoch !== epoch || !status(folder).enabled || grant.scopeKey !== identity(folder) || grant.approvalId !== record(grant.scopeKey)?.approvalId || grant.extra !== status(folder).extra) throw new Error(L('Full access grant is no longer current.', 'Разрешение полного доступа больше не действует.'));
     return true;
   }
   function invalidate() {

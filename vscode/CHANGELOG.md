@@ -1,3 +1,64 @@
+## 0.10.23 — 2026-10-28
+
+- **ExtraFullAccess.** A separate native approval for the selected trusted project and Tvijo account enables POSIX host-shell scripts, substitutions, normal network commands and bounded account CLI reviews. Existing Full access grants are not upgraded. Commands have the current OS user's rights and can affect files outside the project; literal accident checks are not an OS sandbox. Editor file tools retain path and dirty-buffer protections. Switching account/project or revoking the grant cancels active work. Windows hosts retain literal command execution and CLI review; POSIX shell syntax is explicitly unavailable.
+- **Show actual capabilities.** Each local Agent run records the effective mode, terminal access and available reviewers, and supplies them to the model. The model must not claim a missing terminal without an actual refusal. Plan still refuses writes, commands and reviews.
+- **Bounded local review.** ExtraFullAccess uses the local Agent engine and offers supplied-evidence, advisory Codex/Claude subscription CLI review with finite calls, cancellation and receipts. Provider API keys are not inherited; missing account login, disabled agents or quota failure do not fall back to a paid API. Project Claude pauses are enforced by the review adapter; the trusted host shell is not an OS boundary against arbitrary programs. The agent is instructed to use the review adapter exclusively for consultations and never load provider-key environments. Claude review is off by default. Review does not resume or control another agent's current conversation or give it write authority.
+- **Copilot direction is explicit.** The preserved 0.10.22 bridge lets Copilot call Tvijo through `@tvijo`/`#tvijo`; outbound Tvijo-to-Copilot review is not implemented. Previous bridge and saved-conversation work is included and retained.
+- No automatic permission migration, OS elevation, trading activation or model-route changes. Reload the editor after installing; select ExtraFullAccess for the intended project. This extension release does not rebuild native editors, CLI or MCP.
+
+## 0.10.22 — 2026-10-27
+
+- **Restore or fork the conversation from any message.** Every message in a local conversation now has two buttons. **Restore conversation here** goes back to that point: on a question, the conversation is as it was before you sent it and the question returns to the composer (in front of anything you had already typed); on an answer, the conversation ends with that answer. Later messages are removed after a confirmation, and an **Undo** button appears for as long as nothing newer has been added. **Fork conversation here** starts a new conversation from the same point and keeps the whole previous one, with no confirmation because nothing is lost.
+- **Conversations.** A new command (**Tvijo: Saved conversations**, `/conversations`) lists the conversations kept by Fork, **Clear conversation** and by opening another one, newest first; picking one opens it and saves the current one in its place. The 50 newest are kept. Conversations cleared by earlier builds are listed too.
+- **What it does not do.** Files on disk are not changed — Rewind still restores files. A shared server thread cannot be restored or forked: its messages live on the service, so the buttons are hidden there and the command says why. The buttons are disabled while an answer is running.
+- **The bridge reports back.** Every bridged message has an id, and its progress is written to `outbox/<id>.json` in the extension storage: accepted, running, then completed with Tvijo's answer, failed with the reason, or cancelled when it is removed from the queue. Senders such as Claude Code and Codex no longer have to read the run journal.
+- **Nothing is lost on reload.** A claimed message stays on disk until its task starts; after a window reload or a recreated chat view it is queued again. A message whose task was running when its window died is marked `failed: interrupted_by_reload` and is not re-run, because a second run would be a second paid task. A second open window keeps its own claims.
+- **Copilot Chat sees Tvijo.** Type `@tvijo <task>` in Copilot Chat to send the task to Tvijo and get its answer back there. In Copilot agent mode, any model (including DeepSeek through a provider extension) can call the `tvijo_ask` tool; VS Code asks for confirmation first, and the tool works only while `tvijo.bridge.enabled` is on. Both need a VS Code version with the chat and language-model tool APIs and are skipped on older editors.
+- **Review fixes (independent review of the first bridge build).**
+  - Two windows can no longer both run one message: a claim another window has just made is left alone until its status exists (10 s grace), and a hand-over the chat view never confirmed is repeated instead of being assumed.
+  - If the `running` status cannot be written (for example a full disk) the task is not started, so a reload cannot run it a second time.
+  - `completed` now carries only the answer of that run. A command with no answer (`/help`) completes with an empty answer and `note: no_new_answer`; stopping the agent ends as `cancelled: stopped_by_user`; an answer over 20 000 characters is marked `answer_truncated`.
+  - A message that arrives before the chat view has its first state is no longer cancelled as `scope_changed`; it waits and runs.
+  - A file the bridge refuses (over 32 768 bytes of JSON, invalid JSON, empty or too long text) ends as `failed` with the reason instead of vanishing. The send script checks bytes, not characters.
+  - `@tvijo` in Copilot Chat now respects `tvijo.bridge.enabled` like the `tvijo_ask` tool.
+
+## 0.10.21 — 2026-10-27
+
+- **The Marketplace Overview now shows the current release notes.** It still announced 0.10.14 while 0.10.20 was live. The "What's new" block and the version line in README.md are now generated from this changelog, and packaging refuses a README that does not announce the package version.
+- No functional changes from 0.10.20. The local bridge for Claude Code and Codex stays out of this release until its review findings are fixed.
+
+## 0.10.20 — 2026-10-27
+
+- **Devstral agent steps no longer cut off.** Each Agent step asked every model for at most 2048 output tokens; Devstral reasons at length, ran out mid-answer and the step came back empty. Devstral steps now ask for 4096, the service's per-request ceiling. Other models are unchanged. The per-task budget still applies.
+- Bridge note in ⚙ and these notes: a bridged message runs in the mode it names (default Agent with the chat's current preset), not "the current mode".
+
+## 0.10.19 — 2026-10-27
+
+- **Bridge for local tools (opt-in).** With `tvijo.bridge.enabled`, the extension reads JSON messages (`{"text": "...", "mode": "agent|plan|chat", "from": "Claude Code"}`) from the `inbox` folder in its storage on this host and queues each one in the chat as if typed. Only regular files owned by the same account, up to 32 KiB, are accepted; they run with the current mode, including Full access, so the setting is off by default and ⚙ shows when it is on.
+- **A push is visible at once.** When a bridge message arrives, the Tvijo view comes forward, the status line starts the thinking words (Cooking…, Mulling… / Кумекаю…), and the question appears in the conversation labelled with its sender (for example Claude Code) instead of You.
+- **Telegram bot setup moved to ⚙.** When `tvijo.telegram.enabled` is on but the bot is not set up for the signed-in account, chat settings show a note with Set up bot and Turn off in settings instead of a red error under the composer.
+
+## 0.10.18 — 2026-10-27
+
+- **Follow-up messages while the agent works.** Send stays available during an answer: a new message is queued under the composer and sent automatically when the current answer ends. Queued messages can be removed. If the current request is refused, the queue pauses and waits for Send now instead of firing on top of an error.
+- **The composer clears on send.** The question moves into the conversation at once and stays visible while the agent works; a refused request puts the text back.
+- **The chat survives switching tabs and opening settings.** The view keeps its state while hidden (Codex or Claude Code tab, Settings editor), so the running step log and the queue are not lost. A reloaded view still shows the question being answered.
+- **Error notices can be dismissed** with ×, so an old notice (for example, Telegram bot setup) no longer sits under the composer. The auto-commit toggle is disabled while a task runs instead of failing with "Wait for the current question".
+- **Mode help moved to ⚙.** The paragraph about presets, saved edits and the ! shell prefix is shown in chat settings instead of under the composer.
+- **Thinking words.** While the model thinks, the status line rotates playful verbs every ~3 seconds, like the DSHREM terminal (Wibbling, Reticulating… / Кумекаю, Колдую…). Reading, reserving and receipt stages keep their plain labels.
+
+## 0.10.17 — 2026-10-27
+
+- **Clear message when a model step returns nothing usable.** The service now reports `model_output_unavailable` instead of a generic HTTP 502; the editor says that the step's cost is recorded and that no automatic retry was made. Every failed chat step names its task id, so its spending can be checked even when a proxy replaces the error body.
+- Requires the matching service update: `code_intelligence` actions are accepted, and editor-agent sessions are no longer told to ask for an attached progress file. No automatic retry was added: a repeat would be a new paid attempt.
+
+## 0.10.16 — 2026-10-27
+
+- **Full access works without pauses.** A truncated project-rules scan, rules quarantined during the task and non-destructive Git commands no longer ask for confirmation once Full access is granted for the folder. Commands that name a rules file and `git push` still ask.
+- **Command chains in Full access.** `run_command` accepts `&&`, `||`, `;`, `|` and redirections into workspace files (for example `cd app && npm test 2>&1 | tail -40`), plus `timeout`, `nice`, `env VAR=…` and `bash -c` with an analysable script. Every simple command in the chain passes the same hard denials as a single command: `sudo`, destructive Git, `curl | sh`, removal outside the folder, `PATH`/`LD_*` overrides. Substitutions (`$(…)`, `$VAR`, backticks), subshells, heredocs and background jobs are refused instead of guessed. Removals and output files are checked against the folder after each literal `cd`. Without Full access, commands stay single and literal as before. Windows hosts keep single commands.
+- **Agent autonomy.** In Full access the agent is told to reconstruct project state from code, configs and Git history instead of stopping on a missing status file, follow existing patterns ("like X"), and finish as done with a list of the remaining operator steps (DNS, cloud consoles, credentials, production deploys), rather than blocking.
+- The truncated-scan banner is hidden while Full access is active; the rules settings note still reports the truncation.
+
 ## Remote SSH server for Windows editor 1.140.07195 — 2026-10-26
 
 The missing Linux x64 remote extension host is now published in the existing

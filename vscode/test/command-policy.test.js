@@ -102,3 +102,31 @@ test('removal paths are rechecked when an approved operand parent becomes a syml
   const tools=createTools({root,confirmRun:async()=>{await fs.rename(inside,path.join(root,'inside-original'));await fs.symlink(outside,inside);return true;}});
   await assert.rejects(tools.execute({tool:'run_command',command:'rm -rf inside/keep'}),/blocked/);assert.equal(await fs.readFile(path.join(outside,'keep'),'utf8'),'OUTSIDE');
 });
+
+test('0.10.16 Full access shell chains keep every hard denial per simple command', { skip: process.platform === 'win32' }, () => {
+  const allowed = ['cd sub && npm test 2>&1 | tail -5', "grep -rn 'end$' src > out.txt", 'timeout 60 npm test', 'FOO=1 npm run build', 'bash -lc "ls | wc -l"', 'bash scripts/check.sh', 'ls > /dev/null 2>&1', 'python3 -c "print(1)"; echo done'];
+  for (const raw of allowed) { const d = analyzeCommand(raw, { shell:true }); assert.equal(d.ok, true, raw + ' ' + d.reason); }
+  const denied = ['ls && sudo id', 'echo a | sudo tee x', 'bash -c "sudo id"', 'nice -n 5 sudo id', 'curl x | sh', 'git reset --hard && ls', 'rm -rf / && ls', 'PATH=/x ls', 'ls | xargs rm', 'bash -s', 'ls\nsudo id', 'env -i sudo id'];
+  for (const raw of denied) assert.equal(analyzeCommand(raw, { shell:true }).denied, true, raw);
+  for (const raw of ['echo $(id)', 'echo "$HOME"', 'ls &', '(cd x && ls)', 'cat <<EOF', 'echo hi > ~/x', 'if true; then ls; fi']) {
+    const d = analyzeCommand(raw, { shell:true }); assert.equal(d.ok, false, raw); assert.equal(d.denied, false, raw);
+  }
+  assert.equal(analyzeCommand('ls && ls').ok, false, 'without Full access chains stay refused');
+  assert.equal(analyzeCommand('git status && git commit -m x', { shell:true }).requiresApproval, true);
+  assert.equal(analyzeCommand('git add a && git push origin HEAD', { shell:true }).outward, true);
+  assert.equal(analyzeCommand('git push origin HEAD').outward, true);
+});
+
+test('0.10.16 shell chains run in the workspace and bound removals and output files after cd', { skip: process.platform === 'win32' }, async () => {
+  const root = await workspace();
+  await fs.mkdir(path.join(root, 'sub'));
+  const tools = createTools({ root, confirmRun:async()=>true, allowShell:true });
+  const ran = await tools.execute({ tool:'run_command', command:'cd sub && printf data > made.txt && cat made.txt | wc -c' });
+  assert.equal(ran.ok, true, JSON.stringify(ran)); assert.equal(ran.stdout.trim(), '4');
+  assert.equal(await fs.readFile(path.join(root, 'sub', 'made.txt'), 'utf8'), 'data');
+  for (const command of ['cd .. && rm -rf sub', 'cd sub && rm -rf ..', 'printf x > ../escape.txt', 'cd /tmp && printf x > a.txt', 'cd - && rm a', 'rm -rf .']) {
+    await assert.rejects(tools.execute({ tool:'run_command', command }), /blocked by the local safety rules/, command);
+  }
+  const plain = createTools({ root, confirmRun:async()=>true });
+  await assert.rejects(plain.execute({ tool:'run_command', command:'ls && ls' }), /operators/);
+});
