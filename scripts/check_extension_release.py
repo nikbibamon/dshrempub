@@ -89,7 +89,7 @@ def check_archive(archive, version, editor_requirement):
 
 def check(catalog, vsix, copies=(), asset_dir=None):
     raw = Path(catalog).read_bytes()
-    if len(raw) > 65536:
+    if len(raw) > 96 * 1024:  # Match gateway bound while preserving bilingual history.
         raise ValueError('Catalog too large')
     data = json.loads(raw)
     if set(data) != PUBLIC_FIELDS or data['schema'] != 'tvijo.extension-release/v1':

@@ -1,6 +1,6 @@
 {
   "schema": "tvijo.extension-release/v1",
-  "as_of": "2026-10-27",
+  "as_of": "2026-10-28",
   "product": {
     "id": "tvijo-dshrem-vscode",
     "name": "Tvijo DSHREM for VS Code",
@@ -9,41 +9,53 @@
       "ru": "Помощь с кодом: выбранный контекст, проверяемые правки и задачи с лимитом."
     }
   },
-  "latest_version": "0.10.17",
+  "latest_version": "0.10.23",
   "channel": "preview",
   "publication": {
-    "status": "published",
-    "published_at": "2026-10-27",
+    "status": "prepared",
+    "published_at": null,
     "note": {
-      "en": "GitHub preview 0.10.17 and checksum-verified VSIX are published; Tvijo Code 1.140.07214 for Windows embeds it with a matching Remote SSH server. Marketplace remains deferred. Reload Window activates installation.",
-      "ru": "GitHub-preview 0.10.17 и VSIX с проверенным SHA опубликованы; Tvijo Code 1.140.07214 для Windows содержит его вместе с парным сервером Remote SSH. Marketplace остаётся отложенным. Reload Window активирует установку."
+      "en": "0.10.23 is prepared and verified locally; anonymous publication verification is pending. Native editors, CLI, MCP and Marketplace remain separate channels.",
+      "ru": "0.10.23 подготовлен и проверен локально; анонимная проверка публикации ожидается. Нативные редакторы, CLI, MCP и Marketplace — отдельные каналы."
     }
   },
   "package": {
-    "filename": "tvijo-dshrem-0.10.17.vsix",
-    "sha256": "9bc8c9409de9cb5348047b26221674229da8a162d8bc140530040f9362a09870",
-    "bytes": 1145683,
+    "filename": "tvijo-dshrem-0.10.23.vsix",
+    "sha256": "9461cd246c45f68e89d2dcb3d45efdeb5ffecd7ecdfec01f7d8c52bac4f97f56",
+    "bytes": 1231656,
     "editor_requirement": "^1.90.0",
-    "source_commit": "4a50e82be0a382c5390afb21bb1e02f8388d0627",
-    "verified_environment": "890 of 891 extension checks passed (auto-commit no-repo fails on the 0.10.15 baseline too). Native Windows activation is a separate TvijoCode publication gate; no paid coding-session claim."
+    "source_commit": "e2fbbf5654c7867aca35af83820ad29132aaa274",
+    "verified_environment": "Linux:961extension tests;20final adapter tests;4EN/RU390/1000 isolated webview checks; isolated VS Code Server install; authenticated Codex supplied-evidence review. Native interactive activation and Claude execution not verified."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
-    "source": "https://github.com/nikbibamon/dshrempub/tree/4a50e82be0a382c5390afb21bb1e02f8388d0627",
-    "changelog": "https://github.com/nikbibamon/dshrempub/blob/4a50e82be0a382c5390afb21bb1e02f8388d0627/vscode/CHANGELOG.md",
+    "source": "https://github.com/nikbibamon/dshrempub/tree/e2fbbf5654c7867aca35af83820ad29132aaa274",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/e2fbbf5654c7867aca35af83820ad29132aaa274/vscode/CHANGELOG.md",
     "issues": "https://github.com/nikbibamon/dshrempub/issues"
   },
   "features": [
     {
-      "id": "full-access-autonomy",
-      "since": "0.10.16",
+      "id": "extra-full-access",
+      "since": "0.10.23",
       "title": {
-        "en": "Full access without pauses",
-        "ru": "Полный доступ без пауз"
+        "en": "ExtraFullAccess and evidenced local agent review",
+        "ru": "ExtraFullAccess и проверяемое локальное ревью агентов"
       },
       "description": {
-        "en": "With Full access the agent edits, runs checks and command chains (&&, |, redirections) without confirmations, reconstructs project state from code and Git, and lists remaining operator steps instead of stopping. sudo, destructive Git, removals outside the folder and git push stay guarded.",
-        "ru": "С полным доступом агент правит файлы, запускает проверки и цепочки команд (&&, |, перенаправления) без подтверждений, восстанавливает состояние проекта по коду и Git и перечисляет оставшиеся шаги оператора вместо остановки. sudo, разрушительный Git, удаление вне папки и git push по-прежнему под защитой."
+        "en": "ExtraFullAccess adds explicit host-shell access, runtime capability receipts and bounded subscription CLI reviews. Existing Full grants never upgrade automatically.",
+        "ru": "ExtraFullAccess добавляет явно одобренный shell хоста, квитанции возможностей и ограниченное CLI-ревью через подписку. Старые разрешения Full не повышаются автоматически."
+      }
+    },
+    {
+      "id": "full-access-uninterrupted",
+      "since": "0.10.17",
+      "title": {
+        "en": "Full access without pauses",
+        "ru": "Полный доступ без остановок"
+      },
+      "description": {
+        "en": "With Full access for the folder, a truncated project-rules scan, quarantined rules and non-destructive Git commands no longer ask for confirmation; git push and commands that name a rules file still ask. run_command also accepts chains with &&, ||, ;, | and workspace redirection, keeping every hard denial.",
+        "ru": "В режиме «Полный доступ» для папки усечённый скан правил, правила в карантине и Git-команды без разрушительных действий больше не спрашивают подтверждения; git push и команды с файлом правил — спрашивают. run_command также принимает цепочки с &&, ||, ;, | и перенаправлением в файлы проекта, сохраняя все жёсткие запреты."
       }
     },
     {
@@ -169,42 +181,166 @@
   ],
   "releases": [
     {
-      "version": "0.10.17",
-      "date": "2026-10-27",
+      "version": "0.10.23",
+      "date": "2026-10-28",
       "title": {
-        "en": "Clear model-step errors",
-        "ru": "Понятные ошибки шага модели"
+        "en": "ExtraFullAccess and evidenced local agent review",
+        "ru": "ExtraFullAccess и проверяемое локальное ревью агентов"
       },
       "changes": [
         {
-          "en": "An unusable model answer is reported as such, with its task id and recorded cost, instead of a generic HTTP 502. Includes the unpublished 0.10.16 Full access changes.",
-          "ru": "Непригодный ответ модели называется прямо, с ID задачи и учтённой стоимостью, вместо общего HTTP 502. Включает неопубликованные изменения полного доступа 0.10.16."
+          "en": "ExtraFullAccess adds explicit host-shell access, runtime capability receipts and bounded subscription CLI reviews. Existing Full grants never upgrade automatically.",
+          "ru": "ExtraFullAccess добавляет явно одобренный shell хоста, квитанции возможностей и ограниченное CLI-ревью через подписку. Старые разрешения Full не повышаются автоматически."
+        },
+        {
+          "en": "Each local Agent run records effective permissions before model execution. Plan refuses commands, edits and reviews. Extra uses the local Agent engine even when DSH orchestration is configured.",
+          "ru": "Каждый локальный запуск Agent фиксирует фактические права до обращения к модели. Plan отклоняет команды, правки и ревью. Extra использует локальный Agent даже при настроенной DSH-оркестрации."
+        },
+        {
+          "en": "Includes the preserved 0.10.18–0.10.22 chat queue, bridge acknowledgements, Copilot entry points and saved/forked conversations.",
+          "ru": "Включает сохранённые изменения0.10.18–0.10.22: очередь чата, подтверждения моста, вход из Copilot и сохранение/ветвление разговоров."
         }
       ],
       "limitations": [
         {
-          "en": "No automatic retry: a repeat would be a new paid attempt. code_intelligence actions need the matching service update.",
-          "ru": "Автоматического повтора нет: повтор был бы новой платной попыткой. Действия code_intelligence требуют соответствующего обновления сервиса."
+          "en": "Commands run with your OS account rights and are not confined to the project. The review adapter enforces call limits and project pauses; an arbitrary host script is not an OS sandbox. Claude review is off by default; Copilot currently calls Tvijo, not the reverse.",
+          "ru": "Команды работают с правами пользователя ОС и не ограничены проектом. Лимиты вызовов и паузы проекта проверяет адаптер ревью; произвольный shell-скрипт не изолирован ОС. Claude-ревью по умолчанию выключено; Copilot вызывает Tvijo, обратного вызова нет."
+        },
+        {
+          "en": "POSIX hosts support shell scripts; Windows retains literal commands. 961 extension tests, 20 final adapter tests and four EN/RU webview checks passed. Isolated VS Code Server installation and one authenticated Codex advisory completed. Native interactive editor activation, Claude execution and full paid end-to-end task remain unverified.",
+          "ru": "POSIX-хосты поддерживают shell-скрипты; на Windows остаются буквальные команды. Прошли961 тест расширения,20 финальных тестов адаптера и4 проверки веб-панели EN/RU. Подтверждены изолированная установка VS Code Server и одно подписочное ревью Codex. Интерактивная активация редактора, вызов Claude и полная платная задача ещё не проверены."
         }
       ]
     },
     {
-      "version": "0.10.16",
+      "version": "0.10.22",
       "date": "2026-10-27",
       "title": {
-        "en": "Full access without pauses",
-        "ru": "Полный доступ без пауз"
+        "en": "Durable agent bridge and conversation branches",
+        "ru": "Устойчивый мост агентов и ветвление разговоров"
       },
       "changes": [
         {
-          "en": "With Full access the agent edits, runs checks and command chains (&&, |, redirections) without confirmations, reconstructs project state from code and Git, and lists remaining operator steps instead of stopping. sudo, destructive Git, removals outside the folder and git push stay guarded.",
-          "ru": "С полным доступом агент правит файлы, запускает проверки и цепочки команд (&&, |, перенаправления) без подтверждений, восстанавливает состояние проекта по коду и Git и перечисляет оставшиеся шаги оператора вместо остановки. sudo, разрушительный Git, удаление вне папки и git push по-прежнему под защитой."
+          "en": "Durable agent bridge and conversation branches",
+          "ru": "Устойчивый мост агентов и ветвление разговоров"
         }
       ],
       "limitations": [
         {
-          "en": "Full access is not an OS sandbox: commands run with your user rights. Command chains need a Linux or macOS extension host; substitutions ($(…), $VAR), subshells and heredocs are refused. git push and commands naming rules files still ask.",
-          "ru": "Полный доступ не песочница ОС: команды выполняются с правами вашего пользователя. Цепочки команд работают на хосте расширения Linux или macOS; подстановки ($(…), $VAR), подоболочки и heredoc отклоняются. git push и команды с файлами правил по-прежнему спрашивают."
+          "en": "Preserved local candidate; standalone public asset not verified. Included in0.10.23.",
+          "ru": "Исходники и локальные кандидаты сохранены; отдельная публичная загрузка этой версии не подтверждена. Изменения включены в0.10.23."
+        }
+      ]
+    },
+    {
+      "version": "0.10.21",
+      "date": "2026-10-27",
+      "title": {
+        "en": "Marketplace Overview reconciled with current changelog",
+        "ru": "Описание Marketplace согласовано с журналом"
+      },
+      "changes": [
+        {
+          "en": "Marketplace Overview reconciled with current changelog",
+          "ru": "Описание Marketplace согласовано с журналом"
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Marketplace0.10.21 anonymously verified28Oct2026; independent from GitHub0.10.17.",
+          "ru": "Marketplace0.10.21 проверен анонимно28.10.2026; независим от GitHub0.10.17."
+        }
+      ]
+    },
+    {
+      "version": "0.10.20",
+      "date": "2026-10-27",
+      "title": {
+        "en": "Larger bounded Devstral agent response",
+        "ru": "Увеличен ограниченный ответ Devstral"
+      },
+      "changes": [
+        {
+          "en": "Larger bounded Devstral agent response",
+          "ru": "Увеличен ограниченный ответ Devstral"
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Source/local build preserved; no separate GitHub publication verified. Included in0.10.23.",
+          "ru": "Исходники и локальные кандидаты сохранены; отдельная публичная загрузка этой версии не подтверждена. Изменения включены в0.10.23."
+        }
+      ]
+    },
+    {
+      "version": "0.10.19",
+      "date": "2026-10-27",
+      "title": {
+        "en": "Opt-in local agent inbox",
+        "ru": "Включаемый локальный inbox агентов"
+      },
+      "changes": [
+        {
+          "en": "Opt-in local agent inbox",
+          "ru": "Включаемый локальный inbox агентов"
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Bridge source candidate preserved; superseded by reviewed0.10.22 bridge. Included in0.10.23.",
+          "ru": "Исходники и локальные кандидаты сохранены; отдельная публичная загрузка этой версии не подтверждена. Изменения включены в0.10.23."
+        }
+      ]
+    },
+    {
+      "version": "0.10.18",
+      "date": "2026-10-27",
+      "title": {
+        "en": "Queue follow-ups and preserve chat state",
+        "ru": "Очередь уточнений и сохранение состояния чата"
+      },
+      "changes": [
+        {
+          "en": "Queue follow-ups and preserve chat state",
+          "ru": "Очередь уточнений и сохранение состояния чата"
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Source/local build preserved; no separate GitHub publication verified. Included in0.10.23.",
+          "ru": "Исходники и локальные кандидаты сохранены; отдельная публичная загрузка этой версии не подтверждена. Изменения включены в0.10.23."
+        }
+      ]
+    },
+    {
+      "version": "0.10.17",
+      "date": "2026-10-27",
+      "title": {
+        "en": "Full access without pauses and clear model-step errors",
+        "ru": "Полный доступ без остановок и понятные ошибки шага модели"
+      },
+      "changes": [
+        {
+          "en": "Full access for the folder no longer stops for a truncated project-rules scan, quarantined rules or non-destructive Git commands; git push and commands that name a rules file still ask. Chains with &&, ||, ;, | and redirection into workspace files are accepted, while sudo, destructive Git, curl | sh, removal outside the folder and PATH/LD_* overrides stay denied.",
+          "ru": "«Полный доступ» больше не останавливается из-за усечённого скана правил, карантина правил или Git-команд без разрушительных действий; git push и команды с файлом правил по-прежнему спрашивают. Принимаются цепочки с &&, ||, ;, | и перенаправлением в файлы проекта; sudo, разрушительный Git, curl | sh, удаление вне папки и переопределения PATH/LD_* запрещены."
+        },
+        {
+          "en": "The agent reconstructs project state from code, configs and Git history instead of blocking on a missing status file, and lists remaining operator steps (DNS, cloud consoles, credentials, deploys) as done-with-follow-up.",
+          "ru": "Агент восстанавливает состояние проекта по коду, конфигурации и истории Git вместо блокировки из-за отсутствующего файла статуса, а шаги вне машины (DNS, облачные консоли, ключи, деплой) перечисляет как выполненные с продолжением."
+        },
+        {
+          "en": "A model step with no usable output reports model_output_unavailable with the task id and states that its cost is recorded; there is no automatic retry, because a repeat would be a new paid attempt. Includes the prepared but unpublished 0.10.16 changes.",
+          "ru": "Шаг модели без пригодного ответа сообщает model_output_unavailable с ID задачи и указывает, что стоимость учтена; автоматического повтора нет, повтор был бы новой платной попыткой. Включает подготовленные, но не опубликованные изменения0.10.16."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Verified: 890 of 891 extension checks pass; the remaining auto-commit no-repo check also fails on the 0.10.15 baseline. Full access is not an OS sandbox and runs commands with your user rights. Command chains need a Linux or macOS extension host.",
+          "ru": "Проверено: проходят890 из891 проверки расширения; оставшаяся проверка auto-commit no-repo падает и на базовой0.10.15. Полный доступ — не изоляция ОС и запускает команды с правами пользователя. Цепочки команд требуют Linux или macOS."
+        },
+        {
+          "en": "The matching service update is required for code_intelligence actions and the new step-error text. No automatic retry or unattended paid repair loop is enabled.",
+          "ru": "Нужно совпадающее обновление сервиса для действий code_intelligence и нового текста ошибки шага. Автоматический повтор и фоновый платный цикл исправлений не включены."
         }
       ]
     },
@@ -777,9 +913,33 @@
         }
       ],
       "limitations": []
+    },
+    {
+      "version": "0.10.16",
+      "date": "2026-10-27",
+      "title": {
+        "en": "Full access without pauses",
+        "ru": "Полный доступ без пауз"
+      },
+      "changes": [
+        {
+          "en": "With Full access the agent edits, runs checks and command chains (&&, |, redirections) without confirmations, reconstructs project state from code and Git, and lists remaining operator steps instead of stopping. sudo, destructive Git, removals outside the folder and git push stay guarded.",
+          "ru": "С полным доступом агент правит файлы, запускает проверки и цепочки команд (&&, |, перенаправления) без подтверждений, восстанавливает состояние проекта по коду и Git и перечисляет оставшиеся шаги оператора вместо остановки. sudo, разрушительный Git, удаление вне папки и git push по-прежнему под защитой."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Full access is not an OS sandbox: commands run with your user rights. Command chains need a Linux or macOS extension host; substitutions ($(…), $VAR), subshells and heredocs are refused. git push and commands naming rules files still ask.",
+          "ru": "Полный доступ не песочница ОС: команды выполняются с правами вашего пользователя. Цепочки команд работают на хосте расширения Linux или macOS; подстановки ($(…), $VAR), подоболочки и heredoc отклоняются. git push и команды с файлами правил по-прежнему спрашивают."
+        }
+      ]
     }
   ],
   "limits": [
+    {
+      "en": "Commands run with your OS account rights and are not confined to the project. The review adapter enforces call limits and project pauses; an arbitrary host script is not an OS sandbox. Claude review is off by default; Copilot currently calls Tvijo, not the reverse.",
+      "ru": "Команды работают с правами пользователя ОС и не ограничены проектом. Лимиты вызовов и паузы проекта проверяет адаптер ревью; произвольный shell-скрипт не изолирован ОС. Claude-ревью по умолчанию выключено; Copilot вызывает Tvijo, обратного вызова нет."
+    },
     {
       "en": "Team preferences require a host controller advertising supported counts, report formats and an available selected policy. Update the configured host before using the new team options.",
       "ru": "Для параметров команды нужен контроллер, объявляющий поддерживаемое число участников, оформление отчётов и доступный выбранный состав. Обновите настроенный хост перед использованием новых параметров."
@@ -797,8 +957,8 @@
       "ru": "Полный доступ запускает команды с правами пользователя и не создаёт изоляцию ОС. Границы контроля окружения и карантина правил описаны в README."
     },
     {
-      "en": "Direct VSIX and GitHub are this release channel. Marketplace is deferred by the operator. Reload Window activates the installed extension; native Windows and an interactive installed editor session were not observed.",
-      "ru": "Каналы этого выпуска — прямой VSIX и GitHub. Marketplace отложен оператором. Reload Window активирует установленное расширение; нативный Windows и интерактивная сессия установленного редактора не наблюдались."
+      "en": "VSIX0.10.23 has independent verification. Marketplace remains0.10.21 as last observed; native Windows editor1.140.07214 still bundles0.10.17. Reload Window is required after installing a new VSIX.",
+      "ru": "VSIX0.10.23 проверяется отдельно. Последнее наблюдение Marketplace —0.10.21; Windows-редактор1.140.07214 сохраняет0.10.17. После установки нового VSIX требуется Reload Window."
     },
     {
       "en": "Python/Node syntax checks need separate approval and a Linux extension host; they are off by default.",
@@ -813,39 +973,47 @@
       "ru": "Plan поддерживает фиксированные проверки, а не shell или Git. Сводка строк приблизительная."
     },
     {
-      "en": "Windows/macOS editor bundles 0.1.0 still contain extension 0.5.5. Updating the standalone VSIX does not rebuild those bundles.",
-      "ru": "Сборки редактора Windows/macOS 0.1.0 по-прежнему содержат расширение 0.5.5. Обновление отдельного VSIX не пересобирает эти редакторы."
+      "en": "Current Windows editor1.140.07214 bundles extension0.10.17. Archived Windows0.1.0 and the current macOS0.1.0 preview still bundle0.5.5. Each product and platform has its own release status.",
+      "ru": "Текущий Windows-редактор1.140.07214 включает расширение0.10.17. Архивный Windows0.1.0 и текущий macOS0.1.0 preview сохраняют0.5.5. У каждого продукта и платформы отдельный статус выпуска."
     }
   ],
   "verification": {
-    "date": "2026-10-26",
-    "extension_tests": 870,
-    "runner_tests": 7,
-    "cli_tests": 10,
-    "archive_tests": 17,
-    "final_affected_tests": 49,
-    "manual_browser_checks": 159,
+    "date": "2026-10-28",
+    "extension_tests": 961,
+    "final_adapter_tests": 20,
+    "webview_checks": 4,
     "native_gui": {
-      "en": "Native Windows activation, guide and language-provider checks are gated by the separate TvijoCode release workflow. Interactive sign-in and a complete paid coding session are not established by these offline checks.",
-      "ru": "Нативные проверки активации Windows, учебника и языковых служб выполняются отдельным workflow TvijoCode. Интерактивный вход и полный платный coding-сеанс этими проверками не подтверждаются."
+      "en": "Isolated Linux VS Code Server installation passed; interactive editor activation not verified.",
+      "ru": "Изолированная установка Linux VS Code Server прошла; интерактивная активация редактора не проверена."
     },
-    "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.15",
-    "tag_commit": "1e9cabfa80d008f2d505c9fe177ef7c1d161c435",
-    "github_ci": "https://github.com/nikbibamon/dshrempub/actions/runs/40378532809",
+    "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.23",
+    "tag_commit": "e2fbbf5654c7867aca35af83820ad29132aaa274",
     "previous_release_verification": {
-      "version": "0.10.11",
-      "date": "2026-10-24",
-      "extension_tests": 851,
+      "date": "2026-10-27",
+      "extension_tests": 891,
+      "runner_tests": 7,
+      "cli_tests": 10,
+      "archive_tests": 17,
       "native_gui": {
-        "en": "Interactive installed editor not observed. Production host integration, real native subscription receipts and synthetic EN/RU desktop/mobile Chromium are separate evidence layers.",
-        "ru": "Интерактивная сессия установленного редактора не наблюдалась. Рабочие обработчики, реальные квитанции нативных подписок и синтетический Chromium EN/RU desktop/mobile — отдельные уровни доказательств."
+        "en": "Native Windows editor1.140.07214 CI40524272994 passed activation of extension0.10.17, offline guide and symbols/definitions/references on2026-10-27;71embedded files match the publicVSIX. Interactive sign-in, EXE installation and a complete paid coding session remain untested.",
+        "ru": "Нативный Windows-редактор1.140.07214 в CI40524272994 прошёл активацию расширения0.10.17, учебник и символы/определения/использования27.10.2026;71встроенный файл совпадает с публичнымVSIX. Интерактивный вход, установка EXE и полная платная задача ещё не проверены."
       },
-      "final_affected_tests": 54,
-      "settings_browser_flows": 4,
-      "private_report_previews": 2,
-      "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.11",
-      "tag_commit": "03e1f54141ad799b0f7f0d1d47afd6934ef03807",
-      "github_ci": "https://github.com/nikbibamon/dshrempub/actions/runs/40109919542"
+      "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.17",
+      "tag_commit": "454ea1fd3527964eef1e5b3aec0cf2ad1d32d5e5",
+      "previous_release_verification": {
+        "version": "0.10.15",
+        "date": "2026-10-26",
+        "extension_tests": 870,
+        "final_affected_tests": 49,
+        "manual_browser_checks": 159,
+        "native_gui": {
+          "en": "Native Windows editor1.140.07195 CI40385199326 passed activation of extension0.10.15, offline guide and symbols/definitions/references on2026-10-26. Interactive sign-in, EXE installation and a complete paid coding session remain untested.",
+          "ru": "Нативный Windows-редактор1.140.07195 в CI40385199326 прошёл активацию расширения0.10.15, учебник и символы/определения/использования26.10.2026. Интерактивный вход, установка EXE и полная платная задача ещё не проверены."
+        },
+        "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.15",
+        "tag_commit": "1e9cabfa80d008f2d505c9fe177ef7c1d161c435",
+        "github_ci": "https://github.com/nikbibamon/dshrempub/actions/runs/40378532809"
+      }
     }
   }
 }
