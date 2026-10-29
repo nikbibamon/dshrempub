@@ -7,6 +7,20 @@ const { chatHtml } = require('../lib/chat-view');
 
 const {sidebar} = require('./helpers/sidebar');
 
+test('root Extra is visibly unavailable while Full and explicit account-review toggle remain usable',()=>{
+ const view=sidebar({}, {signedIn:true,scopeKey:'tenant-a',workspaceSelected:true,composerMode:'agent',fullAccess:{available:true,enabled:true,extra:false,extraAvailable:false,extraUnavailableReason:'Extra unavailable on privileged root; choose Full or non-root.',reviews:false,scopeKey:'full-scope'},options:{agentPreset:'full'}});
+ view.emit('mode:click',{});
+ const extra=view.created.filter(n=>n.getAttribute?.('data-mode')==='extra').at(-1);const full=view.created.filter(n=>n.getAttribute?.('data-mode')==='full').at(-1);
+ assert.equal(extra.disabled,true);assert.equal(full.disabled,false);
+ const review=view.created.filter(n=>n.getAttribute?.('data-mode')==='account-reviews').at(-1);assert.ok(review);review.click();
+ assert.deepEqual({...view.outgoing.at(-1)},{type:'accountReviews',fullAccessScope:'full-scope',enabled:true,scopeKey:'tenant-a'});
+});
+
+test('partial final status is never rendered as a green final line when legacy partial flag is absent',()=>{
+ const view=sidebar();view.emit('window:message',{data:{type:'agent',scopeKey:'tenant-a',event:{type:'final',status:'partial',text:'Missing final answer'}}});
+ const line=view.element('agent-log').children.at(-1);assert.match(line.className,/bad/);assert.match(line.children[0].textContent,/Partial/);
+});
+
 test('sidebar keeps a rejected question and prevents a duplicate submit', () => {
   const view = sidebar();
   const question = view.element('question');

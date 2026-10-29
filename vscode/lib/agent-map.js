@@ -8,7 +8,7 @@ function buildAgentMap(session = {}, now = Date.now()) {
     const result = Number(value); return Number.isFinite(result) && result >= 0 ? result : null;
   };
   const short = (value, max = 300) => typeof value === 'string' ? value.slice(0, max) : '—';
-  const status = value => ({ active:'running', pending:'running', queued:'running', running:'running', completed:'done', settled:'done', success:'done', succeeded:'done', ok:'done', done:'done', error:'failed', failed:'failed', timed_out:'failed', cancelled:'cancelled', canceled:'cancelled', interrupted:'cancelled' }[value] || '—');
+  const status = value => ({ active:'running', pending:'running', queued:'running', running:'running', completed:'done', settled:'done', success:'done', succeeded:'done', ok:'done', done:'done', blocked:'blocked', partial:'partial', error:'failed', failed:'failed', timed_out:'failed', cancelled:'cancelled', canceled:'cancelled', interrupted:'cancelled' }[value] || '—');
   const stamp = value => {
     if (typeof value === 'number' && Number.isFinite(value)) return value < 1e12 ? value * 1000 : value;
     const result = typeof value === 'string' ? Date.parse(value) : NaN;
@@ -68,7 +68,7 @@ function buildAgentMap(session = {}, now = Date.now()) {
 // remote assets or model-provided attributes. Native buttons handle Enter/Space.
 function renderAgentMap(document, canvas, details, model, locale = 'en', selection = 'request') {
   const ru = locale === 'ru';
-  const labels = ru ? { running:'Работает', done:'Готово', failed:'Ошибка', cancelled:'Отменено', tokens:'Токены', spend:'Расход', elapsed:'Время', route:'Маршрут', task:'Задача', receipt:'Квитанция', last:'Последнее сообщение', conversation:'Разговор', empty:'Выполненных задач пока нет.', background:'Фоновые команды', command:'Команда run_command' } : { running:'Running', done:'Done', failed:'Failed', cancelled:'Cancelled', tokens:'Tokens', spend:'Spend', elapsed:'Elapsed', route:'Route', task:'Task', receipt:'Receipt', last:'Last message', conversation:'Conversation', empty:'No executed tasks yet.', background:'Background commands', command:'run_command' };
+  const labels = ru ? { running:'Работает', done:'Готово', blocked:'Заблокировано', partial:'Частично', failed:'Ошибка', cancelled:'Отменено', tokens:'Токены', spend:'Расход', elapsed:'Время', route:'Маршрут', task:'Задача', receipt:'Квитанция', last:'Последнее сообщение', conversation:'Разговор', empty:'Выполненных задач пока нет.', background:'Фоновые команды', command:'Команда run_command' } : { running:'Running', done:'Done', blocked:'Blocked', partial:'Partial', failed:'Failed', cancelled:'Cancelled', tokens:'Tokens', spend:'Spend', elapsed:'Elapsed', route:'Route', task:'Task', receipt:'Receipt', last:'Last message', conversation:'Conversation', empty:'No executed tasks yet.', background:'Background commands', command:'run_command' };
   const make = (tag, text, cls) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (cls) el.className = cls; return el; };
   canvas.replaceChildren(); details.replaceChildren();
   const buttons = [], nodes = [];

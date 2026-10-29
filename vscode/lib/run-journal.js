@@ -187,11 +187,28 @@ function createRunJournal(storageRoot, { now = Date.now, io = {} } = {}) {
     if (liveElsewhere(run)) throw new Error('This run is active in another extension host.');
     run.taskId = taskId; run.updatedAt = now(); writeRun(run); return run;
   }
-  function finish(scope, id) {
+  function receipt(scope, id, value) {
+    validateScope(scope); validateId(id);
+    const {run} = load(scope,id);
+    if (!run || liveElsewhere(run)) throw new Error('Local run journal is unavailable or active elsewhere.');
+    if (!value || value.schema !== 1 || value.id !== id || !['done','blocked','partial','cancelled','failed','unknown'].includes(value.execution?.outcome)) throw new Error('Invalid task receipt');
+    atomic(path.join(dir(scope,true),id+'.receipt.json'),value,MAX_BYTES);
+    run.outcome = value.execution.outcome;
+    run.updatedAt = now(); writeRun(run);
+    return value;
+  }
+  function getReceipt(scope,id) {
+    validateScope(scope); validateId(id);
+    const d = dir(scope); if (!d) return null;
+    const result = read(path.join(d,id+'.receipt.json'));
+    return !result.bad && result.value?.schema === 1 && result.value.id === id ? result.value : null;
+  }
+  function finish(scope, id, outcome) {
     validateScope(scope); validateId(id);
     const { run } = load(scope, id); if (!run) throw new Error('Local run journal is unavailable.');
     if (liveElsewhere(run)) throw new Error('This run is active in another extension host.');
-    run.status = 'completed'; run.updatedAt = now(); writeRun(run); return run;
+    if (outcome !== undefined && !['done','blocked','partial','cancelled','failed','unknown'].includes(outcome)) throw new Error('Invalid task outcome');
+    run.status = 'completed'; run.outcome = outcome || run.outcome || 'unknown'; run.updatedAt = now(); writeRun(run); return run;
   }
   function get(scope, id) { validateScope(scope); validateId(id); return load(scope, id).run; }
   function list(scope) {
@@ -227,7 +244,7 @@ function createRunJournal(storageRoot, { now = Date.now, io = {} } = {}) {
   function draft(scope) {
     try { return loadDraft(scope).draft; } catch { return null; }
   }
-  return { begin, append, task, finish, get, list, saveDraft, draft, liveElsewhere };
+  return { begin, append, task, finish, receipt, getReceipt, get, list, saveDraft, draft, liveElsewhere };
 }
 
 module.exports = { createRunJournal, MAX_BYTES, MAX_EVENTS, TTL };

@@ -117,6 +117,9 @@ function host(options = {}) {
   try {
     Module._load = function (id, ...args) {
       if (id === 'vscode') return vscode;
+      if (id === './lib/full-access' && options.isPrivileged) {const actual=originalLoad.call(this,id,...args);return {...actual,createFullAccess:params=>actual.createFullAccess({...params,isPrivileged:options.isPrivileged})};}
+      if (id === './lib/local-tools' && options.isPrivileged) {const actual=originalLoad.call(this,id,...args);return {...actual,createTools:params=>actual.createTools({...params,isPrivileged:options.isPrivileged})};}
+      if (id === './lib/agent-review') return {createAgentReview:options.agentReview || (()=>({status:async()=>({ok:true,agents:{},fixture:true}),review:async()=>{throw Error('Review test must supply a bounded mock; native CLIs are never launched by this fixture.');}}))};
       if (id === './lib/syntax-host' && options.syntaxHost) return {createSyntaxHost:() => options.syntaxHost};
       if (id === './lib/checkpoints' && options.checkpointFailure) {
         const actual = originalLoad.call(this,id,...args);
@@ -268,7 +271,7 @@ test('Agent map includes actual Agent turns, their model aliases and executed lo
     const scopeKey = app.posts.filter(item => item.type === 'state').at(-1).scopeKey;
     await app.receive({type:'ask',scopeKey,question:'Inspect the README',agent:true});
     const map = app.posts.filter(item => item.type === 'agentMap').at(-1).model;
-    assert.equal(map.status,'done');
+    assert.equal(map.status,'partial');
     assert.equal(map.children[0].model,'ds41f');
     const tool = map.children.flatMap(task => task.children).find(child => child.title === 'read_file');
     assert.ok(tool); assert.equal(tool.status,'done'); assert.equal(tool.taskId,'task-test');
@@ -1661,7 +1664,7 @@ test('step limit retains partial outcome after final idle update', async () => {
     const runSessions = app.posts.filter(p => p.type === 'runSession');
     assert.ok(runSessions.some(item => item.session.status === 'running' && item.session.agents === 1));
     const completed = runSessions.at(-1).session;
-    assert.equal(completed.status, 'completed');
+    assert.equal(completed.status, 'partial');
     assert.equal(completed.agents, 0);
     assert.ok(Number.isFinite(completed.startedAt) && Number.isFinite(completed.endedAt));
     assert.ok(completed.endedAt >= completed.startedAt);
@@ -3355,7 +3358,7 @@ test('0.10.22 a bad index and a foreign scope are refused without touching the h
 
 test('ExtraFullAccess host integration captures native grant, executes host shell and persists capabilities',async()=>{
  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'extra-host-'));
- const app=host({root,chatSequence:[JSON.stringify({tool:'run_command',command:'value=EXTRA_HOST_OK; printf "%s" "$value"'}),JSON.stringify({tool:'finish',answer:'Observed shell output'})]});
+ const app=host({root,isPrivileged:()=>false,chatSequence:[JSON.stringify({tool:'run_command',command:'value=EXTRA_HOST_OK; printf "%s" "$value"'}),JSON.stringify({tool:'finish',answer:'Observed shell output'})]});
  try {
   app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);app.settings.set('orchestration.enabled',true);
   await app.receive({type:'ready'});const state=app.posts.filter(p=>p.type==='state').at(-1);
@@ -3366,5 +3369,44 @@ test('ExtraFullAccess host integration captures native grant, executes host shel
   const result=app.posts.find(p=>p.type==='agent'&&p.event?.type==='result');assert.equal(result.event.result.stdout,'EXTRA_HOST_OK');
   assert.equal(app.warnings.length,1);assert.equal(app.feedback.length,0);
   assert.match(JSON.stringify(app.requests),/HOST CAPABILITIES/);
+ }finally{app.close();}
+});
+
+test('Full blocked work persists an honest receipt and bridge outcome rather than a completed-task claim',async()=>{
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'receipt-host-'));
+ const app=host({root,chatSequence:[JSON.stringify({tool:'run_command',command:'printf CHECK_OBSERVED'}),JSON.stringify({tool:'finish',status:'done',answer:'Prepared changes; owner DNS access is missing.',remaining_operator_steps:['Configure production DNS']})]});
+ try{
+  app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',3);await enableFullAccess(app);const warnings=app.warnings.length;
+  await app.receive({type:'ask',question:'Prepare and deploy',agent:true,bridgeId:'blocked-receipt'});
+  assert.equal(app.warnings.length,warnings,'standing Full never repeats ordinary command approval');
+  const bridge=JSON.parse(await fs.readFile(path.join(app.storage,'outbox/blocked-receipt.json'),'utf8'));assert.equal(bridge.state,'completed');assert.equal(bridge.outcome,'blocked');assert.ok(bridge.receiptId);
+  const state=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.runSession.status,'blocked');assert.equal(state.agentMap.status,'blocked');
+  const history=app.local.history(app.scope('tenant-a'));assert.equal(history.at(-1).outcome,'blocked');assert.match(history.at(-1).display,/not independent verification/);assert.match(history.at(-1).display,/exit 0/);
+  const receiptFiles=[];for(const scope of await fs.readdir(path.join(app.storage,'run-journal-v1')))for(const file of await fs.readdir(path.join(app.storage,'run-journal-v1',scope)))if(file.endsWith('.receipt.json'))receiptFiles.push(path.join(app.storage,'run-journal-v1',scope,file));
+  const receipt=JSON.parse(await fs.readFile(receiptFiles[0],'utf8'));assert.equal(receipt.execution.outcome,'blocked');assert.equal(receipt.execution.model_claimed_status,'done');assert.equal(receipt.usage.status,'measured');assert.equal(receipt.verification.commands[0].exit_code,0);assert.equal(receipt.project.folder,root);assert.deepEqual(receipt.remaining_operator_steps,['Configure production DNS']);
+ }finally{app.close();}
+});
+
+test('Full account reviews stay off until native project opt-in, then run through the bounded adapter',async()=>{
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'review-host-'));let reviewed=0,enabled=[];
+ const app=host({root,chatSequence:[JSON.stringify({tool:'agent_review',agent:'codex',prompt:'Review supplied evidence'}),JSON.stringify({tool:'finish',status:'done',answer:'Advice received'})],agentReview:options=>{enabled.push(options.enabled);assert.equal(options.maxCalls,2);return {status:async()=>({ok:true,enabled:options.enabled}),review:async()=>{assert.equal(options.enabled,true);reviewed++;return {ok:true,auth:'account',agent:'codex',served_model:'unknown',output:'advice'};}};}});
+ try{
+  app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',2);let state=await enableFullAccess(app);assert.equal(state.fullAccess.reviews,false);
+  app.warning('not the native label');await app.receive({type:'accountReviews',scopeKey:state.scopeKey,fullAccessScope:state.fullAccess.scopeKey,enabled:true});assert.equal(app.posts.filter(p=>p.type==='state').at(-1).fullAccess.reviews,false);
+  app.warning('Allow account reviews');await app.receive({type:'accountReviews',scopeKey:state.scopeKey,fullAccessScope:state.fullAccess.scopeKey,enabled:true});state=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.fullAccess.reviews,true);assert.equal(state.fullAccess.extra,false);
+  const warningCount=app.warnings.length;await app.receive({type:'ask',question:'Use one advisory review',agent:true});assert.equal(reviewed,1);assert.deepEqual(enabled,[true]);assert.equal(app.warnings.length,warningCount);
+  await app.receive({type:'accountReviews',scopeKey:state.scopeKey,fullAccessScope:state.fullAccess.scopeKey,enabled:false});assert.equal(app.posts.filter(p=>p.type==='state').at(-1).fullAccess.reviews,false);
+ }finally{app.close();}
+});
+
+test('root Extra remains disabled after upgrade and refuses before any paid grant while Full works',async()=>{
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'root-extra-host-'));
+ const app=host({root,isPrivileged:()=>true,chatContent:'{"tool":"finish","status":"done","answer":"Full is available"}'});
+ try{
+  app.settings.set('workspaceContext','off');let state=await enableFullAccess(app);const key=require('../lib/full-access').PREFIX+state.fullAccess.scopeKey;
+  await app.context.globalState.update(key,{...app.context.globalState.get(key),level:'extra',approvalId:'historical-extra'});
+  await app.receive({type:'ready'});state=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.fullAccess.enabled,false);assert.equal(state.fullAccess.extraAvailable,false);
+  await app.receive({type:'ask',question:'Try old root Extra',agent:true});assert.equal(app.requests.filter(r=>r.method==='POST'&&r.url.endsWith('/tasks')).length,0);assert.match(app.feedback.at(-1),/privileged root/);assert.equal(app.context.globalState.get(key).level,'extra');
+  await enableFullAccess(app);await app.receive({type:'ask',question:'Use supported Full',agent:true});assert.ok(app.requests.some(r=>r.url.endsWith('/chat')));
  }finally{app.close();}
 });

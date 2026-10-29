@@ -7,7 +7,7 @@ const {sidebar}=require('./helpers/sidebar');
 async function root(){return fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS||os.tmpdir(),'extra-access-'));}
 test('Extra host shell supports scripts and expansions; Full cannot replay its decision',async()=>{
  const dir=await root(),command='value=ready; printf "%s" "$value"';
- const extra=createTools({root:dir,allowShell:true,extraAccess:true,confirmRun:async()=>true});
+ const extra=createTools({root:dir,allowShell:true,extraAccess:true,isPrivileged:()=>false,confirmRun:async()=>true});
  const receipt=await extra.execute({tool:'run_command',command});assert.equal(receipt.ok,true);assert.equal(receipt.stdout,'ready');
  const full=createTools({root:dir,allowShell:true,confirmRun:async()=>true});
  await assert.rejects(full.execute({tool:'run_command',command,commandDecision:analyzeCommand(command,{extra:true})}));
@@ -22,11 +22,11 @@ test('Plan wins over Extra for commands and review and capability discovery star
  assert.equal(calls,0);
 });
 test('capability receipt and model prompt distinguish Full, Extra and unproven unavailable claims',async()=>{
- const dir=await root(),tools=createTools({root:dir,allowShell:true,extraAccess:true,agentReview:{status:async()=>({codex:{installed:true}}),review:async()=>({ok:true,output:'advice only'})}});
+ const dir=await root(),tools=createTools({root:dir,allowShell:true,extraAccess:true,isPrivileged:()=>false,agentReview:{status:async()=>({codex:{installed:true}}),review:async()=>({ok:true,output:'advice only'})}});
  const capabilities=await tools.execute({tool:'agent_capabilities'});assert.equal(capabilities.mode,'extra');assert.equal(capabilities.run_command,true);
- let prompt;await runAgent({goal:'inspect',extraAccess:true,capabilities,tools,maxSteps:1,ask:async({messages})=>{prompt=messages[0].content;return {content:'{"tool":"finish","status":"done","answer":"ok"}'};}});
+ let prompt;await runAgent({goal:'inspect',extraAccess:true,capabilities,tools,maxSteps:1,ask:async({messages})=>{prompt=messages[0].content;return {content:'{"tool":"finish","status":"done","answer":"ok"}',cost:{spent_usd:0}};}});
  assert.match(prompt,/HOST CAPABILITIES/);assert.match(prompt,/MODE: EXTRA FULL ACCESS/);assert.match(prompt,/actual refusal/);assert.doesNotMatch(systemPrompt({planMode:true,extraAccess:true}),/MODE: EXTRA FULL ACCESS/);
- assert.equal((await createTools({root:dir}).execute({tool:'agent_review'})).reason,'extra_access_required');
+ assert.equal((await createTools({root:dir}).execute({tool:'agent_review'})).reason,'account_review_grant_required');
 });
 test('extra account environment preserves account discovery but never billing keys or injection variables',()=>{
  const env=cleanEnv({PATH:'/bin',HOME:'/home/agent',CODEX_HOME:'/config/codex',OPENAI_API_KEY:'secret',ANTHROPIC_API_KEY:'secret',ANTHROPIC_BASE_URL:'http://wrong',NODE_OPTIONS:'--eval bad',BASH_ENV:'/bad'},true);

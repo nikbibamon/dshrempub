@@ -140,7 +140,7 @@ function createAgentReview({ root, guard = async () => {}, signal, enabled = fal
     if (!Object.hasOwn(MODELS, agent)) return end({ ok: false, reason: 'unsupported_agent' });
     if (!packet.trim() || Buffer.byteLength(packet) > MAX_INPUT) return end({ ok: false, reason: 'invalid_prompt' });
     await guard();
-    if (!allowed()) return end({ ok: false, reason: 'extra_access_required' });
+    if (!allowed()) return end({ ok: false, reason: 'account_review_grant_required' });
     const blocked = await policy();
     if (blocked[agent]) return end({ ok: false, reason: blocked[agent] });
     if (signal?.aborted) return end({ ok: false, reason: 'cancelled' });
@@ -152,7 +152,7 @@ function createAgentReview({ root, guard = async () => {}, signal, enabled = fal
       const info = await version(agent); receipt.version = info.version;
       if (!info.installed) return end({ ok: false, reason: info.reason });
       await guard();
-      if (!allowed()) return end({ ok: false, reason: 'extra_access_revoked' });
+      if (!allowed()) return end({ ok: false, reason: 'account_review_grant_revoked' });
       const authArgs = agent === 'codex' ? ['login', 'status'] : ['auth', 'status', '--json'];
       const auth = await processCall(agent, authArgs, '', 10000);
       let accountAuth = false;
@@ -161,7 +161,7 @@ function createAgentReview({ root, guard = async () => {}, signal, enabled = fal
       if (!accountAuth) return end({ ok: false, reason: auth.reason === 'cancelled' ? 'cancelled' : 'account_auth_required' });
       receipt.auth = 'account';
       await guard();
-      if (!allowed()) return end({ ok: false, reason: 'extra_access_revoked' });
+      if (!allowed()) return end({ ok: false, reason: 'account_review_grant_revoked' });
       const freshPolicy = await policy();
       if (freshPolicy[agent]) return end({ ok: false, reason: freshPolicy[agent] });
       const args = agent === 'codex'

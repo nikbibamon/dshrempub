@@ -408,7 +408,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       {mode:'edit', label:t('modeEdit'), hint:t('modeEditHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'edit'},
       {mode:'plan', label:t('modePlan'), hint:t('modePlanHint'), checked:uiMode === 'plan'},
       {mode:'auto', label:t('modeAuto'), hint:t('modeAutoHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'auto'},
-      {mode:'extra', label:t('modeExtra'), hint:t('modeExtraHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'extra', disabled:fullAccess?.available !== true},
+      {mode:'extra', label:t('modeExtra'), hint:fullAccess?.extraUnavailableReason || t('modeExtraHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'extra', disabled:fullAccess?.available !== true || fullAccess?.extraAvailable === false},
       {mode:'full', label:t('modeFull'), hint:t('modeFullHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'full', disabled:fullAccess?.available !== true}
     ];
     if (optionState?.agentPreset === 'custom') rows.push({mode:'custom', label:t('modeCustom'), hint:'', checked:uiMode === 'agent'});
@@ -421,6 +421,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       button.addEventListener('click', () => chooseMode(row.mode)); modeMenu.append(button);
     }
     if(fullAccess?.enabled){const cancel=document.createElement('button');cancel.type='button';cancel.textContent=t('fullAccessRevert');cancel.setAttribute('data-mode','revoke');cancel.addEventListener('click',()=>{closeModeMenu();post({type:'fullAccessRevert',fullAccessScope:fullAccess.scopeKey});});modeMenu.append(cancel);}
+    if(fullAccess?.enabled && !fullAccess.extra){const reviews=document.createElement('button');reviews.type='button';reviews.setAttribute('data-mode','account-reviews');reviews.setAttribute('role','menuitemcheckbox');reviews.setAttribute('aria-checked',String(fullAccess.reviews === true));reviews.textContent=locale === 'ru' ? 'Ревью через подписки Codex / Claude' : 'Codex / Claude account reviews';reviews.disabled=running || submitting || preparing || !!pendingModeRequestId;reviews.addEventListener('click',()=>{closeModeMenu();post({type:'accountReviews',fullAccessScope:fullAccess.scopeKey,enabled:fullAccess.reviews !== true});});modeMenu.append(reviews);}
     modeButton.disabled = !!pendingModeRequestId || (!fullAccess?.enabled && (running || submitting || preparing));
   }
   function openModeMenu() {
@@ -440,6 +441,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     if (mode === 'custom') { closeModeMenu(true); uiMode = 'agent'; modeExplicit = true; updateMode(); saveDraft(); return; }
     const preset = mode === 'plan' ? 'plan' : mode;
     if (['full','extra'].includes(mode) && fullAccess?.available !== true) return;
+    if (mode === 'extra' && fullAccess?.extraAvailable === false) return;
     pendingModeRequestId = String(scopeKey || '') + ':' + (++modeRequestSequence);
     closeModeMenu(true); controls();
     post({type:'agentPreset',preset,requestId:pendingModeRequestId});
@@ -478,7 +480,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       agentLine(result.ok === false ? (result.refused ? t('agentRefused') : t('agentError')) : t('agentOk'), detail, kind);
       return;
     }
-    if (event.type === 'final') { agentLine(t(event.partial ? 'agentPartial' : 'agentFinal'), (event.text || '').slice(0, 300), event.partial ? 'bad' : 'ok'); }
+    if (event.type === 'final') { const blocked=event.status === 'blocked',partial=event.partial || event.status === 'partial'; agentLine(blocked ? (locale === 'ru' ? 'Заблокировано' : 'Blocked') : t(partial ? 'agentPartial' : 'agentFinal'), (event.text || '').slice(0, 300), blocked || partial ? 'bad' : 'ok'); }
   }
   function updateThemeButton() {
     const label = t(theme === 'dark' ? 'themeDark' : theme === 'light' ? 'themeLight' : 'themeSystem');

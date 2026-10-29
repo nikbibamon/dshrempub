@@ -12,6 +12,7 @@ const { randomUUID } = require('node:crypto');
 const { analyzeCommand, isCommandDecision, BLOCKED_COMMAND } = require('./command-policy');
 const planSearch = require('./plan-search');
 const { findTrailingWhitespaceMatch, indentationHint } = require('./replacement-match');
+const {assertExtraHost,isRootHost} = require('./full-access');
 
 const MAX_READ = 64 * 1024;
 const MAX_OUTPUT = 8 * 1024;
@@ -189,9 +190,10 @@ function assertShellPaths(root, cwd, decision) {
   }
 }
 
-async function runCommand(root, action, confirm, { signal, onLifecycle = () => {}, guard = async()=>{}, allowShell = false, extraAccess = false } = {}) {
+async function runCommand(root, action, confirm, { signal, onLifecycle = () => {}, guard = async()=>{}, allowShell = false, extraAccess = false, isPrivileged = isRootHost } = {}) {
   const shell = typeof allowShell === 'function' ? !!allowShell() : !!allowShell;
   const extra = typeof extraAccess === 'function' ? !!extraAccess() : !!extraAccess;
+  if (extra) assertExtraHost(isPrivileged);
   const decision = isCommandDecision(action.commandDecision, action.command) && (!action.commandDecision.shell || shell) && (!action.commandDecision.extra || extra) ? action.commandDecision : analyzeCommand(action.command, { shell, extra });
   const command = typeof action.command === 'string' ? action.command : '';
   if (!decision.ok) throw new Error(decision.reason);
@@ -413,23 +415,26 @@ async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
   return { ok: true, path: action.path, bytes: Buffer.byteLength(content, 'utf8') };
 }
 
-function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {}, planInspect = null, codeIntelligence = null, allowShell = false, extraAccess = false, agentReview = null }) {
+function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {}, planInspect = null, codeIntelligence = null, allowShell = false, extraAccess = false, agentReview = null, reviewEnabled = false, isPrivileged = isRootHost }) {
   return {
     root,
     async execute(action, context = {}) {
       await guard();
       if (!action || typeof action.tool !== 'string') throw new Error('A tool name is required.');
       if (context.planMode && ['write_file', 'replace_in_file', 'run_command', 'agent_review'].includes(action.tool)) return { ok: false, refused: true, reason: 'plan_mode' };
+      const requestedExtra = !context.planMode && (typeof extraAccess === 'function' ? !!extraAccess() : !!extraAccess);
+      if (requestedExtra) assertExtraHost(isPrivileged);
       switch (action.tool) {
         case 'agent_capabilities': {
           const extra = !context.planMode && (typeof extraAccess === 'function' ? !!extraAccess() : !!extraAccess);
-          const value = {ok:true, mode:context.planMode ? 'plan' : extra ? 'extra' : allowShell ? 'full' : 'agent', run_command:!context.planMode, host_shell:extra && process.platform !== 'win32', shell_syntax:extra && process.platform !== 'win32' ? 'posix' : 'literal', editor_file_scope:root, review:extra && !!agentReview, copilot:'Use @tvijo or #tvijo from Copilot Chat; outbound Copilot review is not implemented.'};
-          if (extra && agentReview) value.agents = await agentReview.status();
+          const canReview = !context.planMode && !!agentReview && (extra || reviewEnabled === true);
+          const value = {ok:true, mode:context.planMode ? 'plan' : extra ? 'extra' : allowShell ? 'full' : 'agent', run_command:!context.planMode, host_shell:extra && process.platform !== 'win32', shell_syntax:process.platform === 'win32' || context.planMode ? 'literal' : extra ? 'posix' : allowShell ? 'literal_chains' : 'literal', editor_file_scope:root, review:canReview, copilot:'Use @tvijo or #tvijo from Copilot Chat; outbound Copilot review is not implemented.'};
+          if (canReview) value.agents = await agentReview.status();
           await guard(); return value;
         }
         case 'agent_review': {
           const extra = typeof extraAccess === 'function' ? !!extraAccess() : !!extraAccess;
-          if (!extra || !agentReview) return {ok:false,refused:true,reason:'extra_access_required'};
+          if ((!extra && reviewEnabled !== true) || !agentReview) return {ok:false,refused:true,reason:'account_review_grant_required'};
           const value = await agentReview.review(action); await guard(); return value;
         }
         case 'list_dir': return { ok: true, entries: await listDirectory(root, action.path) };
@@ -449,7 +454,7 @@ function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite =
         }
         case 'write_file': return await writeFile(root, action, confirmWrite, applyWrite, beforeWrite, 'write_file');
         case 'replace_in_file': return await replaceInFile(root, action, confirmWrite, applyWrite, beforeWrite);
-        case 'run_command': await guard(); return await runCommand(root, action, confirmRun, { signal:context.signal || signal, onLifecycle:onCommandLifecycle, guard, allowShell, extraAccess });
+        case 'run_command': await guard(); return await runCommand(root, action, confirmRun, { signal:context.signal || signal, onLifecycle:onCommandLifecycle, guard, allowShell, extraAccess, isPrivileged });
         default: throw new Error('Unknown tool: ' + action.tool);
       }
     }

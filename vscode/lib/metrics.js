@@ -8,7 +8,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const EVENTS = new Set(['agent', 'shell', 'edit', 'ask']);
-const OUTCOMES = new Set(['completed', 'partial', 'error', 'proposed', 'applied']);
+const OUTCOMES = new Set(['completed', 'blocked', 'cancelled', 'failed', 'partial', 'error', 'proposed', 'applied']);
 const STRINGS = {
   mode: /^(?:plan|agent|chat)$/,
   model: /^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$/,

@@ -6,6 +6,10 @@ const { buildAgentMap, renderAgentMap } = require('../lib/agent-map');
 const fixture = require('./fixtures/agent-map.json');
 const { dom, text } = require('./dom-fixture');
 
+test('blocked and partial local runs cannot render as successful root nodes',()=>{
+ for(const status of ['blocked','partial']){const model=buildAgentMap({status,title:'Incomplete task',tasks:[{id:'provider-one',status:'completed'}]});assert.equal(model.status,status);assert.equal(model.children[0].status,'done');}
+});
+
 test('map fixture expands real council calls and coding execution records only', () => {
   const model = buildAgentMap(fixture);
   assert.equal(model.children.length, 3);

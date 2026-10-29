@@ -13,7 +13,7 @@ test('SPEC-053 six reads finalize once without tools, raw tool result or lost co
     tools: { execute: async () => ({ ok: true, content: 'Project evidence' }) },
     ask: async req => {
       calls.push(req);
-      return { content: req.finalization ? 'В проекте есть собранные данные; полного прогресса не хватает.' : '{"tool":"read_file","path":"progress.md"}', cost: { spent_usd: '.001' } };
+      return { content: req.finalization ? 'В проекте есть собранные данные; полного прогресса не хватает.' : '{"tool":"read_file","path":"progress.md"}', cost: { spent_usd: '0.001' } };
     }
   });
   assert.equal(calls.length, 7);
@@ -48,7 +48,7 @@ test('SPEC-053 question with default sixty steps finishes in first half', async 
     ask: async req => {
       calls++;
       assert.match(req.messages[0].content, /finish by half the step limit \(step 30\)/);
-      return { content: calls === 1 ? '{"tool":"read_file","path":"progress.md"}' : '{"tool":"finish","answer":"Прогресс прочитан; дальше проверка."}' };
+      return { content: calls === 1 ? '{"tool":"read_file","path":"progress.md"}' : '{"tool":"finish","answer":"Прогресс прочитан; дальше проверка."}',cost:{spent_usd:0} };
     }
   });
   assert.equal(result.reason, 'finish');

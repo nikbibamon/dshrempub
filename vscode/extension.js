@@ -27,6 +27,8 @@ const planInspection = require('./lib/plan-inspect');
 const codeIntelligence = require('./lib/code-intelligence');
 const quickEdit = require('./lib/quick-edit');
 const { runAgent } = require('./lib/agent');
+const {createAgentReview} = require('./lib/agent-review');
+const {createTaskReceipt,formatReceipt,outcomeOf,measuredCost} = require('./lib/task-receipt');
 const { createOrchestrator } = require('./lib/orchestration');
 const modePresets = require('./lib/modes');
 const agentSave = require('./lib/agent-save');
@@ -750,6 +752,7 @@ function activate(context) {
       await local.saveHistory(agentScope,[...local.history(agentScope),{role:'user',content:goal.trim()},{role:'assistant',content:answer+commitNote+'\n\nQuality and publication: '+result.job.status+'.',orchestration:{rootId:result.record.root_id,jobId:result.record.job_id,coordinatorAlias:report.coordinator_alias||'ds41f',meteredCoordinator:report.metered_model||'unknown',completedModels:require('./lib/orchestration').completedModels(report)},autoCommit:committed.ok?{hash:committed.hash,root:committed.root,workspaceRoot:committed.workspaceRoot,identity:committed.identity}:undefined}].slice(-40));
       await finishMap(auth,result.job.status==='quality_pending'?'quality_pending':result.job.status);
       lastAgentOutcome={scope:currentViewScope(auth.scope),text:'DSH Harness · '+result.job.status};
+      return {outcome:result.job.status === 'completed' ? 'done' : result.job.status === 'cancelled' ? 'cancelled' : result.job.status === 'failed' ? 'failed' : 'blocked'};
     } finally {agentAbort=null;agentRunning=false;busy=false;await postActivity('done','');await postChatState();}
   }
 
@@ -792,6 +795,7 @@ function activate(context) {
     const taskEffectsText=()=>[rulesTracker.scanTruncated && !fullGrant?L('Rules scan truncated; commands require confirmation for this task.','Сканирование правил усечено; команды этой задачи требуют подтверждения.'):'',taskRefsChanged?L('HEAD or Git refs changed during this task through a command or another writer. Auto-commit refused.','HEAD или ссылки Git изменились во время задачи командой или другим процессом. Автокоммит отклонён.'):'',rulesTracker.changed().length?L('Rules changed outside an approved direct edit and were quarantined: ','Правила изменены вне одобренной прямой правки и помещены в карантин: ')+rulesTracker.changed().map(row=>row.file).join(', '):''].filter(Boolean).join('\n');
     const localAgentRunId = randomUUID();
     const recoveryKey = recoveryScope(auth);
+    const taskReceipt = createTaskReceipt({id:localAgentRunId,projectScope:recoveryKey,projectId:shared.selection(auth.scope)?.projectId || null,folder:folder.uri.fsPath,mode:planMode ? 'plan' : fullGrant?.extra ? 'extra' : fullGrant ? 'full' : 'agent',startedAt});
     beginMap(auth, goal.trim(), localAgentRunId);
     try {
       runJournals.begin(recoveryKey, {id:localAgentRunId, kind:planMode ? 'plan' : 'agent', prompt:goal.trim(), historyScope:agentScope});
@@ -805,6 +809,7 @@ function activate(context) {
       await clearPending(auth);
       const { pack } = await currentPack(auth);
       const agentModel = packs.packModel(config, 'agentModel', 'ds41f', pack);
+      taskReceipt.requestedModel(agentModel);
       const contextMode = config.get('workspaceContext', 'ask');
       let tree = '';
       let agentRuleGrants = [], agentRules = '', rulesSnapshotTaken=false;
@@ -855,9 +860,9 @@ function activate(context) {
       let rewindStep = 1;
       const checkpointWrite = file => captureRewind({root:folder.uri.fsPath, runId:rewindRunId, step:rewindStep, model:agentModel, title:goal, files:[file]});
       const commandSession = mapSession(auth);
-      const reviewer = require('./lib/agent-review').createAgentReview({root:folder.uri.fsPath,guard,signal:abort.signal,enabled:!!fullGrant?.extra,claudeEnabled:config.get('agentReview.claudeEnabled',false),maxCalls:2});
+      const reviewer = createAgentReview({root:folder.uri.fsPath,guard,signal:abort.signal,enabled:!!fullGrant?.reviews,claudeEnabled:config.get('agentReview.claudeEnabled',false),maxCalls:2});
       const tools = createTools({
-        root: folder.uri.fsPath, allowShell: !!fullGrant, extraAccess: !!fullGrant?.extra, agentReview:reviewer,
+        root: folder.uri.fsPath, allowShell: !!fullGrant, extraAccess: !!fullGrant?.extra, agentReview:reviewer, reviewEnabled:!!fullGrant?.reviews,
         codeIntelligence:(action,{signal}) => codeIntelligence.inspect({vscode,root:folder.uri.fsPath,action,guard,signal}),
         planInspect:(operation,{signal}) => planInspection.inspect({vscode,root:folder.uri.fsPath,operation,guard,signal}), guard, signal:abort.signal,
         onCommandLifecycle: observeCommand(auth,commandSession),
@@ -1037,13 +1042,14 @@ function activate(context) {
           const idempotencyKey = randomUUID();
           await local.savePending(auth.scope, { idempotencyKey, apiBase: auth.api_base, tenantId: auth.tenant_id, createdAt: new Date().toISOString() });
           projectRulesHost.assertCurrent(agentRuleGrants);
+          taskReceipt.request();
           const answer = await api.ask({
             beforeChat:() => projectRulesHost.assertCurrent(agentRuleGrants),
             token: auth.access_token, messages: stepMessages, maxUsd: Math.min(1, Math.floor(remaining * 1e9) / 1e9), idempotencyKey,
             title: 'VS Code agent step ' + step + ': ' + goal.trim().slice(0, 50),
             // Devstral reasons at length and was cut off at 2048 (empty step); 4096 is the gateway ceiling.
             maxTokens: agentModel === 'devstral' ? 4096 : 2048, model: agentModel, mode: 'single', method: config.get('reasoningMethod', 'evidence-first'), signal,
-            onGrant: async grant => { if(grant.model)servedModels.add(grant.model);runJournals.task(recoveryKey,localAgentRunId,grant.id); await mapTask(auth, grant.id, {...grant, title:'Agent step ' + step, model:grant.model || agentModel, status:'running', startedAt:Date.now()}); await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); projectRulesHost.assertCurrent(agentRuleGrants); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
+            onGrant: async grant => { taskReceipt.task(grant.id,grant.model); if(grant.model)servedModels.add(grant.model);runJournals.task(recoveryKey,localAgentRunId,grant.id); await mapTask(auth, grant.id, {...grant, title:'Agent step ' + step, model:grant.model || agentModel, status:'running', startedAt:Date.now()}); await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); projectRulesHost.assertCurrent(agentRuleGrants); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
           }).catch(async error => {
             const pending = local.pending(auth.scope, idempotencyKey);
             if (error.definitiveGrantRefusal && !pending?.taskId) { await local.savePending(auth.scope, undefined, idempotencyKey); }
@@ -1052,11 +1058,11 @@ function activate(context) {
             }
             throw error;
           });
+          taskReceipt.answer(answer);
           await mapAnswer(auth, answer);
           await guard();
-          const rawCost = answer?.cost?.spent_usd ?? answer?.cost?.budget?.spent_usd ?? answer?.cost?.spent;
-          const cost = typeof rawCost === 'number' || (typeof rawCost === 'string' && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(rawCost)) ? Number(rawCost) : NaN;
-          if (!Number.isFinite(cost) || cost < 0) {
+          const cost = measuredCost(answer);
+          if (cost === null) {
             const pending = local.pending(auth.scope,idempotencyKey);
             if (pending) await local.savePending(auth.scope,{...pending,requiresCostReceipt:true});
             throw Object.assign(new Error('Unknown agent cost'), { code: 'usage_unknown' });
@@ -1069,6 +1075,7 @@ function activate(context) {
           return answer;
         },
         onEvent: event => {
+          taskReceipt.event(event);
           if(event.type==='result')commitEvents.push(event);
           runJournals.append(recoveryKey,localAgentRunId,event);
           if (terminalCaptureEpoch === terminalCaptures.epoch && event.type === 'result' && event.action?.tool === 'run_command' && event.result?.cwd) {
@@ -1092,25 +1099,39 @@ function activate(context) {
       if(committed.ok && committed.cancelledAfterCommit)commitText+='\n'+L('Cancel arrived after the commit was created. The commit is shown above; use Undo commit to undo it.','Отмена пришла после создания коммита. Коммит показан выше; используйте «Отменить коммит».');
       if(committed.unverifiedHead)commitText+='\n'+L('Git HEAD changed during cancellation; review commit ','HEAD Git изменился при отмене; проверьте коммит ')+committed.unverifiedHead;
       if(committed.indexWarning)commitText+='\n'+L('Commit created; check the Git index before continuing.','Коммит создан; проверьте индекс Git перед продолжением.');
-      const finalText=result.text+(commitText?'\n\n'+commitText:'');
-      await finishMap(auth, 'completed');
+      const outcome=outcomeOf(result), receipt=taskReceipt.finish({result});
+      receipt.usage.settlement = local.pending(auth.scope) ? 'pending_reconciliation' : 'terminal_receipts_observed';
+      runJournals.receipt(recoveryKey,localAgentRunId,receipt);
+      const finalText=result.text+(commitText?'\n\n'+commitText:'')+'\n\n'+formatReceipt(receipt,uiLocale());
+      await finishMap(auth, outcome === 'done' ? 'completed' : outcome);
       const history = local.history(agentScope);
-      await local.saveHistory(agentScope, [...history, { role: 'user', content: goal.trim(), display: goal.trim(), recoveryRunId:localAgentRunId }, { role: 'assistant', content: result.text, display: finalText, autoCommit:committed.ok?{hash:committed.hash,root:committed.root,workspaceRoot:committed.workspaceRoot,identity:committed.identity}:undefined, recoveryRunId:localAgentRunId, taskIds:mapSession(auth).tasks.map(task => task.id) }].slice(-40));
-      runJournals.finish(recoveryKey,localAgentRunId);
-      await metrics.record({ event: 'agent', outcome: result.reason === 'step_limit' ? 'partial' : 'completed', mode: planMode ? 'plan' : 'agent', model: agentModel, steps: result.steps, cost_usd: result.spent, duration_ms: Date.now() - startedAt });
-      lastAgentOutcome = { scope: currentViewScope(auth.scope), text: result.partial
-        ? L('Step limit reached (' + result.steps + '). Partial result: review the log and narrow the next task.', 'Лимит шагов достигнут (' + result.steps + '). Частичный результат: проверьте журнал и уточните следующую задачу.')
-        : L('Agent finished in ' + result.steps + ' steps.', 'Агент завершил за ' + result.steps + ' шагов.') };
+      await local.saveHistory(agentScope, [...history, { role: 'user', content: goal.trim(), display: goal.trim(), recoveryRunId:localAgentRunId }, { role: 'assistant', content: result.text, display: finalText, outcome, receiptId:localAgentRunId, autoCommit:committed.ok?{hash:committed.hash,root:committed.root,workspaceRoot:committed.workspaceRoot,identity:committed.identity}:undefined, recoveryRunId:localAgentRunId, taskIds:receipt.provider_tasks }].slice(-40));
+      runJournals.finish(recoveryKey,localAgentRunId,outcome);
+      await metrics.record({ event: 'agent', outcome: outcome === 'done' ? 'completed' : outcome, mode: planMode ? 'plan' : 'agent', model: agentModel, steps: result.steps, cost_usd: result.spent, duration_ms: Date.now() - startedAt });
+      lastAgentOutcome = { scope: currentViewScope(auth.scope), outcome, text: outcome === 'done' ? L('Agent execution finished in ' + result.steps + ' steps. See the task receipt for observed checks.', 'Агент завершил выполнение за ' + result.steps + ' шагов. Наблюдаемые проверки указаны в квитанции.') : outcome === 'partial' ? (result.reason === 'step_limit' ? L('Step limit reached ('+result.steps+'). Partial result: review the task receipt before continuing.','Лимит шагов достигнут ('+result.steps+'). Частичный результат: перед продолжением проверьте квитанцию.') : L('Partial result. Review the task receipt before continuing.', 'Частичный результат. Перед продолжением проверьте квитанцию задачи.')) : L('Agent blocked. Completed local work and remaining requirements are in the task receipt.', 'Агент заблокирован. Выполненная локальная работа и оставшиеся требования указаны в квитанции.') };
       await postChatState(lastAgentOutcome.text);
+      return {outcome,receiptId:localAgentRunId};
     } catch (error) {
       if(taskEffectsText())error.tvijoAgentEffects=taskEffectsText();
+      const receipt=taskReceipt.finish({error,cancelled:abort.signal.aborted});
+      receipt.usage.settlement = local.pending(auth.scope) ? 'pending_reconciliation' : 'no_pending_record';
+      try {runJournals.receipt(recoveryKey,localAgentRunId,receipt);error.tvijoReceipt=formatReceipt(receipt,uiLocale());} catch { /* Original failure and pending financial record must survive receipt I/O errors. */ }
+      try {
+        if (error.tvijoReceipt && await isCurrentAuth(auth)) {
+          const history=local.history(agentScope);
+          if (!history.some(item=>item.recoveryRunId===localAgentRunId)) {
+            const text=abort.signal.aborted ? L('Agent stopped.','Агент остановлен.') : localizedMessage(error,false);
+            await local.saveHistory(agentScope,[...history,{role:'user',content:goal.trim(),recoveryRunId:localAgentRunId},{role:'assistant',content:text,display:text+'\n\n'+error.tvijoReceipt,outcome:receipt.execution.outcome,receiptId:localAgentRunId,recoveryRunId:localAgentRunId,taskIds:receipt.provider_tasks}].slice(-40));
+          }
+        }
+      } catch { /* Preserve the original failure if local history cannot be saved. */ }
       await finishMap(auth, abort.signal.aborted ? 'cancelled' : 'failed');
-      if (!local.pending(auth.scope) && error?.code !== 'usage_unknown') runJournals.finish(recoveryKey,localAgentRunId);
+      if (!local.pending(auth.scope) && error?.code !== 'usage_unknown') runJournals.finish(recoveryKey,localAgentRunId,receipt.execution.outcome);
       if (abort.signal.aborted) {
         lastRunStopped = true;
         lastError = null;
         await postChatState(L('Agent stopped.', 'Агент остановлен.')+(taskEffectsText()?'\n'+taskEffectsText():''));
-        return;
+        return {outcome:'cancelled',receiptId:localAgentRunId};
       }
       await metrics.record({ event: 'agent', outcome: 'error', mode: planMode ? 'plan' : 'agent', model: vscode.workspace.getConfiguration('tvijo').get('agentModel', 'ds41f'), error_code: error?.code || 'unknown', duration_ms: Date.now() - startedAt });
       lastError = { text: localizedMessage(error), action: typeof error?.code === 'string' && error.code.startsWith('context_budget') ? 'context' : null };
@@ -1172,12 +1193,13 @@ function activate(context) {
   }
 
   function localizedMessage(error,includeEffects=true) {
-    if(includeEffects && error?.tvijoAgentEffects)return localizedMessage(error,false)+'\n'+error.tvijoAgentEffects;
+    if(includeEffects && (error?.tvijoAgentEffects || error?.tvijoReceipt))return localizedMessage(error,false)+'\n'+[error.tvijoAgentEffects,error.tvijoReceipt].filter(Boolean).join('\n');
     const scopeNotice=require('./lib/scope-notices').notice(error?.code,uiLocale());
     if(scopeNotice){if(error.scopeUri)pendingScopeUri=error.scopeUri;return scopeNotice.text;}
     const code = error?.serverCode || (typeof error?.code === 'string' ? error.code : '');
     if (error?.code === 'command_policy') return L('Command refused. Use one executable with literal arguments; unsafe commands and shell syntax are blocked.', 'Команда отклонена. Используйте одну программу с буквальными аргументами; опасные команды и синтаксис оболочки заблокированы.');
     if (!(error instanceof core.ServiceError)) {
+      if (code === 'root_extra_access_refused') {const copy=require('./lib/full-access').ROOT_EXTRA_MESSAGE;return L(copy.en,copy.ru);}
       if (code === 'usage_unknown') return L('Task cost could not be verified. Resolve the task before sending another request; its pending record is preserved.','Не удалось подтвердить расход задачи. Проверьте задачу перед новым запросом; запись заявки сохранена.');
       if (code === 'agent_save_failed' || code === 'agent_save_conflict') return L(error.message, 'Агент остановлен: правка не подтверждена на диске или файл изменился. Проверьте буфер. Последующие проверки не запускались.');
       if (code === 'agent_stopped') return L('Agent stopped. No further step was started.', 'Агент остановлен. Следующий шаг не запускался.');
@@ -2853,6 +2875,17 @@ function activate(context) {
             await vscode.workspace.getConfiguration('tvijo').update(message.key, message.value, vscode.ConfigurationTarget.Global);
             if (message.key === 'model' || message.key === 'agentModel') await vscode.workspace.getConfiguration('tvijo').update(message.key === 'model' ? 'agentModel' : 'model',message.value,vscode.ConfigurationTarget.Global);
             await postChatState();
+          } else if (message?.type === 'accountReviews') {
+            ensureIdle();
+            const auth = await requireAuth(), folder = await requireWorkspace(), epoch = workspaceEpoch;
+            ensureIdle();
+            const assertReviewScope = async () => {
+              if (epoch !== workspaceEpoch || !await isCurrentAuth(auth) || message.scopeKey !== currentViewScope(auth.scope) || message.fullAccessScope !== fullAccess.status(folder).scopeKey) throw new core.ServiceError('account_changed','The account or review-grant folder changed.');
+            };
+            await assertReviewScope();
+            modeUpdatePending = true;
+            try { await fullAccess.setReviews(folder,message.enabled === true,{guard:assertReviewScope}); }
+            finally { modeUpdatePending = false; await postChatState(); }
           } else if (message?.type === 'fullAccessRevert') {
             const folder = permissionFolder();
             if (!folder || fullAccess.status(folder).scopeKey !== message.fullAccessScope || typeof message.fullAccessScope !== 'string') throw new core.ServiceError('invalid_option','This Full access folder is no longer available.');
@@ -2892,7 +2925,7 @@ function activate(context) {
                 await view.webview.postMessage({type:'presetResult',scopeKey:scope,requestId:message.requestId,preset:message.preset,ok:!!enabled});
                 return;
               }
-              if (fullAccess.status(folder).enabled && !await fullAccess.disable(folder)) throw new core.ServiceError('permission_storage','Full access could not be revoked durably.');
+              if ((fullAccess.status(folder).enabled || fullAccess.status(folder).blockedReason) && !await fullAccess.disable(folder)) throw new core.ServiceError('permission_storage','Full access could not be revoked durably.');
               const target = vscode.ConfigurationTarget.Global;
               const keys = ['agentAutoApply', 'agentAutoRun'];
               const inspect = () => {
@@ -2996,6 +3029,7 @@ function activate(context) {
             if (ownsLiveQuestion) { liveQuestion = message.question.trim().slice(0, 20000); liveFrom = typeof message.from === 'string' ? message.from.slice(0, 40) : ''; }
             const bridgeId = typeof message.bridgeId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(message.bridgeId) && bridgeInbox ? message.bridgeId : null;
             let bridgeDone = false;
+            let executionOutcome = null;
             const bridgeBefore = bridgeId ? answerSnapshot() : null;
             lastRunStopped = false;
             try {
@@ -3057,18 +3091,18 @@ function activate(context) {
               } else if (message.question.trim().startsWith('!')) {
                 await runUserShell(message.question.trim().slice(1).trim());
               } else if (message.agent) {
-                await runAgentFlow(question, { planMode: !!message.plan });
+                executionOutcome = await runAgentFlow(question, { planMode: !!message.plan });
               } else await askQuestion(question);
               await view.webview.postMessage({ type: 'submission', scopeKey: message.scopeKey, ok: true, question: message.question });
               if (bridgeId && ownsLiveQuestion) {
-                if (lastRunStopped) bridgeStatus(() => bridgeInbox.finish(bridgeId, 'cancelled', {error:'stopped_by_user'}));
-                else { const answer = answerSince(bridgeBefore); bridgeStatus(() => bridgeInbox.finish(bridgeId, 'completed', answer ? {answer} : {answer:'', note:'no_new_answer'})); }
+                if (lastRunStopped) bridgeStatus(() => bridgeInbox.finish(bridgeId, 'cancelled', {outcome:'cancelled',receiptId:executionOutcome?.receiptId,error:'stopped_by_user'}));
+                else { const answer = answerSince(bridgeBefore); bridgeStatus(() => bridgeInbox.finish(bridgeId, 'completed', {...(answer ? {answer} : {answer:'', note:'no_new_answer'}),outcome:executionOutcome?.outcome || 'unknown',receiptId:executionOutcome?.receiptId})); }
                 bridgeDone = true;
               }
             } catch (error) {
               await view.webview.postMessage({ type: 'submission', scopeKey: message.scopeKey, ok: false, question: message.question });
               if (bridgeId && !ownsLiveQuestion) { bridgeStatus(() => { bridgeInbox.mark(bridgeId, 'accepted'); bridgeInbox.reset(); }); bridgeDone = true; }
-              else if (bridgeId) { bridgeStatus(() => bridgeInbox.finish(bridgeId, 'failed', {error:error?.code || 'error', message:localizedMessage(error)})); bridgeDone = true; }
+              else if (bridgeId) { bridgeStatus(() => bridgeInbox.finish(bridgeId, 'failed', {outcome:'failed',error:error?.code || 'error', message:localizedMessage(error)})); bridgeDone = true; }
               throw error;
             } finally {
               if (ownsLiveQuestion) { liveQuestion = null; liveFrom = ''; }
@@ -3132,7 +3166,7 @@ function activate(context) {
     const id = inbox.enqueue({text, mode, from});
     return inbox.wait(id, {onStatus, cancellation:token});
   }
-  const bridgeText = result => result.state === 'completed' ? (result.answer || L('Tvijo finished without a text answer.', 'Tvijo завершил задачу без текстового ответа.'))
+  const bridgeText = result => result.state === 'completed' ? (['blocked','partial','failed'].includes(result.outcome) ? 'Tvijo: '+result.outcome+'\n\n' : '') + (result.answer || L('Tvijo returned without a text answer; completion is not verified.', 'Tvijo вернул управление без текстового ответа; выполнение не подтверждено.'))
     : result.state === 'detached' ? L('Still running in Tvijo; follow it in the Tvijo panel.', 'Задача ещё выполняется в Tvijo; следите за ней в панели Tvijo.')
     : L('Tvijo: ', 'Tvijo: ') + result.state + (result.error ? ' — ' + result.error : '') + (result.message ? '. ' + result.message : '');
   if (vscode.lm?.registerTool && vscode.LanguageModelToolResult) context.subscriptions.push(vscode.lm.registerTool('tvijo_ask', {

@@ -126,7 +126,7 @@ test('uninstalled CLI, API auth and failed review produce separate refusal recei
 
 test('invalid input and missing grant do not spawn', async () => {
   const fake = fakeCli(), adapter = createAgentReview({ root: await workspace(), spawnImpl: fake.spawnImpl });
-  assert.equal((await adapter.review({ agent: 'codex', prompt: 'Review' })).reason, 'extra_access_required');
+  assert.equal((await adapter.review({ agent: 'codex', prompt: 'Review' })).reason, 'account_review_grant_required');
   assert.equal((await adapter.review({ agent: 'codex', prompt: 'x'.repeat(MAX_INPUT + 1) })).reason, 'invalid_prompt');
   assert.equal((await adapter.review({ agent: 'copilot', prompt: 'Review' })).reason, 'unsupported_agent');
   assert.equal(fake.calls.length, 0);
@@ -135,7 +135,7 @@ test('invalid input and missing grant do not spawn', async () => {
 test('revoked grant between probes prevents review call', async () => {
   let enabled = true, checks = 0;
   const fake = fakeCli(), adapter = createAgentReview({ root: await workspace(), enabled: () => enabled, guard: async () => { if (++checks === 3) enabled = false; }, spawnImpl: fake.spawnImpl });
-  assert.equal((await adapter.review({ agent: 'codex', prompt: 'Review' })).reason, 'extra_access_revoked');
+  assert.equal((await adapter.review({ agent: 'codex', prompt: 'Review' })).reason, 'account_review_grant_revoked');
   assert.equal(fake.calls.length, 2);
 });
 
