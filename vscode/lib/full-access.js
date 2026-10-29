@@ -57,6 +57,7 @@ function createFullAccess({ vscode, state, scope, L = en => en, onRevoke = () =>
       await guard(); check(folder, key, capturedEpoch);
       if (extra) {
         probe = await extraPreflight(folder);
+        if (probe?.reason === 'reference_fitness_unaccepted') probe = {...probe,reason:L('Extra is disabled until SPEC-238 reference fitness is accepted.','Extra выключен до принятия reference fitness SPEC-238.')};
         await guard(); check(folder, key, capturedEpoch);
         extraReady.set(key, probe);
         if (probe?.available !== true && !(probe?.fallback_possible && process.getuid?.() !== 0)) {

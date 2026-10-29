@@ -1,7 +1,8 @@
 <!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
 ## What's new in 0.10.24 — SPEC-238 candidate (unpublished)
 
-- Extra runs Linux tasks in a private repository copy behind an OS sandbox preflight. Root uses cgroups and namespaces, then drops uid and capabilities; it cannot fall back to a host shell. Non-root hosts need a separate explicit confirmation if user namespaces are unavailable.
+- **Extra remains disabled.** SPEC-238 reference fitness is not accepted. The sandbox/task-copy/receipt implementation is retained as a disabled draft prototype for review; the native UI names the blocking condition. No setting or environment flag bypasses the shipping gate.
+- The disabled prototype runs Linux tasks in a private repository copy behind an OS sandbox preflight. Root uses cgroups and namespaces, then drops uid and capabilities; it cannot fall back to a host shell. Non-root hosts need a separate explicit confirmation if user namespaces are unavailable.
 - Destructive Git and crontab removal stay denied. Apply and GitHub PR publication show the task diff and require an explicit action; existing dirty buffers are protected.
 - Extra reports verified only after a project-defined check ran successfully after the last write and the tree still matches. A done claim without a check is unverified.
 - Every Extra task writes a local JSON receipt and journal entry with gateway cost/tokens (unknown prices stay unknown), subscription review receipts, checks and sandbox settings. The compact EN/RU receipt has a copy action.

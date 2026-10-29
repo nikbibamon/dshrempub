@@ -14,6 +14,10 @@ const ENV = Object.freeze({PATH:'/usr/sbin:/usr/bin:/sbin:/bin',LANG:'C.UTF-8'})
 const LIMITS = Object.freeze({'memory.max':'805306368','memory.swap.max':'0','pids.max':'128','cpu.max':'100000 100000'});
 const deniedPart = name => /^(?:\.env|\.codex$|\.claude$|\.ssh$|\.aws$|\.gnupg$|\.npmrc$|\.netrc$|auth\.json$|credentials?(?:\.|$)|secrets?(?:\.|$)|id_rsa|id_ed25519|.*\.(?:pem|key|p12|pfx)$)/i.test(name);
 function unavailable(reason = 'Extra sandbox launcher has not passed preflight; host shell is forbidden at uid 0.') { return {available:false,reason}; }
+// SPEC-238 fitness is not accepted: two reference repositories cannot be
+// copied by this prototype. Isolation preflight is not release acceptance.
+// No setting or environment flag bypasses this gate.
+async function releasePreflight() { return unavailable('reference_fitness_unaccepted'); }
 function failure(reason) {return Object.assign(new Error(reason),{code:'extra_sandbox_unavailable',stopAgent:true});}
 function assertExtraSandbox(sandbox) {if (!sandbox || sandbox.ready !== true || typeof sandbox.execute !== 'function') throw failure(unavailable().reason);}
 function within(root, target) {const rel=path.relative(root,target);return rel===''||(!rel.startsWith('..'+path.sep)&&rel!=='..'&&!path.isAbsolute(rel));}
@@ -191,7 +195,7 @@ async function preflight({artifactParent=os.tmpdir(),network=true,confirmHost=as
   if(await confirmHost(result.reason)!==true)return {...result,fallback_possible:true,network};
   return {available:true,mode:'host-confirmed',network,uid:process.getuid(),explicit_host_confirmation:true};
 }
-module.exports={unavailable,assertExtraSandbox,preflight,createSandbox,createTaskCopy,snapshot,sandboxArgs,rootArgs,mountList,LIMITS,deniedPart};
+module.exports={unavailable,releasePreflight,assertExtraSandbox,preflight,createSandbox,createTaskCopy,snapshot,sandboxArgs,rootArgs,mountList,LIMITS,deniedPart};
 if(require.main===module&&process.argv[2]==='--worker') {try{worker(process.argv[3]);}catch(e){process.stderr.write('Extra worker refused: '+e.message+'\n');process.exit(125);}}
 
 function changes(copy, {againstBase=false}={}) {

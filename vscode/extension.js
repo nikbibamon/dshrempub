@@ -251,7 +251,7 @@ function activate(context) {
     knownSecrets:() => [identity?.token, ...rulesPreviewSecrets].filter(Boolean), selectedFolder:()=>permissionFolder(), accountScope:()=>identity?.scope,
   });
   const syntaxChecks = createSyntaxHost({vscode,state:context.globalState,storageRoot:context.globalStorageUri?.fsPath,chooseFolder:()=>projectRulesHost.chooseFolder(),scope:folder=>projectRulesHost.scope(folder),L});
-  const fullAccess = createFullAccess({vscode,extraPreflight:() => require('./lib/extra-sandbox').preflight({network:vscode.workspace.getConfiguration('tvijo').get('agent.extraNetwork',true)}),state:context.globalState,scope:folder=>{ const key=projectRulesHost.scope(folder); return key && identity?.scope ? createHash('sha256').update(JSON.stringify([identity.scope,key])).digest('hex') : null; },L,
+  const fullAccess = createFullAccess({vscode,extraPreflight:() => require('./lib/extra-sandbox').releasePreflight({network:vscode.workspace.getConfiguration('tvijo').get('agent.extraNetwork',true)}),state:context.globalState,scope:folder=>{ const key=projectRulesHost.scope(folder); return key && identity?.scope ? createHash('sha256').update(JSON.stringify([identity.scope,key])).digest('hex') : null; },L,
     onRevoke:() => { agentAbort?.abort(); activeAbort?.abort(); }});
   const activeWorkspace = createActiveWorkspace({vscode,state:context.workspaceState || context.globalState,L,isBusy:()=>busy || attaching,onChange:() => {
     flushDrafts(); workspaceEpoch++; fullAccess.invalidate(); syntaxChecks.invalidate(); terminalCaptures.invalidate();

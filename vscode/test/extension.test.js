@@ -12,6 +12,9 @@ function memory(initial = {}) {
 }
 
 function host(options = {}) {
+  // Trusted prototype harness only; production has no gate bypass setting.
+  const extraModule=require('../lib/extra-sandbox'),releasePreflight=extraModule.releasePreflight;
+  if(options.prototypeExtra)extraModule.releasePreflight=extraModule.preflight;
   const optionsHost = options;
   const base = 'http://localhost:18106/api/dshrem/v1';
   const commands = new Map();
@@ -176,7 +179,7 @@ function host(options = {}) {
     releaseResponse: () => { blockedRequest = null; releaseRequest?.(); },
     block: () => { blockGrant = true; }, unblock: () => release?.(),
     disposeView: () => disposal(),
-    close: () => { disposal(); globalThis.fetch = originalFetch; } };
+    close: () => { disposal(); globalThis.fetch = originalFetch;if(options.prototypeExtra)extraModule.releasePreflight=releasePreflight; } };
 }
 
 // Deliberately meaningless catalogue: no product pack content belongs in tests.
@@ -3369,7 +3372,7 @@ test('SPEC-238 Extra native task edits only its copy and runs without inner conf
  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'extra-native-'));
  const {execFileSync}=require('node:child_process');const git=(...args)=>execFileSync('git',['-c','user.name=Fixture','-c','user.email=fixture@localhost',...args],{cwd:root,stdio:'pipe'});
  git('init','-q');await fs.writeFile(path.join(root,'source.txt'),'user');git('add','.');git('commit','-qm','base');
- const app=host({root,chatSequence:[JSON.stringify({tool:'write_file',path:'agent.txt',content:'copy only'}),JSON.stringify({tool:'run_command',command:'/usr/bin/node -e "console.log(require(\'fs\').readFileSync(\'agent.txt\',\'utf8\'))"'}),JSON.stringify({tool:'finish',status:'done',answer:'Copy checked.'})]});
+ const app=host({root,prototypeExtra:true,chatSequence:[JSON.stringify({tool:'write_file',path:'agent.txt',content:'copy only'}),JSON.stringify({tool:'run_command',command:'/usr/bin/node -e "console.log(require(\'fs\').readFileSync(\'agent.txt\',\'utf8\'))"'}),JSON.stringify({tool:'finish',status:'done',answer:'Copy checked.'})]});
  try {
   app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',3);app.settings.set('agent.extraNetwork',false);
   await app.receive({type:'ready'});const state=app.posts.filter(p=>p.type==='state').at(-1);app.warning('Enable ExtraFullAccess');
@@ -3389,7 +3392,7 @@ for(const checked of [false,true])test('SPEC-238 native receipt '+(checked?'veri
  const git=(...args)=>execFileSync('git',['-c','user.name=Fixture','-c','user.email=fixture@localhost',...args],{cwd:root,stdio:'pipe'});
  git('init','-q');await fs.writeFile(path.join(root,'fixture.txt'),'base');git('add','.');git('commit','-qm','base');
  const actions=checked?[{tool:'write_file',path:'made.txt',content:'made'},{tool:'run_checks'},{tool:'finish',status:'done',answer:'Checked.'}]:[{tool:'finish',status:'done',answer:'Everything passed without running.'}];
- const app=host({root,chatSequence:actions.map(a=>JSON.stringify(a))});
+ const app=host({root,prototypeExtra:true,chatSequence:actions.map(a=>JSON.stringify(a))});
  try{
   app.settings.set('agent.extraChecks',['/usr/bin/node -e "process.exit(0)"']);app.settings.set('agent.extraNetwork',false);app.settings.set('agentMaxSteps',3);
   await app.receive({type:'ready'});const state=app.posts.filter(p=>p.type==='state').at(-1);app.warning('Enable ExtraFullAccess');await app.receive({type:'agentPreset',scopeKey:state.scopeKey,preset:'extra',requestId:'verified-'+checked});
@@ -3409,7 +3412,7 @@ for(const checked of [false,true])test('SPEC-238 native receipt '+(checked?'veri
 test('SPEC-238 unknown gateway price stops paid calls and leaves a copyable null-cost receipt',{skip:process.platform!=='linux'||process.getuid?.()!==0},async()=>{
  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'unknown-price-')),{execFileSync}=require('node:child_process');
  const git=(...args)=>execFileSync('git',['-c','user.name=Fixture','-c','user.email=fixture@localhost',...args],{cwd:root,stdio:'pipe'});git('init','-q');git('commit','-qm','base','--allow-empty');
- const app=host({root,chatCost:null,chatSequence:['{"tool":"list_dir","path":"."}']});
+ const app=host({root,prototypeExtra:true,chatCost:null,chatSequence:['{"tool":"list_dir","path":"."}']});
  try{app.settings.set('agent.extraNetwork',false);await app.receive({type:'ready'});const state=app.posts.filter(p=>p.type==='state').at(-1);app.warning('Enable ExtraFullAccess');await app.receive({type:'agentPreset',scopeKey:state.scopeKey,preset:'extra',requestId:'unknown-price'});
   await app.receive({type:'ask',question:'Inspect',agent:true});assert.equal(app.requests.filter(r=>r.url.endsWith('/chat')).length,1);
   const latest=app.posts.filter(p=>p.type==='state').at(-1),row=latest.messages.find(r=>r.receipt);assert.ok(row);assert.equal(row.receipt.metered_api_cost_usd,null);assert.equal(row.receipt.final_status,'unverified');

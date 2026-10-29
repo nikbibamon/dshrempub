@@ -71,3 +71,14 @@ test('Selected monorepo subproject copy stays within its declared folder',()=>{
  git('init','-q');fs.mkdirSync(path.join(root,'project'));fs.writeFileSync(path.join(root,'project','code.txt'),'selected');fs.writeFileSync(path.join(root,'sibling.txt'),'not selected');git('add','.');git('commit','-qm','base');
  const copy=extra.createTaskCopy(path.join(root,'project'));assert.equal(copy.sourcePrefix,'project/');assert.equal(fs.readFileSync(path.join(copy.root,'code.txt'),'utf8'),'selected');assert.equal(fs.existsSync(path.join(copy.root,'sibling.txt')),false);assert.equal(fs.existsSync(path.join(copy.root,'project')),false);
 });
+
+test('Unaccepted reference fitness keeps the shipping Extra gate closed EN/RU, including stored grants',async()=>{
+ const blocked=await extra.releasePreflight({network:true});assert.equal(blocked.available,false);assert.equal(blocked.reason,'reference_fitness_unaccepted');
+ for(const locale of ['en','ru']){
+  const folder={uri:{scheme:'file',authority:'',fsPath:'/work/project'}},key='c'.repeat(64),values=new Map([['tvijo.fullAccess.v1.'+key,{schema:1,scopeKey:key,enabled:true,level:'extra',approvedAt:1,approvalId:'previous'}]]),prompts=[];
+  const vscode={workspace:{isTrusted:true,workspaceFolders:[folder]},window:{showWarningMessage:async message=>{prompts.push(message);return 'Enable ExtraFullAccess';}}};
+  const access=createFullAccess({vscode,state:{get:k=>values.get(k),update:async(k,v)=>values.set(k,v)},scope:()=>key,L:(en,ru)=>locale==='ru'?ru:en,extraPreflight:extra.releasePreflight});
+  assert.equal(access.status(folder).enabled,false);assert.equal(access.capture(folder),null);assert.equal(await access.enable(folder,{extra:true}),false);
+  assert.match(prompts[0],locale==='ru'?/Extra выключен.*SPEC-238/:/Extra is disabled.*SPEC-238/);assert.equal(access.capture(folder),null);
+ }
+});
