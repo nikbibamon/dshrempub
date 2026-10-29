@@ -25,7 +25,7 @@
     "bytes": 1258166,
     "editor_requirement": "^1.90.0",
     "source_commit": "65206538c2664baec436438373d215716aba4358",
-    "verified_environment": "42 focused Node 24 tests passed on candidate code; full final suite, installed activation, live paid model and native desktop channels are pending."
+    "verified_environment": "Node 22 and 24: 983 tests each passed. Exact VSIX installed and activated in isolated Linux VS Code 1.143.1. Live paid model and Tvijo desktop channels remain unverified."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
@@ -215,10 +215,17 @@
           "ru": "Extra недоступен на root; shell обычного пользователя не является песочницей ОС. Для ревью через подписку в Full нужно отдельное разрешение проекта."
         },
         {
-          "en": "Prepared candidate; installed activation, live paid model and native desktop channels are not yet verified.",
-          "ru": "Подготовленный кандидат; активация установленного расширения, платная модель и настольные версии пока не проверены."
+          "en": "The exact VSIX installed and activated in isolated Linux VS Code. Live paid model and Tvijo desktop packages remain unverified.",
+          "ru": "Точный VSIX установлен и активирован в изолированном Linux VS Code. Платная модель и настольные пакеты Tvijo пока не проверены."
         }
       ]
+    },
+    {
+      "version": "0.10.24",
+      "date": "2026-10-29",
+      "title": {"en": "SPEC-238 prototype", "ru": "Прототип SPEC-238"},
+      "changes": [{"en": "Separate sandbox prototype; not included in 0.10.25.", "ru": "Отдельный прототип песочницы; не включён в 0.10.25."}],
+      "limitations": [{"en": "Prepared locally, unaccepted and unpublished; release gate remains closed.", "ru": "Подготовлен локально, не принят и не опубликован; выпуск заблокирован."}]
     },
     {
       "version": "0.10.23",
@@ -1001,8 +1008,8 @@
       "ru": "Полный доступ запускает команды с правами пользователя и не создаёт изоляцию ОС. Границы контроля окружения и карантина правил описаны в README."
     },
     {
-      "en": "VSIX0.10.23 has independent verification. Marketplace remains0.10.21 as last observed; native Windows editor1.140.07214 still bundles0.10.17. Reload Window is required after installing a new VSIX.",
-      "ru": "VSIX0.10.23 проверяется отдельно. Последнее наблюдение Marketplace —0.10.21; Windows-редактор1.140.07214 сохраняет0.10.17. После установки нового VSIX требуется Reload Window."
+      "en": "Marketplace was observed at 0.10.23 on 2026-10-29; native Windows editor 1.140.07214 still bundles 0.10.17. Reload Window after installing a VSIX.",
+      "ru": "Marketplace проверен на версии 0.10.23 29.10.2026; Windows-редактор 1.140.07214 сохраняет 0.10.17. После установки VSIX требуется Reload Window."
     },
     {
       "en": "Python/Node syntax checks need separate approval and a Linux extension host; they are off by default.",
@@ -1024,9 +1031,11 @@
   "verification": {
     "date": "2026-10-29",
     "focused_tests": 42,
+    "extension_tests_node22": 983,
+    "extension_tests_node24": 983,
     "native_gui": {
-      "en": "Not verified for this candidate.",
-      "ru": "Для этого кандидата не проверено."
+      "en": "Exact VSIX installed and activated in isolated non-root Linux VS Code 1.143.1; Tvijo desktop installers not tested.",
+      "ru": "Точный VSIX установлен и активирован в изолированном Linux VS Code 1.143.1 без root; установщики Tvijo не проверены."
     },
     "previous_release_verification": {
       "date": "2026-10-28",
