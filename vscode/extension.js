@@ -53,6 +53,7 @@ function activate(context) {
   let deviceLoginActive = false;
   let chatView = null;
   const runJournals = createRunJournal(context.globalStorageUri?.fsPath);
+  const extraTasks = new Map();
   const activeJournals = new Set();
   const draftTimers = new Map();
   let draftSequence = 0;
@@ -250,7 +251,7 @@ function activate(context) {
     knownSecrets:() => [identity?.token, ...rulesPreviewSecrets].filter(Boolean), selectedFolder:()=>permissionFolder(), accountScope:()=>identity?.scope,
   });
   const syntaxChecks = createSyntaxHost({vscode,state:context.globalState,storageRoot:context.globalStorageUri?.fsPath,chooseFolder:()=>projectRulesHost.chooseFolder(),scope:folder=>projectRulesHost.scope(folder),L});
-  const fullAccess = createFullAccess({vscode,state:context.globalState,scope:folder=>{ const key=projectRulesHost.scope(folder); return key && identity?.scope ? createHash('sha256').update(JSON.stringify([identity.scope,key])).digest('hex') : null; },L,
+  const fullAccess = createFullAccess({vscode,extraPreflight:() => require('./lib/extra-sandbox').releasePreflight({network:vscode.workspace.getConfiguration('tvijo').get('agent.extraNetwork',true)}),state:context.globalState,scope:folder=>{ const key=projectRulesHost.scope(folder); return key && identity?.scope ? createHash('sha256').update(JSON.stringify([identity.scope,key])).digest('hex') : null; },L,
     onRevoke:() => { agentAbort?.abort(); activeAbort?.abort(); }});
   const activeWorkspace = createActiveWorkspace({vscode,state:context.workspaceState || context.globalState,L,isBusy:()=>busy || attaching,onChange:() => {
     flushDrafts(); workspaceEpoch++; fullAccess.invalidate(); syntaxChecks.invalidate(); terminalCaptures.invalidate();
@@ -643,7 +644,7 @@ function activate(context) {
     const messages = history.map(item => {
       const content = item.display || item.content;
       const boundary = item.role === 'assistant' && typeof content === 'string' ? content.lastIndexOf('\n---\nTask ') : -1;
-      return boundary < 0 ? {role:item.role, content,agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined} : {role:item.role, content:content.slice(0,boundary), footer:content.slice(boundary + 5),agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined};
+      return boundary < 0 ? {role:item.role, content,extraTaskId:item.extraTaskId,receipt:item.receipt,agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined} : {role:item.role, content:content.slice(0,boundary), footer:content.slice(boundary + 5),extraTaskId:item.extraTaskId,receipt:item.receipt,agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined};
     });
     messages.push(...rewindNotes.filter(note => note.root === permissionFolder()?.uri.fsPath).map(note => ({role:'assistant', content:note.text, note:true})));
     let options = null;
@@ -753,6 +754,106 @@ function activate(context) {
     } finally {agentAbort=null;agentRunning=false;busy=false;await postActivity('done','');await postChatState();}
   }
 
+  async function runExtraFlow({goal,modelGoal,auth,folder,agentScope,agentHistory,fullGrant,guard}) {
+    const extra=require('./lib/extra-sandbox'),config=vscode.workspace.getConfiguration('tvijo');
+    const abort=new AbortController(),id=randomUUID(),key=recoveryScope(auth),startedAt=Date.now();
+    let copy,sandbox,engine,receiptSaved=false;
+    const receipts=require('./lib/run-receipt');
+    const persistReceipt=(status,reason)=>{if(receiptSaved)return null;if(!engine)engine=receipts.createRunReceipt({taskId:id,tree:()=>({hash:null,files:new Map()})});const receipt=engine.finish(status,reason);runJournals.receipt(key,id,receipt);receiptSaved=true;return receipt;};
+    agentAbort=abort;agentRunning=true;busy=true;lastError=null;
+    beginMap(auth,goal.trim(),id);
+    runJournals.begin(key,{id,kind:'agent',prompt:goal.trim(),historyScope:agentScope});activeJournals.add(id);
+    try {
+      await guard();await postChatState();
+      copy=extra.createTaskCopy(folder.uri.fsPath);
+      const mode=fullGrant.sandboxMode||'root-namespaces';
+      engine=receipts.createRunReceipt({taskId:id,baseCommit:copy.baseCommit,root:copy.root,sandboxMode:mode,network:config.get('agent.extraNetwork',true),hostConfirmed:fullGrant.explicitHostConfirmation===true,checks:receipts.projectChecks(copy.root,config.get('agent.extraChecks',[]))});
+      if(mode==='host-confirmed'&&!fullGrant.explicitHostConfirmation)throw Error('Separate host-shell confirmation is missing.');
+      sandbox=extra.createSandbox({root:copy.root,artifactParent:copy.dir,network:config.get('agent.extraNetwork',true),mode});
+      const probe=await sandbox.preflight();if(!probe.available)throw Object.assign(Error('Extra preflight: '+probe.reason),{stopAgent:true});
+      await guard();
+      const reviewer=require('./lib/agent-review').createAgentReview({root:folder.uri.fsPath,guard,signal:abort.signal,enabled:true,onReceipt:receipt=>engine.recordReview(receipt),codexModel:config.get('agentReview.codexModel','gpt-6-astra'),claudeEnabled:config.get('agentReview.claudeEnabled',false),maxCalls:2});
+      const tools=createTools({root:copy.root,allowShell:true,extraAccess:true,extraSandbox:sandbox,agentReview:reviewer,guard,signal:abort.signal,confirmRun:async()=>true,confirmWrite:async()=>true,onCommandLifecycle:observeCommand(auth,mapSession(auth))});
+      engine.wrap(tools);
+      const capabilities=await tools.execute({tool:'agent_capabilities'});capabilities.project_checks=engine.checks;capabilities.verified_completion=true;
+      runJournals.append(key,id,{type:'capabilities',capabilities});await postAgentEvent(auth,{type:'capabilities',capabilities});
+      const ruleSnapshot=projectRulesHost.snapshot({folder,contextMode:config.get('workspaceContext','ask'),knownSecrets:[auth.access_token,auth.refresh_token].filter(Boolean)});
+      const api=core.createClient({base:auth.api_base}),{pack}=await currentPack(auth),model=packs.packModel(config,'agentModel','ds41f',pack);
+      const budget=Number(config.get('agentBudgetUsd',2));let spent=0;
+      const result=await runAgent({goal:modelGoal,history:agentHistory,rules:ruleSnapshot.text,fullAccess:true,extraAccess:true,capabilities,maxSteps:config.get('agentMaxSteps',60),budgetUsd:budget,signal:abort.signal,tools,verification:engine,
+        ask:async({messages,step,signal})=>{
+          await guard();const remaining=budget-spent;if(remaining<=0)throw Object.assign(Error('Agent budget exhausted'),{code:'agent_budget'});
+          const account=auth.kind==='project'?accountSnapshot:await api.account(auth.access_token);await guard();
+          if(auth.kind!=='project'&&account.tenant_id!==auth.tenant_id)throw Error('Account changed.');accountSnapshot=account;
+          const idempotencyKey=randomUUID();await local.savePending(auth.scope,{idempotencyKey,apiBase:auth.api_base,tenantId:auth.tenant_id});
+          const answer=await api.ask({token:auth.access_token,messages:packs.packMessages(messages,pack),maxUsd:Math.min(1,Math.floor(remaining*1e9)/1e9),idempotencyKey,title:'Extra task '+id+' step '+step,maxTokens:2048,model,mode:'single',method:config.get('reasoningMethod','evidence-first'),signal,
+            onGrant:async grant=>{runJournals.task(key,id,grant.id);await mapTask(auth,grant.id,{...grant,title:'Extra step '+step,status:'running',startedAt:Date.now()});await local.savePending(auth.scope,{idempotencyKey,taskId:grant.id,apiBase:auth.api_base,tenantId:auth.tenant_id});}});
+          const price=engine.recordGateway(answer);
+          if(price===null){await local.savePending(auth.scope,{idempotencyKey,taskId:answer.taskId,apiBase:auth.api_base,tenantId:auth.tenant_id,requiresCostReceipt:true});throw Object.assign(Error('Gateway price unknown; paid calls stopped.'),{code:'usage_unknown'});}
+          spent+=price;
+          await clearPending(auth,idempotencyKey);await guard();return answer;
+        },onEvent:event=>{runJournals.append(key,id,event);return postAgentEvent(auth,event);}});
+      await guard();const diff=extra.changes(copy);
+      const fullReceipt=persistReceipt(result.status==='verified'?'verified':result.status==='blocked'?'blocked':'unverified',result.status==='verified'?null:result.verification?.reason||result.reason);
+      const compact=receipts.compactReceipt(fullReceipt);await postAgentEvent(auth,{type:'receipt',receipt:compact});
+      extraTasks.set(id,{copy,hash:diff.hash,authScope:auth.scope,folder,guard,fullGrant});
+      await finishMap(auth,'completed');
+      const display=result.text+'\n\n'+L('Task copy retained. Review the diff before applying or publishing.','Копия задачи сохранена. Просмотрите diff перед применением или публикацией.');
+      await local.saveHistory(agentScope,[...local.history(agentScope),{role:'user',content:goal.trim(),recoveryRunId:id},{role:'assistant',content:result.text,display,extraTaskId:id,receipt:compact,recoveryRunId:id}].slice(-40));
+      runJournals.finish(key,id);await metrics.record({event:'agent',outcome:'completed',mode:'extra',model,steps:result.steps,cost_usd:spent,duration_ms:Date.now()-startedAt});
+    } catch(error) {
+      const receipt=persistReceipt(abort.signal.aborted?'cancelled':'unverified',error.code||'task_failed');
+      if(receipt){
+        const compact=receipts.compactReceipt(receipt);await postAgentEvent(auth,{type:'receipt',receipt:compact});
+        await local.saveHistory(agentScope,[...local.history(agentScope),{role:'user',content:goal.trim(),recoveryRunId:id},{role:'assistant',content:L('Extra task stopped: ','Задача Extra остановлена: ')+(error.code||'task_failed'),receipt:compact,recoveryRunId:id}].slice(-40));
+      }
+      await finishMap(auth,abort.signal.aborted?'cancelled':'failed');
+      if(!local.pending(auth.scope))runJournals.finish(key,id);
+      if(!abort.signal.aborted)throw error;
+    } finally {activeJournals.delete(id);agentAbort=null;agentRunning=false;busy=false;await postChatState();}
+  }
+
+  async function reviewExtraTask(message) {
+    ensureIdle();const auth=await requireAuth(),task=extraTasks.get(message.id);
+    if(!task||task.authScope!==auth.scope||task.folder.uri.fsPath!==permissionFolder()?.uri.fsPath)throw Error('Extra task belongs to another scope or expired.');
+    await task.guard();const extra=require('./lib/extra-sandbox'),diff=extra.changes(task.copy,{againstBase:message.publish===true});
+    if(diff.hash!==task.hash)throw Error('Task copy changed after completion.');
+    if(extra.snapshot(task.copy.source,{paths:task.copy.selected}).hash!==task.copy.baseline.hash)throw Error('Workspace changed since the task began.');
+    for(const row of diff.files) {
+      if(row.path.split('/').some(extra.deniedPart))throw Error('Secret-like task files cannot be exported.');
+      for(const value of [row.previous,row.content])if(value&&(value.length>128*1024||!Buffer.from(value.toString('utf8')).equals(value)||value.includes(0)))throw Error('Only bounded UTF-8 text changes can be applied in the editor.');
+      await showProposedWrite(row.path,row.previous?.toString('utf8')??null,row.content?.toString('utf8')??'');
+    }
+    if(!diff.files.length)return;
+    const validateBuffers=async()=>{
+      for(const row of diff.files){
+        const absolute=safePath(task.copy.source,row.path,true),expected=task.copy.baseline.files.get(row.path)?.data.toString('utf8')??null;
+        const disk=require('./lib/local-tools').writeSnapshot(task.copy.source,absolute,true);if(disk.content!==expected)throw Error('Workspace changed at '+row.path);
+        const opened=(vscode.workspace.textDocuments||[]).find(doc=>doc.uri?.scheme==='file'&&path.resolve(doc.uri.fsPath)===absolute);
+        if(expected===null&&opened)throw Error('An editor already owns the new file path.');
+        if(expected!==null){const doc=opened||await vscode.workspace.openTextDocument(vscode.Uri.file(absolute));agentSave.assertClean(doc,absolute,expected);}
+      }
+    };
+    await validateBuffers();
+    const label=message.publish===true?L('Push and open PR','Отправить и открыть PR'):L('Apply task diff','Применить diff задачи');
+    const choice=await vscode.window.showWarningMessage((message.publish===true?L('Push the reviewed changes and open a GitHub PR?','Отправить просмотренные изменения и открыть GitHub PR?'):L('Apply these task-copy changes to the workspace?','Применить эти изменения из копии задачи в проект?')),{modal:true,detail:diff.files.map(row=>row.path).join('\n')},label);
+    if(choice!==label)return;
+    await task.guard();if(extra.snapshot(task.copy.source,{paths:task.copy.selected}).hash!==task.copy.baseline.hash||extra.changes(task.copy).hash!==task.hash)throw Error('Files changed during diff review.');
+    await validateBuffers();
+    if(message.publish===true) {const published=await extra.publishTask(task.copy,message.id);await postChatState(published.url);return;}
+    for(const row of diff.files) {
+      const absolute=safePath(task.copy.source,row.path,true),previous=row.previous?.toString('utf8')??null,content=row.content?.toString('utf8')??null;
+      const current=require('./lib/local-tools').writeSnapshot(task.copy.source,absolute,true);if(current.content!==previous)throw Error('Workspace file changed.');
+      const document=previous===null?null:await vscode.workspace.openTextDocument(vscode.Uri.file(absolute));
+      if(document)agentSave.assertClean(document,absolute,previous);
+      if(content===null) {
+        await task.guard();assertWriteSnapshot(task.copy.source,absolute,previous,current.identity);agentSave.assertClean(document,absolute,previous);
+        const edit=new vscode.WorkspaceEdit();edit.deleteFile(vscode.Uri.file(absolute),{ignoreIfNotExists:false});if(!await vscode.workspace.applyEdit(edit))throw Error('Editor refused deletion.');
+      } else await agentSave.applySavedWrite({vscode,root:task.copy.source,absolute,previous,content,diskIdentity:current.identity,document,version:document?.version,guard:task.guard,checkpoint:()=>{},beforeApply:()=>{}});
+    }
+    extraTasks.delete(message.id);await postChatState(L('Task diff applied.','Diff задачи применён.'));
+  }
+
   async function runAgentFlow(goal, { planMode = false } = {}) {
     ensureIdle();
     if (!goal?.trim()) return;
@@ -774,6 +875,7 @@ function activate(context) {
     let verifyAgentSavedFiles = () => {};
     const guard = async() => { await baseGuard(); if (fullGrant) fullAccess.assertCurrent(folder,fullGrant); verifyAgentSavedFiles(); };
     if (attachmentScope !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account or thread changed before the agent started.');
+    if (fullGrant?.extra) return runExtraFlow({goal,modelGoal,auth,folder,agentScope,agentHistory,fullGrant,guard});
     const api = core.createClient({ base: auth.api_base });
     const config = vscode.workspace.getConfiguration('tvijo');
     if (orchestration.enabled() && !fullGrant?.extra) return runHarnessFlow({goal,modelGoal,auth,folder,agentScope,planMode,guard,fullGrant,config});
@@ -855,7 +957,7 @@ function activate(context) {
       let rewindStep = 1;
       const checkpointWrite = file => captureRewind({root:folder.uri.fsPath, runId:rewindRunId, step:rewindStep, model:agentModel, title:goal, files:[file]});
       const commandSession = mapSession(auth);
-      const reviewer = require('./lib/agent-review').createAgentReview({root:folder.uri.fsPath,guard,signal:abort.signal,enabled:!!fullGrant?.extra,claudeEnabled:config.get('agentReview.claudeEnabled',false),maxCalls:2});
+      const reviewer = require('./lib/agent-review').createAgentReview({codexModel:config.get('agentReview.codexModel','gpt-6-astra'),root:folder.uri.fsPath,guard,signal:abort.signal,enabled:!!fullGrant?.extra,claudeEnabled:config.get('agentReview.claudeEnabled',false),maxCalls:2});
       const tools = createTools({
         root: folder.uri.fsPath, allowShell: !!fullGrant, extraAccess: !!fullGrant?.extra, agentReview:reviewer,
         codeIntelligence:(action,{signal}) => codeIntelligence.inspect({vscode,root:folder.uri.fsPath,action,guard,signal}),
@@ -2741,7 +2843,7 @@ function activate(context) {
       view.webview.html = chatHtml(view.webview);
       const listener = view.webview.onDidReceiveMessage(async (message) => {
         try {
-          if (['ask', 'attach', 'removeAttachment', 'previewAttachment', 'copy', 'openAnswer', 'new', 'cancel', 'workspace', 'selection', 'path', 'clearAttachments', 'tasks', 'history', 'contextSelect', 'usage', 'workflow', 'setOption', 'agentPreset', 'quickEdit', 'choosePack', 'copyCode', 'openExternal', 'agentMap'].includes(message?.type) && message.scopeKey !== undefined) {
+          if (['ask', 'attach', 'removeAttachment', 'previewAttachment', 'copy', 'openAnswer', 'new', 'cancel', 'workspace', 'selection', 'path', 'clearAttachments', 'tasks', 'history', 'contextSelect', 'usage', 'workflow', 'setOption', 'agentPreset', 'quickEdit', 'choosePack', 'copyCode', 'openExternal', 'agentMap', 'extraTaskReview'].includes(message?.type) && message.scopeKey !== undefined) {
             const auth = await requireAuth();
             if (message.scopeKey !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account changed. This action was not sent.');
           }
@@ -2853,6 +2955,12 @@ function activate(context) {
             await vscode.workspace.getConfiguration('tvijo').update(message.key, message.value, vscode.ConfigurationTarget.Global);
             if (message.key === 'model' || message.key === 'agentModel') await vscode.workspace.getConfiguration('tvijo').update(message.key === 'model' ? 'agentModel' : 'model',message.value,vscode.ConfigurationTarget.Global);
             await postChatState();
+          } else if (message?.type === 'copyRunReceipt') {
+            const auth=await requireAuth();if(message.scopeKey!==currentViewScope(auth.scope))throw Error('Receipt scope changed.');
+            const receipt=runJournals.getReceipt(recoveryScope(auth),message.id);if(!receipt)throw Error('Receipt unavailable.');
+            await vscode.env.clipboard.writeText(JSON.stringify(receipt,null,2));
+          } else if (message?.type === 'extraTaskReview') {
+            await reviewExtraTask(message);
           } else if (message?.type === 'fullAccessRevert') {
             const folder = permissionFolder();
             if (!folder || fullAccess.status(folder).scopeKey !== message.fullAccessScope || typeof message.fullAccessScope !== 'string') throw new core.ServiceError('invalid_option','This Full access folder is no longer available.');

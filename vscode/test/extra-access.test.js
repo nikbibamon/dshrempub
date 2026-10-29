@@ -5,14 +5,14 @@ const {systemPrompt,runAgent}=require('../lib/agent');
 const {presetFor,PRESETS}=require('../lib/modes');
 const {sidebar}=require('./helpers/sidebar');
 async function root(){return fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS||os.tmpdir(),'extra-access-'));}
-test('Extra host shell supports scripts and expansions; Full cannot replay its decision',async()=>{
+test('Extra accepts script syntax only behind an attested sandbox; no root host fallback',async()=>{
  const dir=await root(),command='value=ready; printf "%s" "$value"';
+ assert.equal(analyzeCommand(command,{extra:true}).ok,true);
  const extra=createTools({root:dir,allowShell:true,extraAccess:true,confirmRun:async()=>true});
- const receipt=await extra.execute({tool:'run_command',command});assert.equal(receipt.ok,true);assert.equal(receipt.stdout,'ready');
+ await assert.rejects(extra.execute({tool:'run_command',command}),/preflight/);
  const full=createTools({root:dir,allowShell:true,confirmRun:async()=>true});
  await assert.rejects(full.execute({tool:'run_command',command,commandDecision:analyzeCommand(command,{extra:true})}));
- const noExtra=createTools({root:dir,confirmRun:async()=>true});await assert.rejects(noExtra.execute({tool:'run_command',command}));
- await assert.rejects(extra.execute({tool:'run_command',command:'sudo echo fail'}));
+ assert.equal(analyzeCommand('sudo echo fail',{extra:true}).denied,true);
 });
 test('Plan wins over Extra for commands and review and capability discovery starts no reviewer',async()=>{
  const dir=await root();let calls=0;
@@ -23,14 +23,14 @@ test('Plan wins over Extra for commands and review and capability discovery star
 });
 test('capability receipt and model prompt distinguish Full, Extra and unproven unavailable claims',async()=>{
  const dir=await root(),tools=createTools({root:dir,allowShell:true,extraAccess:true,agentReview:{status:async()=>({codex:{installed:true}}),review:async()=>({ok:true,output:'advice only'})}});
- const capabilities=await tools.execute({tool:'agent_capabilities'});assert.equal(capabilities.mode,'extra');assert.equal(capabilities.run_command,true);
+ const capabilities=await tools.execute({tool:'agent_capabilities'});assert.equal(capabilities.mode,'extra');assert.equal(capabilities.run_command,false);assert.match(capabilities.sandbox_reason,/preflight/);
  let prompt;await runAgent({goal:'inspect',extraAccess:true,capabilities,tools,maxSteps:1,ask:async({messages})=>{prompt=messages[0].content;return {content:'{"tool":"finish","status":"done","answer":"ok"}'};}});
  assert.match(prompt,/HOST CAPABILITIES/);assert.match(prompt,/MODE: EXTRA FULL ACCESS/);assert.match(prompt,/actual refusal/);assert.doesNotMatch(systemPrompt({planMode:true,extraAccess:true}),/MODE: EXTRA FULL ACCESS/);
  assert.equal((await createTools({root:dir}).execute({tool:'agent_review'})).reason,'extra_access_required');
 });
-test('extra account environment preserves account discovery but never billing keys or injection variables',()=>{
+test('Extra project commands do not inherit account discovery, billing keys or injection variables',()=>{
  const env=cleanEnv({PATH:'/bin',HOME:'/home/agent',CODEX_HOME:'/config/codex',OPENAI_API_KEY:'secret',ANTHROPIC_API_KEY:'secret',ANTHROPIC_BASE_URL:'http://wrong',NODE_OPTIONS:'--eval bad',BASH_ENV:'/bad'},true);
- assert.equal(env.HOME,'/home/agent');assert.equal(env.CODEX_HOME,'/config/codex');
+ assert.equal(env.HOME,undefined);assert.equal(env.CODEX_HOME,undefined);
  for(const key of ['OPENAI_API_KEY','ANTHROPIC_API_KEY','ANTHROPIC_BASE_URL','NODE_OPTIONS','BASH_ENV'])assert.equal(env[key],undefined);
  assert.equal(cleanEnv({HOME:'/home/agent'}).HOME,undefined);
 });

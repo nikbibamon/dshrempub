@@ -130,3 +130,9 @@ test('0.10.16 shell chains run in the workspace and bound removals and output fi
   const plain = createTools({ root, confirmRun:async()=>true });
   await assert.rejects(plain.execute({ tool:'run_command', command:'ls && ls' }), /operators/);
 });
+
+test('SPEC-238 Extra dry-run preserves Full destructive denials and blocks outward push',()=>{
+ for(const command of ['git push origin main','git push --force origin HEAD:main','git -C . reset --hard','rm -rf /root/ai-os-workspaces','git clean -fd','git checkout -- .','crontab -r','crontab -fr','/usr/bin/git -C . push --force origin HEAD:main','sh -c "git reset --hard"']) {
+  const decision=analyzeCommand(command,{extra:true});assert.equal(decision.ok,false,command);assert.equal(decision.denied,true,command);
+ }
+});

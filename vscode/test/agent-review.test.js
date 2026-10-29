@@ -67,7 +67,7 @@ test('Codex supplied-evidence review uses fresh fixed read-only CLI and a single
   assert.ok(call.args.includes('--ignore-user-config')); assert.ok(call.args.includes('--ephemeral'));
   assert.ok(call.args.includes('--json')); assert.ok(call.args.includes('--skip-git-repo-check'));
   assert.ok(call.args.includes('read-only')); assert.ok(call.args.includes('approval_policy="never"'));
-  assert.ok(call.args.includes('gpt-6.1-sol')); assert.ok(call.args.includes('hooks')); assert.ok(call.args.includes('shell_tool'));
+  assert.ok(call.args.includes('gpt-6-astra')); assert.ok(call.args.includes('hooks')); assert.ok(call.args.includes('shell_tool'));
   assert.match(fake.children[2].input, /Do not use tools/); assert.match(fake.children[2].input, /Review this supplied diff/);
   assert.equal((await adapter.review({ agent: 'codex', prompt: 'Again' })).reason, 'review_call_limit');
   assert.equal(fake.calls.length, 3);
@@ -233,4 +233,15 @@ test('Codex unexpected tool activity is never accepted as supplied-evidence revi
  const adapter=createAgentReview({root:await workspace(),enabled:true,spawnImpl:fake.spawnImpl});
  const result=await adapter.review({agent:'codex',prompt:'Review'});assert.equal(result.ok,false);assert.equal(result.reason,'unexpected_tool_event');
  const args=fake.calls[2].args;const host=args.indexOf('code_mode_host');assert.equal(args[host-1],'--enable');
+});
+
+test('Codex reviewer defaults to Astra read-only and model is configurable',async()=>{
+ const setting=require('../package.json').contributes.configuration.properties['tvijo.agentReview.codexModel'];
+ assert.equal(setting.default,'gpt-6-astra');
+ for(const codexModel of [undefined,'test-review-model']){
+  const fake=fakeCli(),adapter=createAgentReview({root:await workspace(),enabled:true,spawnImpl:fake.spawnImpl,...(codexModel?{codexModel}:{})});
+  const receipt=await adapter.review({agent:'codex',prompt:'Review supplied evidence.'});
+  assert.equal(receipt.requested_model,codexModel||setting.default);
+  const args=fake.calls[2].args;assert.equal(args[args.indexOf('--sandbox')+1],'read-only');assert.equal(args[args.indexOf('--model')+1],receipt.requested_model);
+ }
 });

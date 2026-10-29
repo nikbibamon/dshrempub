@@ -76,5 +76,8 @@
   "tvijo.orchestration.reportFormat.enum.3": "Both light and dark reports",
   "tvijo.orchestrationReport.title": "Open private task report",
   "tvijo.orchestration.workerPolicy.enum.3": "Sol + Claude · coordinator, implementer, reviewer",
-  "tvijo.agentReview.claudeEnabled.description": "Allow supplied-evidence Claude subscription reviews in ExtraFullAccess. Off by default. Project policy can still pause Claude. No API fallback or recursive delegation."
+  "tvijo.agentReview.claudeEnabled.description": "Allow supplied-evidence Claude subscription reviews in ExtraFullAccess. Off by default. Project policy can still pause Claude. No API fallback or recursive delegation.",
+  "tvijo.agentReview.codexModel.description": "Account Codex reviewer model; default gpt-6-astra, always --sandbox read-only.",
+  "tvijo.agent.extraNetwork.description": "Allow network in Extra task sandboxes. Default on; recorded in every task receipt.",
+  "tvijo.agent.extraChecks.description": "Project check commands pinned before an Extra run. Empty uses the initial package.json test script, if defined. The model cannot select verification commands."
 }

@@ -1,3 +1,12 @@
+## 0.10.24 — SPEC-238 candidate (unpublished)
+
+- **Extra remains disabled.** SPEC-238 reference fitness is not accepted. The sandbox/task-copy/receipt implementation is retained as a disabled draft prototype for review; the native UI names the blocking condition. No setting or environment flag bypasses the shipping gate.
+- The disabled prototype runs Linux tasks in a private repository copy behind an OS sandbox preflight. Root uses cgroups and namespaces, then drops uid and capabilities; it cannot fall back to a host shell. Non-root hosts need a separate explicit confirmation if user namespaces are unavailable.
+- Destructive Git and crontab removal stay denied. Apply and GitHub PR publication show the task diff and require an explicit action; existing dirty buffers are protected.
+- Extra reports verified only after a project-defined check ran successfully after the last write and the tree still matches. A done claim without a check is unverified.
+- Every Extra task writes a local JSON receipt and journal entry with gateway cost/tokens (unknown prices stay unknown), subscription review receipts, checks and sandbox settings. The compact EN/RU receipt has a copy action.
+- Codex account review defaults to gpt-6-astra with a read-only sandbox. This candidate is not a Marketplace publication or production rollout.
+
 ## 0.10.23 — 2026-10-28
 
 - **ExtraFullAccess.** A separate native approval for the selected trusted project and Tvijo account enables POSIX host-shell scripts, substitutions, normal network commands and bounded account CLI reviews. Existing Full access grants are not upgraded. Commands have the current OS user's rights and can affect files outside the project; literal accident checks are not an OS sandbox. Editor file tools retain path and dirty-buffer protections. Switching account/project or revoking the grant cancels active work. Windows hosts retain literal command execution and CLI review; POSIX shell syntax is explicitly unavailable.

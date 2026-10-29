@@ -60,10 +60,7 @@ function cleanEnv(source = process.env, extra = false) {
   for (const key of ['PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'SYSTEMROOT', 'WINDIR', 'TMPDIR', 'TEMP', 'TMP']) {
     if (typeof source[key] === 'string') env[key] = source[key];
   }
-  if (extra) {
-    for (const key of ['HOME','USERPROFILE','APPDATA','LOCALAPPDATA','CODEX_HOME','CLAUDE_CONFIG_DIR','XDG_CONFIG_HOME','XDG_CACHE_HOME']) if (typeof source[key] === 'string') env[key] = source[key];
-    return env; // Host shell grant includes normal network/Git access, never provider keys.
-  }
+  // Extra account discovery belongs only to agent_review, never project commands.
   // Preserve the complete counted config before adding the host transport policy.
   for(const [key,value] of Object.entries(source))if(/^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/.test(key))env[key]=value;
   return require('./agent-command-env').blockGitPush(env);
@@ -413,17 +410,19 @@ async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
   return { ok: true, path: action.path, bytes: Buffer.byteLength(content, 'utf8') };
 }
 
-function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {}, planInspect = null, codeIntelligence = null, allowShell = false, extraAccess = false, agentReview = null }) {
+function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {}, planInspect = null, codeIntelligence = null, allowShell = false, extraAccess = false, agentReview = null, extraSandbox = null }) {
   return {
     root,
     async execute(action, context = {}) {
       await guard();
       if (!action || typeof action.tool !== 'string') throw new Error('A tool name is required.');
       if (context.planMode && ['write_file', 'replace_in_file', 'run_command', 'agent_review'].includes(action.tool)) return { ok: false, refused: true, reason: 'plan_mode' };
+      const extraEnabled = !context.planMode && (typeof extraAccess === 'function' ? !!extraAccess() : !!extraAccess);
+      if (extraEnabled && action.tool !== 'agent_capabilities') require('./extra-sandbox').assertExtraSandbox(extraSandbox);
       switch (action.tool) {
         case 'agent_capabilities': {
           const extra = !context.planMode && (typeof extraAccess === 'function' ? !!extraAccess() : !!extraAccess);
-          const value = {ok:true, mode:context.planMode ? 'plan' : extra ? 'extra' : allowShell ? 'full' : 'agent', run_command:!context.planMode, host_shell:extra && process.platform !== 'win32', shell_syntax:extra && process.platform !== 'win32' ? 'posix' : 'literal', editor_file_scope:root, review:extra && !!agentReview, copilot:'Use @tvijo or #tvijo from Copilot Chat; outbound Copilot review is not implemented.'};
+          const value = {ok:true, mode:context.planMode ? 'plan' : extra ? 'extra' : allowShell ? 'full' : 'agent', run_command:!context.planMode && (!extra || extraSandbox?.ready === true), sandbox_reason:extra && !extraSandbox?.ready ? require('./extra-sandbox').unavailable().reason : null, host_shell:extraSandbox?.mode==='host-confirmed', sandbox_mode:extraSandbox?.mode||null, network:extraSandbox?.network??null, shell_syntax:extra && process.platform !== 'win32' ? 'posix' : 'literal', editor_file_scope:root, review:extra && !!agentReview, copilot:'Use @tvijo or #tvijo from Copilot Chat; outbound Copilot review is not implemented.'};
           if (extra && agentReview) value.agents = await agentReview.status();
           await guard(); return value;
         }
@@ -447,9 +446,9 @@ function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite =
           if(typeof codeIntelligence!=='function')return {ok:false,refused:true,reason:'code_intelligence_unavailable'};
           const value=await codeIntelligence(action,{signal:context.signal || signal});await guard();return value;
         }
-        case 'write_file': return await writeFile(root, action, confirmWrite, applyWrite, beforeWrite, 'write_file');
-        case 'replace_in_file': return await replaceInFile(root, action, confirmWrite, applyWrite, beforeWrite);
-        case 'run_command': await guard(); return await runCommand(root, action, confirmRun, { signal:context.signal || signal, onLifecycle:onCommandLifecycle, guard, allowShell, extraAccess });
+        case 'write_file': {const result=await writeFile(root, action, extraEnabled?async()=>true:confirmWrite, extraEnabled?null:applyWrite, beforeWrite, 'write_file');if(extraEnabled&&result.ok&&process.getuid?.()===0){const who=extraSandbox.identity; if(who){let file=safeWritePath(root,action.path);while(inside(root,file)){await fs.chown(file,who.uid,who.gid);if(file===path.resolve(root))break;file=path.dirname(file);}}}return result;}
+        case 'replace_in_file': return await replaceInFile(root, action, extraEnabled?async()=>true:confirmWrite, extraEnabled?null:applyWrite, beforeWrite);
+        case 'run_command': await guard(); if (extraEnabled) return extraSandbox.execute(action, {signal:context.signal || signal, onLifecycle:onCommandLifecycle}); return await runCommand(root, action, confirmRun, { signal:context.signal || signal, onLifecycle:onCommandLifecycle, guard, allowShell, extraAccess });
         default: throw new Error('Unknown tool: ' + action.tool);
       }
     }

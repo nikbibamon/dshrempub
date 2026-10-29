@@ -7,7 +7,8 @@ const { renderMarkdown, safeExternalUrl } = require('./markdown');
 const { renderAgentMap, buildAgentMap } = require('./agent-map');
 const { CHAT_CSS } = require('./chat-presentation');
 const { renderRewind, REWIND_CSS } = require('./rewind-view');
-const { FULL_ACCESS_LIMITS } = require('./full-access');
+const {receiptText}=require('./run-receipt');
+const { FULL_ACCESS_LIMITS, EXTRA_LIMITS } = require('./full-access');
 
 function chatHtml(webview) {
   const nonce = randomBytes(16).toString('base64');
@@ -20,6 +21,7 @@ ${THEME_CSS}
 ${CHAT_CSS}
 ${REWIND_CSS}
 ${PALETTE_CSS}
+.answer-actions{display:flex;flex-wrap:wrap;gap:6px}.answer-actions button{flex:0 0 auto;min-width:0;max-width:100%;white-space:nowrap;word-break:normal;overflow-wrap:normal}
 #recovery{flex-shrink:0;max-height:260px;overflow:auto;padding:8px 12px;border-top:1px solid var(--border)}#recovery summary{font-size:12px;cursor:pointer;padding:4px 0}.recovery-card{padding:8px;margin:6px 0;border:1px solid var(--border);border-radius:6px}.recovery-card p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 6px}.recovery-actions{display:flex;flex-wrap:wrap;gap:6px}.recovery-actions button{font-size:11px}#recovery-notes{font-size:11px;overflow-wrap:anywhere}
 nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(--vscode-contrastBorder,var(--border));border-radius:999px;background:var(--surface);color:var(--text)}#elapsed-chip{white-space:nowrap}#agent-map-button{white-space:nowrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
 </style></head><body>
@@ -41,8 +43,9 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
 <div id="notice" role="alert"><p id="notice-text"></p><button id="notice-action" type="button">Resolve task</button><button id="notice-close" class="icon" type="button" aria-label="Dismiss">×</button></div>
 <script nonce="${nonce}">
   const COPY = ${JSON.stringify(COPY)};
-  Object.assign(COPY.en,{modeExtra:'ExtraFullAccess',modeExtraHint:'Host shell and bounded account CLI reviews. Commands can affect files outside the project. Project policy and budgets remain. Uses the local Agent engine.',modeFull:'Full access',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.en)},agentSavedHelp:'Agent edits are saved before disk checks. Dirty user buffers are protected.',fullAccessWarning:'Full access is active',fullAccessRevert:'Revert'});
-  Object.assign(COPY.ru,{modeExtra:'ExtraFullAccess',modeExtraHint:'Shell хоста и ограниченное CLI-ревью через подписку. Команды могут менять файлы вне проекта. Правила проекта и бюджет сохраняются. Использует локальный Agent.',modeFull:'Полный доступ',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.ru)},agentSavedHelp:'Правки агента сохраняются до проверок на диске. Пользовательские несохранённые буферы защищены.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
+  Object.assign(COPY.en,{modeExtra:'ExtraFullAccess',modeExtraHint:${JSON.stringify(EXTRA_LIMITS.en)},modeFull:'Full access',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.en)},agentSavedHelp:'Agent edits are saved before disk checks. Dirty user buffers are protected.',fullAccessWarning:'Full access is active',fullAccessRevert:'Revert'});
+  Object.assign(COPY.ru,{modeExtra:'ExtraFullAccess',modeExtraHint:${JSON.stringify(EXTRA_LIMITS.ru)},modeFull:'Полный доступ',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.ru)},agentSavedHelp:'Правки агента сохраняются до проверок на диске. Пользовательские несохранённые буферы защищены.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
+  const receiptText = ${receiptText.toString()};
   const safeExternalUrl = ${safeExternalUrl.toString()};
   const renderMarkdown = ${renderMarkdown.toString()};
   const renderAgentMap = ${renderAgentMap.toString()};
@@ -453,6 +456,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   }
   function renderAgentEvent(event) {
     if (!event || typeof event !== 'object') return;
+    if (event.type === 'receipt') { agentLine(locale==='ru'?'Квитанция':'Receipt',receiptText(event.receipt,locale),event.receipt?.final_status==='verified'?'ok':'bad');return; }
     if (event.type === 'capabilities') { agentLine(locale === 'ru' ? 'Доступ' : 'Access', (event.capabilities?.mode || 'unknown') + ' · ' + (event.capabilities?.run_command ? (locale === 'ru' ? 'терминал доступен' : 'terminal available') : (locale === 'ru' ? 'без команд' : 'no commands'))); return; }
     if (event.type === 'reset') { agentLog.replaceChildren(); agentLog.className = ''; return; }
     if (event.type === 'start') {
@@ -746,6 +750,8 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
           const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
           button.addEventListener('click', () => post({type,index})); actions.append(button);
         }
+        if(item.receipt){const summary=document.createElement('p');summary.className='task-receipt';summary.textContent=receiptText(item.receipt,locale);block.append(summary);const copy=document.createElement('button');copy.type='button';copy.textContent=locale==='ru'?'Копировать квитанцию':'Copy receipt';copy.addEventListener('click',()=>post({type:'copyRunReceipt',id:item.receipt.task_id}));actions.append(copy);}
+        if(item.extraTaskId){const review=document.createElement('button');review.type='button';review.textContent=locale==='ru'?'Просмотреть diff задачи':'Review task diff';review.disabled=running||submitting;review.addEventListener('click',()=>post({type:'extraTaskReview',id:item.extraTaskId}));actions.append(review);const publish=document.createElement('button');publish.type='button';publish.textContent=locale==='ru'?'Просмотреть и открыть PR':'Review and open PR';publish.disabled=running||submitting;publish.addEventListener('click',()=>post({type:'extraTaskReview',id:item.extraTaskId,publish:true}));actions.append(publish);}
         if(item.autoCommit?.hash){const undo=document.createElement('button');undo.type='button';undo.textContent=locale==='ru'?'Отменить коммит':'Undo commit';undo.disabled=running || submitting;undo.addEventListener('click',()=>post({type:'undoCommit',index}));actions.append(undo);}
         if(item.agentRequest){const agent=document.createElement('button');agent.type='button';agent.textContent=locale==='ru'?'Сделать агентом':'Make it an agent';agent.disabled=running || submitting;agent.addEventListener('click',()=>post({type:'makeAgent',index}));actions.append(agent);}
         block.append(actions);

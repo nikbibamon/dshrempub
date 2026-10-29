@@ -12,7 +12,7 @@ function setup(locale='en') {
   const prompts = [];
   const vscode = { workspace: { isTrusted: true, workspaceFolders: [first, second] }, window: { showWarningMessage: async (message, options, label) => { prompts.push({ message, options, label }); return label; } } };
   let scopeOverride;
-  const access = createFullAccess({ vscode, state, L:(en,ru)=>locale==='ru'?ru:en, scope: f => scopeOverride ? scopeOverride(f) : f === first ? a : f === second ? b : c });
+  const access = createFullAccess({ vscode, state, extraPreflight:async()=>({available:true}), L:(en,ru)=>locale==='ru'?ru:en, scope: f => scopeOverride ? scopeOverride(f) : f === first ? a : f === second ? b : c });
   return { access, first, second, vscode, state, values, prompts, setScope: fn => { scopeOverride = fn; } };
 }
 
@@ -122,7 +122,7 @@ test('ExtraFullAccess is a separate approval and invalidates captured Full grant
  assert.equal(x.access.status(x.first).extra,true);
  assert.throws(()=>x.access.assertCurrent(x.first,full));
  const extra=x.access.capture(x.first);assert.equal(x.access.assertCurrent(x.first,extra),true);
- const restart=createFullAccess({vscode:x.vscode,state:x.state,scope:()=>a});assert.equal(restart.status(x.first).extra,true);
+ const restart=createFullAccess({vscode:x.vscode,state:x.state,scope:()=>a});assert.equal(restart.status(x.first).extra,false);assert.match(restart.status(x.first).extraReason,/preflight/);
  await x.access.disable(x.first);assert.throws(()=>x.access.assertCurrent(x.first,extra));
 });
 
