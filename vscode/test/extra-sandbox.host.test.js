@@ -33,6 +33,8 @@ test('SPEC-238 root host: actual preflight and SPEC-207 escape probes',{skip,tim
  probe('task_writable',(()=>{try{fs.writeFileSync('/workspace/probe-write','ok');return true;}catch{return false;}})());
  probe('other_homes_absent',!fs.existsSync('/root')&&!fs.existsSync('/etc/aios')&&!fs.existsSync('/run')&&!fs.existsSync('/sys'));
  probe('account_cli_credentials',unreadable('/tmp/home/.codex/auth.json')&&unreadable('/tmp/home/.ssh')&&unreadable('/tmp/home/.claude'));
+ let sizeDenied=false;const fd=fs.openSync('/tmp/file-size-canary','w');try{fs.ftruncateSync(fd,512*1024*1024+1);}catch(e){sizeDenied=e.code==='EFBIG';}finally{fs.closeSync(fd);}probe('file_size_limit',sizeDenied);
+ const temporary=fs.statfsSync('/tmp');probe('bounded_tmpfs',temporary.blocks*temporary.bsize<=64*1024*1024);
  async function unreachable(host){return new Promise(resolve=>{const s=net.connect({host,port:80});s.setTimeout(500);s.on('connect',()=>{s.destroy();resolve(false);});s.on('error',()=>resolve(true));s.on('timeout',()=>{s.destroy();resolve(true);});});}
  (async()=>{for(const host of ['127.0.0.1','169.254.169.254','1.1.1.1'])probe('network_'+host,await unreachable(host));console.log(JSON.stringify({results,failures}));process.exitCode=failures.length?1:0;})();
  `;

@@ -38,7 +38,7 @@ function sandboxArgs(task, {network=true, uid=65534, gid=65534, root=false} = {}
   return args;
 }
 function rootArgs(planFile, unit, timeout) {
-  return ['--quiet','--wait','--pipe','--collect','--unit='+unit,'--property=Type=exec','--property=MemoryMax=768M','--property=MemorySwapMax=0','--property=CPUQuota=100%','--property=TasksMax=128','--property=KillMode=control-group','--property=TimeoutStopSec=2','--property=RuntimeMaxSec='+Math.ceil(timeout/1000+5),'--property=LimitCORE=0','--property=LimitFSIZE=268435456','--property=LimitNOFILE=512','--property=UMask=0077','--property=SystemCallArchitectures=native','/usr/bin/unshare','--mount','--pid','--fork','--kill-child=KILL','--ipc','--uts',...(!JSON.parse(fs.readFileSync(planFile)).network?['--net']:[]),'/usr/bin/node',__filename,'--worker',planFile];
+  return ['--quiet','--wait','--pipe','--collect','--unit='+unit,'--property=Type=exec','--property=MemoryMax=768M','--property=MemorySwapMax=0','--property=CPUQuota=100%','--property=TasksMax=128','--property=KillMode=control-group','--property=TimeoutStopSec=2','--property=RuntimeMaxSec='+Math.ceil(timeout/1000+5),'--property=LimitCORE=0','--property=LimitFSIZE=536870912','--property=LimitNOFILE=512','--property=UMask=0077','--property=SystemCallArchitectures=native','/usr/bin/unshare','--mount','--pid','--fork','--kill-child=KILL','--ipc','--uts',...(!JSON.parse(fs.readFileSync(planFile)).network?['--net']:[]),'/usr/bin/node',__filename,'--worker',planFile];
 }
 function worker(planFile) {
   const st=fs.lstatSync(planFile);
