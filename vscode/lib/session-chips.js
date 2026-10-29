@@ -44,7 +44,7 @@ function countRunningAgents(session = {}) {
 
 function viewState(session, now = Date.now()) {
   if (!session || typeof session !== 'object') return { status:'unknown', startedAt:null, endedAt:null, elapsedMs:null, agents:null };
-  const status = ['running','completed','failed','cancelled'].includes(session.status) ? session.status : 'unknown';
+  const status = ['running','completed','blocked','partial','failed','cancelled'].includes(session.status) ? session.status : 'unknown';
   return {
     status,
     startedAt: timestamp(session.startedAt ?? session.started_at),

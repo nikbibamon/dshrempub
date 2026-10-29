@@ -12,7 +12,7 @@ function setup(locale='en') {
   const prompts = [];
   const vscode = { workspace: { isTrusted: true, workspaceFolders: [first, second] }, window: { showWarningMessage: async (message, options, label) => { prompts.push({ message, options, label }); return label; } } };
   let scopeOverride;
-  const access = createFullAccess({ vscode, state, L:(en,ru)=>locale==='ru'?ru:en, scope: f => scopeOverride ? scopeOverride(f) : f === first ? a : f === second ? b : c });
+  const access = createFullAccess({ vscode, state, isPrivileged:()=>false, L:(en,ru)=>locale==='ru'?ru:en, scope: f => scopeOverride ? scopeOverride(f) : f === first ? a : f === second ? b : c });
   return { access, first, second, vscode, state, values, prompts, setScope: fn => { scopeOverride = fn; } };
 }
 
@@ -122,7 +122,7 @@ test('ExtraFullAccess is a separate approval and invalidates captured Full grant
  assert.equal(x.access.status(x.first).extra,true);
  assert.throws(()=>x.access.assertCurrent(x.first,full));
  const extra=x.access.capture(x.first);assert.equal(x.access.assertCurrent(x.first,extra),true);
- const restart=createFullAccess({vscode:x.vscode,state:x.state,scope:()=>a});assert.equal(restart.status(x.first).extra,true);
+ const restart=createFullAccess({vscode:x.vscode,state:x.state,scope:()=>a,isPrivileged:()=>false});assert.equal(restart.status(x.first).extra,true);
  await x.access.disable(x.first);assert.throws(()=>x.access.assertCurrent(x.first,extra));
 });
 
@@ -130,4 +130,28 @@ test('legacy Full approval never silently acquires extra host capabilities',asyn
  const x=setup();x.values.set(PREFIX+a,{schema:1,scopeKey:a,enabled:true,approvedAt:1,approvalId:'legacy'});
  assert.equal(x.access.status(x.first).enabled,true);assert.equal(x.access.status(x.first).extra,false);
  const grant=x.access.capture(x.first);x.setScope(()=>b);assert.throws(()=>x.access.assertCurrent(x.first,grant));
+});
+
+test('root cannot enable Extra; an existing Extra record is retained but cannot start a task',async()=>{
+ const x=setup();const root=createFullAccess({vscode:x.vscode,state:x.state,scope:()=>a,isPrivileged:()=>true});
+ await assert.rejects(root.enable(x.first,{extra:true}),e=>e.code==='root_extra_access_refused');assert.equal(x.prompts.length,0);
+ const record={schema:1,scopeKey:a,enabled:true,level:'extra',approvedAt:1,approvalId:'old-extra'};x.values.set(PREFIX+a,record);
+ assert.equal(root.status(x.first).extraAvailable,false);assert.equal(root.status(x.first).enabled,false);assert.match(root.status(x.first).extraUnavailableReason,/non-root OS account/);
+ assert.throws(()=>root.capture(x.first),e=>e.code==='root_extra_access_refused');assert.deepEqual(x.values.get(PREFIX+a),record);
+ assert.equal(await root.enable(x.first),true);assert.equal(root.status(x.first).extra,false);assert.equal(root.status(x.first).enabled,true);
+});
+test('ordinary Full reviews need an explicit native standing grant, survive restart and can be revoked',async()=>{
+ const x=setup();await x.access.enable(x.first);assert.equal(x.access.status(x.first).reviews,false);
+ const before=x.access.capture(x.first);x.vscode.window.showWarningMessage=async()=>undefined;
+ assert.equal(await x.access.setReviews(x.first,true),false);assert.equal(x.access.status(x.first).reviews,false);
+ let prompts=0;x.vscode.window.showWarningMessage=async(_text,options,label)=>{prompts++;assert.equal(label,'Allow account reviews');assert.match(options.detail,/at most two/);return label;};
+ assert.equal(await x.access.setReviews(x.first,true),true);assert.equal(prompts,1);assert.throws(()=>x.access.assertCurrent(x.first,before));
+ assert.equal(await x.access.setReviews(x.first,true),true);assert.equal(prompts,1);
+ const restarted=createFullAccess({vscode:x.vscode,state:x.state,scope:()=>a});assert.equal(restarted.status(x.first).reviews,true);assert.equal(restarted.status(x.first).extra,false);
+ assert.equal(await restarted.setReviews(x.first,false),true);assert.equal(restarted.status(x.first).reviews,false);assert.equal(prompts,1);
+});
+test('review grant approval loses authority on folder change and failed persistence cannot enable it on restart',async()=>{
+ const x=setup();await x.access.enable(x.first);let checks=0;
+ await assert.rejects(x.access.setReviews(x.first,true,{guard:async()=>{if(++checks===4)throw Error('account changed');}}),/account changed/);
+ const restart=createFullAccess({vscode:x.vscode,state:x.state,scope:()=>a});assert.equal(restart.status(x.first).reviews,false);
 });

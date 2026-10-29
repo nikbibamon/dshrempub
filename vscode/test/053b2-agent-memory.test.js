@@ -9,7 +9,7 @@ const { runAgent, conversationContext } = require('../lib/agent');
 test('B11 second question sees first user/assistant pair in actual model request', async () => {
   let call;
   await runAgent({goal:'Что я спрашивал?',history:[{role:'user',content:'Какая версия?'},{role:'assistant',content:'Версия 0.5.3'}],
-    ask:async req=>{call=req;return {content:'{"tool":"finish","answer":"О версии"}'};},tools:{}});
+    ask:async req=>{call=req;return {content:'{"tool":"finish","answer":"О версии"}',cost:{spent_usd:0}};},tools:{}});
   assert.match(call.messages[0].content,/Какая версия/);
   assert.match(call.messages[0].content,/Версия 0.5.3/);
   assert.equal(call.messages[1].content,'Что я спрашивал?');
@@ -26,8 +26,8 @@ test('B11 UTF-8 history is at most 8 KiB, newest wins, goal survives tool prunin
   await runAgent({goal:'ORIGINAL QUESTION',history,maxSteps:9,tools:{execute:async()=>({ok:true})},
     ask:async req=>{assert.equal(req.messages[1].content,'ORIGINAL QUESTION');
       assert.match(req.messages[0].content,/новое/);
-      if(req.finalization){final=req;return {content:'Done'};}
-      return {content:'{"tool":"list_dir","path":"src"}'};}});
+      if(req.finalization){final=req;return {content:'Done',cost:{spent_usd:0}};}
+      return {content:'{"tool":"list_dir","path":"src"}',cost:{spent_usd:0}};}});
   assert.ok(final);
 });
 

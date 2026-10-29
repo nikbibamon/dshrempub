@@ -30,6 +30,6 @@ test('approved budget reaches agent accounting without resetting cumulative spen
 test('continued step allowance reaches the next system prompt without changing the goal',async()=>{
  let count=0;await runAgent({goal:'keep this goal',maxSteps:1,requestMoreSteps:async()=>30,tools:{execute:async()=>({ok:true})},ask:async({messages})=>{
  count++;assert.match(messages[0].content,count===1?/Step 1 of at most 1/:/Step 2 of at most 31/);assert.equal(messages[1].content,'keep this goal');
- return {content:count===1?' {"tool":"list_dir","path":"."}':'{"tool":"finish","answer":"done"}'};
+ return {content:count===1?' {"tool":"list_dir","path":"."}':'{"tool":"finish","answer":"done"}',cost:{spent_usd:0}};
  }});
 });

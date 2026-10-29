@@ -1,3 +1,11 @@
+## 0.10.25 — 2026-10-29 (prepared)
+
+- **Honest task outcomes and receipts.** Blocked and partial work stays visible; local receipts record observed commands, edits, task IDs and known or unknown usage. A model's completion claim is not independent verification.
+- **Unknown cost stops the agent.** Missing cost remains unknown and stops further model steps until reconciled. A measured zero remains zero.
+- **Account reviews in Full.** Codex and enabled Claude account CLI reviews are advisory and bounded. Existing Full grants do not gain this permission automatically; enable it explicitly for the project. Quota failure does not fall back to an API key.
+- **Extra access on root.** ExtraFullAccess is refused on privileged root extension hosts. On a non-root host, Extra still uses the OS user's rights and is not an OS sandbox. Existing Full access and inbound Copilot integration remain separate; outbound Copilot review is not implemented.
+- **Migration and verification.** Reload the editor after installation. At preparation time the candidate had not been published, installed as a VSIX or smoke-tested with a live paid model. Desktop editors, CLI and Marketplace are independent channels; see their release receipts for subsequent verification.
+
 ## 0.10.23 — 2026-10-28
 
 - **ExtraFullAccess.** A separate native approval for the selected trusted project and Tvijo account enables POSIX host-shell scripts, substitutions, normal network commands and bounded account CLI reviews. Existing Full access grants are not upgraded. Commands have the current OS user's rights and can affect files outside the project; literal accident checks are not an OS sandbox. Editor file tools retain path and dirty-buffer protections. Switching account/project or revoking the grant cancels active work. Windows hosts retain literal command execution and CLI review; POSIX shell syntax is explicitly unavailable.

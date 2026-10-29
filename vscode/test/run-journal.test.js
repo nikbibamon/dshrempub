@@ -11,6 +11,13 @@ const scopeA = 'a'.repeat(64), scopeB = 'b'.repeat(64);
 function fixture() { const root = fs.mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || os.tmpdir(), 'run-journal-')); return { root, journal: createRunJournal(root) }; }
 function begin(j, scope = scopeA, id = 'run_1', prompt = 'full prompt') { return j.begin(scope, { id, kind: 'chat', prompt, historyScope: scopeB }); }
 
+test('terminal transport status retains blocked outcome and independent receipt across restart without replay',()=>{
+ const {root,journal}=fixture();begin(journal,scopeA,'receipt');
+ const receipt={schema:1,id:'receipt',execution:{outcome:'blocked'},usage:{status:'unknown',spent_usd:null},provider_tasks:['one','two']};
+ journal.receipt(scopeA,'receipt',receipt);journal.finish(scopeA,'receipt','blocked');
+ const restored=createRunJournal(root);assert.equal(restored.get(scopeA,'receipt').status,'completed');assert.equal(restored.get(scopeA,'receipt').outcome,'blocked');assert.deepEqual(restored.getReceipt(scopeA,'receipt'),receipt);assert.equal(restored.getReceipt(scopeB,'receipt'),null);assert.deepEqual(restored.list(scopeA).runs,[]);
+});
+
 test('full prompt and run survive a new journal instance', () => {
   const { root, journal } = fixture(); begin(journal, scopeA, 'saved', 'a'.repeat(12000));
   const restored = createRunJournal(root).get(scopeA, 'saved');

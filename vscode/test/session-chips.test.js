@@ -4,6 +4,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { timestamp, elapsedMs, countRunningAgents, viewState, formatElapsed } = require('../lib/session-chips');
 
+test('blocked and partial are terminal outcomes rather than completed or unknown',()=>{
+ for(const status of ['blocked','partial']){const state=viewState({status,startedAt:1700000000000,endedAt:1700000003000},1800000000000);assert.equal(state.status,status);assert.equal(state.elapsedMs,3000);assert.equal(state.agents,0);}
+});
+
 test('run elapsed time anchors to host timestamps and freezes at completion', () => {
   const startedAt = Date.parse('2026-10-21T10:00:00Z');
   const running = {status:'running', startedAt};

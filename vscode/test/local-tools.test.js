@@ -8,6 +8,22 @@ const os = require('node:os');
 const { createTools, autoCommand, cleanEnv } = require('../lib/local-tools');
 const { autoWritePolicy } = require('../lib/modes');
 
+test('privileged Extra is refused before commands, file tools, reviewer probes or confirmations; Full remains usable',async()=>{
+ const root=await workspace();let confirms=0,reviews=0;
+ const extra=createTools({root,allowShell:true,extraAccess:true,isPrivileged:()=>true,confirmRun:async()=>{confirms++;return true;},agentReview:{status:async()=>{reviews++;}}});
+ for(const action of [{tool:'run_command',command:'printf denied'},{tool:'agent_capabilities'},{tool:'read_file',path:'a.txt'}])await assert.rejects(extra.execute(action),e=>e.code==='root_extra_access_refused' && e.stopAgent===true);
+ assert.equal(confirms,0);assert.equal(reviews,0);
+ const full=createTools({root,allowShell:true,isPrivileged:()=>true,confirmRun:async()=>true});const result=await full.execute({tool:'run_command',command:'printf FULL_STILL_SUPPORTED'});assert.equal(result.stdout,'FULL_STILL_SUPPORTED');
+});
+test('Full review dispatch requires its own grant; Plan denies even with that grant',async()=>{
+ const root=await workspace();let probes=0,reviews=0;
+ const reviewer={status:async()=>{probes++;return {ok:true};},review:async()=>{reviews++;return {ok:true,output:'advice'};}};
+ const plain=createTools({root,allowShell:true,agentReview:reviewer});assert.equal((await plain.execute({tool:'agent_capabilities'})).review,false);assert.equal((await plain.execute({tool:'agent_review'})).reason,'account_review_grant_required');assert.equal(probes,0);
+ const allowed=createTools({root,allowShell:true,agentReview:reviewer,reviewEnabled:true});const caps=await allowed.execute({tool:'agent_capabilities'});assert.equal(caps.review,true);assert.equal(caps.mode,'full');assert.equal(caps.host_shell,false);
+ assert.equal((await allowed.execute({tool:'agent_review',agent:'codex',prompt:'Supplied source'})).ok,true);assert.equal(reviews,1);
+ assert.equal((await allowed.execute({tool:'agent_review'},{planMode:true})).reason,'plan_mode');assert.equal((await allowed.execute({tool:'agent_capabilities'},{planMode:true})).review,false);assert.equal(reviews,1);
+});
+
 test('native code intelligence is read-only in Plan with explicit unavailable and guarded dispatch', async () => {
   const root = await workspace(), controller = new AbortController();
   const action = {tool:'code_intelligence',operation:'symbols',path:'source.js'};
