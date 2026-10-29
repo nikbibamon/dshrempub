@@ -12,11 +12,11 @@
   "latest_version": "0.10.25",
   "channel": "preview",
   "publication": {
-    "status": "prepared",
-    "published_at": null,
+    "status": "published",
+    "published_at": "2026-10-29",
     "note": {
-      "en": "0.10.25 is a prepared candidate; publication and independent artifact verification are pending.",
-      "ru": "0.10.25 — подготовленный кандидат; публикация и независимая проверка артефакта ожидаются."
+      "en": "GitHub preview 0.10.25 was anonymously downloaded and verified; Marketplace and native editors remain independent channels.",
+      "ru": "GitHub preview 0.10.25 скачан без авторизации и проверен; Marketplace и настольные редакторы остаются отдельными каналами."
     }
   },
   "package": {
@@ -223,9 +223,22 @@
     {
       "version": "0.10.24",
       "date": "2026-10-29",
-      "title": {"en": "SPEC-238 prototype", "ru": "Прототип SPEC-238"},
-      "changes": [{"en": "Separate sandbox prototype; not included in 0.10.25.", "ru": "Отдельный прототип песочницы; не включён в 0.10.25."}],
-      "limitations": [{"en": "Prepared locally, unaccepted and unpublished; release gate remains closed.", "ru": "Подготовлен локально, не принят и не опубликован; выпуск заблокирован."}]
+      "title": {
+        "en": "SPEC-238 prototype",
+        "ru": "Прототип SPEC-238"
+      },
+      "changes": [
+        {
+          "en": "Separate sandbox prototype; not included in 0.10.25.",
+          "ru": "Отдельный прототип песочницы; не включён в 0.10.25."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Prepared locally, unaccepted and unpublished; release gate remains closed.",
+          "ru": "Подготовлен локально, не принят и не опубликован; выпуск заблокирован."
+        }
+      ]
     },
     {
       "version": "0.10.23",
@@ -1108,6 +1121,10 @@
           "github_ci": "https://github.com/nikbibamon/dshrempub/actions/runs/40109919542"
         }
       }
-    }
+    },
+    "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.25",
+    "tag_commit": "d06c5057974fa2388d61f589b37418dc93e64260",
+    "anonymous_sha256": "453d1fa8d6753de5009fdaec2d6d956b80aac678a4cff670b3d124d9d2a355ba",
+    "anonymous_observed_at": "2026-10-29T10:32:30.184783+00:00"
   }
 }
