@@ -3360,7 +3360,7 @@ test('ExtraFullAccess native consent cannot be bypassed by selecting the preset'
   await app.receive({type:'ready'});const state=app.posts.filter(p=>p.type==='state').at(-1);
   await app.receive({type:'agentPreset',scopeKey:state.scopeKey,preset:'extra',requestId:'extra-test'});
   assert.notEqual(app.posts.filter(p=>p.type==='state').at(-1).options.agentPreset,'extra');
-  assert.match(JSON.stringify(app.warnings),/preflight/);
+  assert.match(JSON.stringify(app.warnings),/Extra/);
   assert.equal(app.requests.filter(item=>item.url.endsWith('/tasks')&&item.method==='POST').length,0);
  }finally{app.close();}
 });
