@@ -485,19 +485,21 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     closeModeMenu(true); controls();
     post({type:'agentPreset',preset,requestId:pendingModeRequestId});
   }
-  function agentLine(tag, detail, kind) {
+  let agentSteps = new Map(), currentAgentStep = null;
+  function clearAgentLog() { agentLog.replaceChildren(); agentLog.className = ''; agentPanel.hidden = true; agentStatus = ''; agentSteps = new Map(); currentAgentStep = null; updateAgentPanel(); }
+  function agentLine(tag, detail, kind, target = agentLog) {
     const line = document.createElement('div'); line.className = 'line ' + (kind || '');
     const label = document.createElement('span'); label.className = 'tag'; label.textContent = tag;
     const text = document.createElement('span'); text.className = 'detail'; text.textContent = detail || '';
-    line.append(label, text); agentLog.append(line);
+    line.append(label, text); target.append(line);
     agentLog.scrollTop = agentLog.scrollHeight;
   }
   function renderAgentEvent(event) {
     if (!event || typeof event !== 'object') return;
     if (event.type === 'capabilities') { agentLine(locale === 'ru' ? 'Доступ' : 'Access', (event.capabilities?.mode || 'unknown') + ' · ' + (event.capabilities?.run_command ? (locale === 'ru' ? 'терминал доступен' : 'terminal available') : (locale === 'ru' ? 'без команд' : 'no commands'))); return; }
-    if (event.type === 'reset') { agentLog.replaceChildren(); agentLog.className = ''; agentPanel.hidden = true; agentStatus = ''; updateAgentPanel(); return; }
+    if (event.type === 'reset') { clearAgentLog(); return; }
     if (event.type === 'start') {
-      agentLog.replaceChildren(); agentLog.className = 'visible'; agentPanel.hidden = false; agentStatus = 'running'; updateAgentPanel();
+      clearAgentLog(); agentLog.className = 'visible'; agentPanel.hidden = false; agentStatus = 'running'; updateAgentPanel();
       const details = [event.planMode ? t('modePlan') : t('modeAgent')];
       if (Number.isFinite(event.maxSteps)) details.push(t('agentStep') + ' 0/' + event.maxSteps);
       if (Number.isFinite(event.budgetUsd)) details.push('$' + event.budgetUsd);
@@ -505,18 +507,23 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       agentLine(t('agentTitle'), event.goal || '', '');
       return;
     }
-    if (event.type === 'step') { agentLine(t('agentStep') + ' ' + event.step + '/' + event.maxSteps, '$' + Number(event.spent || 0).toFixed(4), ''); return; }
+    if (event.type === 'step') {
+      const section = document.createElement('details'); section.className = 'agent-step';
+      const summary = document.createElement('summary'); summary.textContent = t('agentStep') + ' ' + event.step + '/' + event.maxSteps + ' · $' + Number(event.spent || 0).toFixed(4);
+      const body = document.createElement('div'); body.className = 'agent-step-body'; section.append(summary, body); agentLog.append(section);
+      currentAgentStep = body; agentSteps.set(event.step, body); agentLog.scrollTop = agentLog.scrollHeight; return;
+    }
     if (event.type === 'action') {
       const action = event.action || {};
       const detail = action.tool === 'run_command' ? action.command : action.tool === 'search' ? action.query : (action.path || '');
-      agentLine(action.tool || t('agentTitle'), detail, '');
+      agentLine(action.tool || t('agentTitle'), detail, '', agentSteps.get(event.step) || currentAgentStep || agentLog);
       return;
     }
     if (event.type === 'result') {
       const result = event.result || {};
       const kind = result.ok === false ? 'bad' : 'ok';
       const detail = result.refused ? t('agentRefused') : result.error ? result.error : result.exitCode !== undefined ? 'exit ' + result.exitCode + (result.timedOut ? ' · timeout' : '') : (result.path || (result.entries ? result.entries.slice(0, 6).join(', ') : ''));
-      agentLine(result.ok === false ? (result.refused ? t('agentRefused') : t('agentError')) : t('agentOk'), detail, kind);
+      agentLine(result.ok === false ? (result.refused ? t('agentRefused') : t('agentError')) : t('agentOk'), detail, kind, agentSteps.get(event.step) || currentAgentStep || agentLog);
       return;
     }
     if (event.type === 'final') { const blocked=event.status === 'blocked',partial=event.partial || event.status === 'partial'; agentStatus = blocked ? 'blocked' : partial ? 'partial' : 'final'; updateAgentPanel(); agentLine(blocked ? (locale === 'ru' ? 'Заблокировано' : 'Blocked') : t(partial ? 'agentPartial' : 'agentFinal'), (event.text || '').slice(0, 300), blocked || partial ? 'bad' : 'ok'); }
@@ -890,6 +897,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
         const legacyTime = draftTimes[nextScope];
         const legacyScopedDraft = scopeKey === null && saved?.composerScope === undefined && nextScope && typeof drafts[nextScope] === 'string' && (!Number.isFinite(legacyTime) || Date.now() - legacyTime < draftTtl) ? drafts[nextScope] : undefined;
         const leavingScope = scopeKey !== null;
+        if (scopeKey !== nextScope && leavingScope) clearAgentLog();
         if (scopeKey) drafts[composerScope || scopeKey] = question.value;
         scopeKey = nextScope;
         composerScope = nextComposerScope;

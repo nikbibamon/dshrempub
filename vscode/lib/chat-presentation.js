@@ -39,6 +39,7 @@ body[data-view="engineering"] #agent-details:not([hidden]){display:flex;flex:0 0
 body #agent-details[data-collapsed="true"]{height:auto;max-height:none}
 #agent-resize{flex:0 0 8px;cursor:ns-resize;touch-action:none;background:var(--border)}#agent-resize[hidden]{display:none}#agent-resize:focus-visible{outline:2px solid var(--vscode-focusBorder,var(--accent));outline-offset:-2px}
 #agent-heading{display:flex;align-items:center;gap:6px;min-width:0;padding:2px 8px;font-size:10px}#agent-heading-title{white-space:nowrap}#agent-status{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}#agent-toggle{font-size:10px;padding:2px 5px;white-space:nowrap}
+#agent-log .agent-step{margin:3px 0}#agent-log .agent-step summary{cursor:pointer;color:var(--accent);overflow-wrap:anywhere}#agent-log .agent-step summary:focus-visible{outline:2px solid var(--vscode-focusBorder,var(--accent))}#agent-log .agent-step-body{padding:3px 0 3px 10px}
 body #agent-log.visible{flex:1 1 0;min-height:0;max-height:none;margin:0;padding:4px 8px;border:0;border-radius:0}body #agent-log[hidden]{display:none}
 body #composer-signin{align-self:flex-start;background:var(--accent);color:#fff;padding:5px 10px;font-size:12px}
 body #attachments:empty{display:none}body #plus-menu,body #mode-menu,body #options-menu{bottom:65px;max-height:65vh;z-index:8}
