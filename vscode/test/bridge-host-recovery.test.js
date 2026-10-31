@@ -112,6 +112,25 @@ test('interrupted running diagnostic becomes failed after reload and is never re
   assert.equal(next.reads(), 0); next.delivery.dispose();
 });
 
+test('completed health with unwritable outbox becomes an explained failure after reload without another read', async () => {
+  const first = host();
+  const pending = path.join(first.root, 'retained-pending.json');
+  fs.writeFileSync(pending, '{"taskId":"uncertain","held":1000000}');
+  const original = fs.readFileSync(pending);
+  first.queue.finish = () => { throw Error('simulated outbox write failure'); };
+  first.send('unwritten', '/status'); await settle();
+  assert.equal(first.reads(), 1);
+  assert.equal(first.queue.status('unwritten').state, 'running');
+  first.delivery.dispose();
+  const next = host({ root: first.root, pid: 22 });
+  next.queue.recover(); next.delivery.flush(); await settle();
+  assert.equal(next.queue.status('unwritten').state, 'failed');
+  assert.equal(next.queue.status('unwritten').error, 'interrupted_by_reload');
+  assert.equal(next.reads(), 0);
+  assert.deepEqual(fs.readFileSync(pending), original);
+  next.delivery.dispose();
+});
+
 test('ordinary messages retain actual sidebar pending gate while status completes headlessly', async () => {
   const ui = sidebar({}, { pending: { taskId: 'uncertain', costKnown: false }, busy: false });
   const h = host({ view: { webview: { postMessage: message => { ui.emit('window:message', { data: message }); return Promise.resolve(true); } } } });

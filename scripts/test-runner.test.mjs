@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { testEnvironment, runTestFiles } from './test-runner.mjs';
+import { testEnvironment, testBatches, runTestPlan, runTestFiles } from './test-runner.mjs';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
+import { createRequire } from 'node:module';
+import vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
 
 const parent = mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || tmpdir(), 'runner-check-'));
 
@@ -68,6 +71,80 @@ test('child receives the isolated environment, test timeout and literal paths wi
     assert.equal(process.env.OPENAI_API_KEY, undefined);
   `);
   assert.equal(await runTestFiles({ cwd: parent, files: [file], env: testEnvironment(), stdio: 'ignore' }), 0);
+});
+
+test('only the exact extension aggregate gets 180 seconds, with every discovered file retained in order', () => {
+  const directory = fileURLToPath(new URL('../vscode/test/', import.meta.url));
+  const files = readdirSync(directory).filter(name => name.endsWith('.test.js')).sort().map(name => path.join('test', name));
+  const batches = testBatches('vscode', [...files].reverse());
+  assert.equal(batches.length, 3);
+  assert.deepEqual(batches.map(batch => batch.testTimeoutMs), [60000, 180000, 60000]);
+  assert.deepEqual(batches[1].files, [path.join('test', 'extension.test.js')]);
+  assert.deepEqual(batches.flatMap(batch => batch.files), files);
+  assert.equal(new Set(batches.flatMap(batch => batch.files)).size, files.length);
+  for (const suite of ['scripts', '.']) assert.deepEqual(testBatches(suite, files), [{ files, testTimeoutMs: 60000 }]);
+  const lookalikes = ['extension.test.js', path.join('nested', 'extension.test.js'), path.join('test', 'extension-extra.test.js')].sort();
+  assert.deepEqual(testBatches('vscode', lookalikes), [{ files: lookalikes, testTimeoutMs: 60000 }]);
+});
+
+test('all 262 aggregate registrations keep an individual 60-second ceiling and existing options', () => {
+  const filename = fileURLToPath(new URL('../vscode/test/extension.test.js', import.meta.url));
+  const source = readFileSync(filename, 'utf8');
+  const registered = [];
+  const realRequire = createRequire(filename);
+  const context = { require: name => name === 'node:test' ? (...args) => registered.push(args) : realRequire(name), __dirname: path.dirname(filename), __filename: filename, process, Buffer, setTimeout, clearTimeout, console };
+  // Only registrations run; test callbacks are recorded, never replaced by a
+  // claimed aggregate pass. The full aggregate is verified by the suite runner.
+  vm.runInNewContext(source, context, { filename });
+  assert.equal(registered.length, 262);
+  assert(registered.every(([name, options, callback]) => typeof name === 'string' && options.timeout === 60000 && typeof callback === 'function'));
+  const existing = registered.find(([name]) => name.startsWith('approved Python syntax checks'));
+  assert.equal(existing[1].skip, process.platform !== 'linux' || !existsSync('/usr/bin/python3'));
+  vm.runInNewContext("test('registration options', {skip:true, concurrency:1, timeout:20}, () => {}); test('capped options', {timeout:90000}, () => {});", context);
+  assert.equal(registered[262][1].skip, true);
+  assert.equal(registered[262][1].concurrency, 1);
+  assert.equal(registered[262][1].timeout, 20);
+  assert.equal(registered[263][1].timeout, 60000);
+});
+
+test('three real child batches receive their exact budgets, concurrency one and unfiltered inventory', async () => {
+  const cwd = mkdtempSync(path.join(parent, 'batches-'));
+  mkdirSync(path.join(cwd, 'test'));
+  const files = ['before.test.js', 'extension.test.js', 'z-after.test.js'].map(name => path.join('test', name));
+  for (const [index, file] of files.entries()) {
+    writeFileSync(path.join(cwd, file), `const assert=require('node:assert/strict'),fs=require('node:fs');
+      assert(process.execArgv.includes('--test-timeout=${index === 1 ? 180000 : 60000}'));
+      assert(process.execArgv.includes('--test-concurrency=1'));
+      assert(!process.execArgv.some(arg=>arg.startsWith('--test-name-pattern')));
+      assert.equal(process.env.OPENAI_API_KEY,undefined);assert.equal(process.env.ANTHROPIC_API_KEY,undefined);
+      fs.appendFileSync(${JSON.stringify(path.join(cwd, 'executed.jsonl'))},JSON.stringify(${JSON.stringify(file)})+'\\n');`);
+  }
+  const batches = testBatches('vscode', files).map(batch => ({ cwd, ...batch, stdio: 'ignore' }));
+  const env = testEnvironment({ ...process.env, OPENAI_API_KEY: 'synthetic', ANTHROPIC_API_KEY: 'synthetic' });
+  assert.equal(await runTestPlan({ batches, env, deadline: Date.now() + 10000 }), 0);
+  assert.deepEqual(readFileSync(path.join(cwd, 'executed.jsonl'), 'utf8').trim().split('\n').map(JSON.parse), files);
+});
+
+test('one shared nine-minute deadline is consumed across batches, without resetting or hiding failures', async () => {
+  const batches = testBatches('vscode', [path.join('test', 'before.test.js'), path.join('test', 'extension.test.js'), path.join('test', 'z.test.js')]);
+  let clock = 1000;
+  const remaining = [];
+  const deadline = clock + 540000;
+  assert.equal(await runTestPlan({ batches, env: {}, deadline, now: () => clock, run: async options => { remaining.push(options.timeoutMs); clock += 270000; return 0; } }), 124);
+  assert.deepEqual(remaining, [540000, 270000]);
+  for (const expected of [1, 124, 130, 143]) {
+    let calls = 0;
+    assert.equal(await runTestPlan({ batches, env: {}, deadline: 540000, now: () => 0, run: async () => { calls++; return expected; } }), expected);
+    assert.equal(calls, 1);
+  }
+});
+
+test('the aggregate registration wrapper enforces a stricter individual deadline in a real child', async () => {
+  const source = readFileSync(new URL('../vscode/test/extension.test.js', import.meta.url), 'utf8');
+  const wrapper = source.slice(0, source.indexOf("const assert = require('node:assert/strict');"));
+  const file = path.join(parent, 'individual-deadline.test.cjs');
+  writeFileSync(file, wrapper + "test('intentional timeout', {timeout:20}, async () => { await new Promise(resolve => setTimeout(resolve,200)); });\n");
+  assert.equal(await runTestFiles({ cwd: parent, files: [file], env: testEnvironment(), testTimeoutMs: 180000, timeoutMs: 5000, stdio: 'ignore' }), 1);
 });
 
 test('failed tests fail the launcher', async () => {

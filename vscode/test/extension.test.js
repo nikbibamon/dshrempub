@@ -1,6 +1,12 @@
 'use strict';
 
-const test = require('node:test');
+const nodeTest = require('node:test');
+// This aggregate needs more than a minute, but each registered case still has
+// its own one-minute ceiling. Keep existing options and any stricter deadline.
+function test(name, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  return nodeTest(name, { ...options, timeout: Math.min(options?.timeout ?? 60000, 60000) }, callback);
+}
 const assert = require('node:assert/strict');
 const Module = require('node:module');
 const path = require('node:path');

@@ -25,10 +25,30 @@ export function testEnvironment(source = process.env) {
   return env;
 }
 
-export function runTestFiles({ cwd, files, env, timeoutMs = suiteTimeoutMs, stdio = 'inherit' }) {
+export function testBatches(suite, files) {
+  const sorted = [...files].sort();
+  const aggregate = suite === 'vscode' ? sorted.indexOf(path.join('test', 'extension.test.js')) : -1;
+  if (aggregate < 0) return [{ files: sorted, testTimeoutMs: 60000 }];
+  return [
+    { files: sorted.slice(0, aggregate), testTimeoutMs: 60000 },
+    { files: [sorted[aggregate]], testTimeoutMs: 180000 },
+    { files: sorted.slice(aggregate + 1), testTimeoutMs: 60000 },
+  ].filter(batch => batch.files.length);
+}
+
+export async function runTestPlan({ batches, env, deadline, run = runTestFiles, now = Date.now }) {
+  for (const batch of batches) {
+    const remaining = deadline - now();
+    const code = remaining <= 0 ? 124 : await run({ ...batch, env, timeoutMs: remaining });
+    if (code !== 0) return code;
+  }
+  return 0;
+}
+
+export function runTestFiles({ cwd, files, env, timeoutMs = suiteTimeoutMs, testTimeoutMs = 60000, stdio = 'inherit' }) {
   return new Promise((resolve) => {
     const grouped = process.platform !== 'win32';
-    const child = spawn(process.execPath, ['--test', '--test-timeout=60000', '--test-concurrency=1', ...files], {
+    const child = spawn(process.execPath, ['--test', `--test-timeout=${testTimeoutMs}`, '--test-concurrency=1', ...files], {
       cwd, env, stdio, shell: false, detached: grouped,
     });
     let timedOut = false;
@@ -81,16 +101,16 @@ async function main() {
   console.log(`Test artifacts: ${env.TVIJO_TEST_ARTIFACTS}`);
   const suites = args[0] === '--extension' ? ['vscode'] : ['scripts', '.', 'vscode'];
   const deadline = Date.now() + suiteTimeoutMs;
+  const batches = [];
   for (const suite of suites) {
     const cwd = path.join(repoRoot, suite);
     const files = suite === 'scripts' ? ['test-runner.test.mjs'] : readdirSync(path.join(cwd, 'test'))
       .filter(name => name.endsWith(suite === 'vscode' ? '.test.js' : '.test.mjs'))
       .sort().map(name => path.join('test', name));
     if (files.length === 0) throw new Error(`No tests found in ${suite}`);
-    const remaining = deadline - Date.now();
-    const code = remaining <= 0 ? 124 : await runTestFiles({ cwd, files, env, timeoutMs: remaining });
-    if (code !== 0) { process.exitCode = code; return; }
+    batches.push(...testBatches(suite, files).map(batch => ({ cwd, ...batch })));
   }
+  process.exitCode = await runTestPlan({ batches, env, deadline });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
