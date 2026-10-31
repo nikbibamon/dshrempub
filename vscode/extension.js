@@ -48,6 +48,7 @@ const {createActiveWorkspace} = require('./lib/active-workspace');
 const {fitContext} = require('./lib/context-budget');
 const {listFolders,folderUri} = require('./lib/folder-browser');
 const {createInbox} = require('./lib/inbox');
+const {createBridgeDelivery} = require('./lib/bridge-diagnostics');
 const AUTH_KEY = 'tvijo.auth';
 const CONTEXT_CONSENT = 'tvijo.contextConsent';
 
@@ -3150,16 +3151,17 @@ function activate(context) {
   reconnectTimer.unref?.(); context.subscriptions.push({dispose:() => clearInterval(reconnectTimer)});
   const bridgeEnabled = () => vscode.workspace.getConfiguration('tvijo').get('bridge.enabled', false) === true;
   const storage = context.globalStorageUri?.fsPath;
-  const inbox = bridgeInbox = createInbox({dir:storage ? path.join(storage, 'inbox') : null, outbox:storage ? path.join(storage, 'outbox') : null, deliver:message => {
-    if (!chatView) return false;
-    chatView.show?.(true);
-    // A refused post (view disposed or not loaded) is handed over again at the next tick.
-    Promise.resolve(chatView.webview.postMessage({type:'inbox', ...message})).then(ok => { if (ok === false) inbox.unhand(message.id); }, () => inbox.unhand(message.id));
-    return true;
-  }});
+  const bridgeDelivery = createBridgeDelivery({
+    inbox: () => bridgeInbox, view: () => chatView, enabled: bridgeEnabled,
+    runtimeVersion: () => context.extension?.packageJSON?.version || require('./package.json').version,
+    health: signal => client().request('/health', {signal, timeoutMs:3000}),
+    focus: () => vscode.commands.executeCommand('tvijo.chat.focus')
+  });
+  const inbox = bridgeInbox = createInbox({dir:storage ? path.join(storage, 'inbox') : null, outbox:storage ? path.join(storage, 'outbox') : null, deliver:bridgeDelivery.deliver});
+  context.subscriptions.push({dispose:() => bridgeDelivery.dispose()});
   let inboxTicks = 0;
   // Recovery runs regardless of the file bridge: Copilot messages use the same claimed queue.
-  const inboxTimer = setInterval(() => { try { inbox.ensure(); inbox.recover(); if (bridgeEnabled()) inbox.poll(); if (++inboxTicks % 2400 === 1) inbox.prune(); } catch { /* The next tick retries. */ } }, 1500);
+  const inboxTimer = setInterval(() => { try { bridgeDelivery.flush(); inbox.ensure(); inbox.recover(); if (bridgeEnabled()) inbox.poll(); if (++inboxTicks % 2400 === 1) inbox.prune(); } catch { /* The next tick retries. */ } }, 1500);
   inboxTimer.unref?.(); context.subscriptions.push({dispose:() => clearInterval(inboxTimer)});
   // Copilot Chat (any model, including DeepSeek through a provider extension) reaches the
   // same durable queue: the @tvijo participant for the user, the tvijo_ask tool for agent mode.
