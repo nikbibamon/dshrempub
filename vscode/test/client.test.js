@@ -18,6 +18,26 @@ function fakeFetch(routes) {
   return { impl, calls };
 }
 
+test('unknown provider cost preserves a known reserve and still blocks another task', () => {
+  for (const reason of ['usage_unknown','charge_pending','usage_reconciliation_required','usage_recovery_unavailable']) {
+    for (const status of ['frozen','completed']) {
+      const snapshot = {status,reason,budget:{spent_usd:'0',held_usd:'1'}};
+      for (const value of [snapshot,{task:snapshot}]) {
+        const state=core.taskStateOf(value);
+        assert.equal(state.held,1);
+        assert.equal(state.costKnown,false);
+        assert.equal(state.terminal,false);
+        assert.equal(core.pendingBlocks(state),true);
+      }
+    }
+  }
+  const state=core.taskStateOf({status:'completed',reason:'charge_pending',receipt:{held_micro_tvijo:0,debited_micro_tvijo:0}});
+  assert.equal(state.held,0);assert.equal(state.heldUnit,'TT');assert.equal(state.costKnown,false);assert.equal(core.pendingBlocks(state),true);
+  assert.equal(core.taskStateOf({status:'frozen',reason:'charge_pending'}).held,null);
+  assert.equal(core.taskStateOf({status:'frozen',budget:{held_usd:-1}}).held,null);
+  assert.equal(core.taskStateOf({status:'frozen',byok:{provider_cost_status:'unknown'},budget:{held_usd:'0.25'}}).held,0.25);
+});
+
 test('apiBase requires https except localhost', () => {
   assert.equal(core.apiBase(''), core.DEFAULT_API_BASE);
   assert.equal(core.apiBase('http://localhost:8080/api/dshrem/v1/'), 'http://localhost:8080/api/dshrem/v1');

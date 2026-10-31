@@ -11,6 +11,27 @@ const collect=options=>collectRules({workspaceTrusted:true,...options});
 
 const base = process.env.TVIJO_FIT_TEST_TMP || path.join(os.tmpdir(), 'tvijo-worker-fit-rules');
 
+test('rule scans skip ordinary file metadata but retain nested rules and the entry bound',async()=>{
+ const root=await workspace();
+ await fsp.mkdir(path.join(root,'.github'));
+ await fsp.writeFile(path.join(root,'.github','copilot-instructions.md'),'Keep diagnostics precise.');
+ await rules(root,'Use tests.');
+ await Promise.all(Array.from({length:100},(_,i)=>fsp.writeFile(path.join(root,'ordinary-'+i+'.txt'),'source')));
+ const original=fs.lstatSync;let ordinaryStats=0;
+ fs.lstatSync=function(file,...args){if(path.dirname(String(file))===root&&path.basename(String(file)).startsWith('ordinary-'))ordinaryStats++;return original.call(this,file,...args);};
+ let result;
+ try{result=require('../lib/project-rules').fingerprintProject({root,boundary:root});}finally{fs.lstatSync=original;}
+ assert.equal(ordinaryStats,0);
+ assert.equal(result.truncated,false);
+ assert.ok(result.has(path.join(root,'.github','copilot-instructions.md')));
+ assert.ok(result.has(path.join(root,'.tvijo','rules.md')));
+ const before=result.get(path.join(root,'.tvijo','rules.md')).fingerprint;
+ await rules(root,'Use different tests.');
+ result=require('../lib/project-rules').fingerprintProject({root,boundary:root});
+ assert.notEqual(result.get(path.join(root,'.tvijo','rules.md')).fingerprint,before);
+ assert.equal(require('../lib/project-rules').fingerprintProject({root,boundary:root,maxEntries:5}).truncated,true);
+});
+
 async function workspace() {
   await fsp.mkdir(base, { recursive: true });
   const root = await fsp.mkdtemp(path.join(base, 'rules-'));

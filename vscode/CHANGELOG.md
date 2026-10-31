@@ -1,3 +1,12 @@
+## 0.10.26 — 2026-10-31 (prepared local test build)
+
+- **Single-model startup.** DSH Harness remains off by default, and ds41f remains the default chat/Agent model. Invalid inactive team preferences no longer break single-model startup. Team help explains how to select ds41f alone instead of trying to set a team size of one.
+- **Actionable DSH errors.** Missing controllers, unsupported host team options and unavailable workers show fixed English/Russian setup guidance instead of a misleading workspace-file error. Arbitrary controller stderr is excluded from the notice.
+- **Known reserve, unknown charge.** Pending tasks display a valid reserved amount when supplied by the service, even if final provider cost is unknown. Unknown cost still blocks another paid task, including a reported terminal task with zero reserved amount; no financial guard is cleared.
+- **Less repeated rule-scan work.** Ordinary file metadata is skipped while scanning rule fingerprints. Nested rules, symlink checks and the same entry/directory limits remain enforced; a truncated scan still requires the existing applicable command approvals.
+- **Separate agent permissions.** Tvijo Full access controls Tvijo Agent. Codex keeps its own permission mode and approval policy. Installing this VSIX does not grant permissions to another extension or alter its files.
+- **Migration and scope.** Reload the editor after installation; existing settings and grants are retained. This is a standalone VSIX for operator testing in VS Code and TvijoCode, with Windows tested first by the operator. Native editor builds, Marketplace and public download channels are separate. Live ds41f acceptance remains blocked by the existing service accounting freeze.
+
 ## 0.10.25 — 2026-10-29 (prepared)
 
 - **Honest task outcomes and receipts.** Blocked and partial work stays visible; local receipts record observed commands, edits, task IDs and known or unknown usage. A model's completion claim is not independent verification.

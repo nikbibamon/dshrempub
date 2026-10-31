@@ -5,6 +5,7 @@ const path=require('node:path');
 const fs=require('node:fs');
 const os=require('node:os');
 const {createHash,randomUUID}=require('node:crypto');
+const {failure}=require('./runtime-errors');
 const PREFIX='tvijo.orchestration.run.';
 function discoverHost(home=os.homedir()){
  const file=path.join(home,'.config','tvijo','orchestrator.json');
@@ -22,26 +23,26 @@ function settings(config){
  const enabled=config.get('orchestration.enabled',false)===true;
  const profile=config.get('orchestration.profile','dsh-harness');
  const policy=config.get('orchestration.workerPolicy','sol');
- if(enabled&&(profile!=='dsh-harness'||!['sol','sol-astra','sol-astra-claude','sol-claude'].includes(policy)))throw Error('Unsupported orchestration profile or worker policy.');
+ if(enabled&&(profile!=='dsh-harness'||!['sol','sol-astra','sol-astra-claude','sol-claude'].includes(policy)))throw failure('orchestration_preferences','Unsupported orchestration profile or worker policy.');
  const agentCount=config.get('orchestration.agentCount',3),reportFormat=config.get('orchestration.reportFormat','both');
- if(!Number.isInteger(agentCount)||agentCount<3||agentCount>6)throw Error('Team role count must be an integer from 3 to 6.');
- if(!['light','dark','rainbow','both'].includes(reportFormat))throw Error('Unsupported orchestration report format.');
- if(enabled&&policy==='sol-astra-claude'&&agentCount<4)throw Error('Sol + Astra + Claude requires at least 4 team roles including the coordinator.');
+ if(enabled&&(!Number.isInteger(agentCount)||agentCount<3||agentCount>6))throw failure('orchestration_preferences','Team role count must be an integer from 3 to 6.');
+ if(enabled&&!['light','dark','rainbow','both'].includes(reportFormat))throw failure('orchestration_preferences','Unsupported orchestration report format.');
+ if(enabled&&policy==='sol-astra-claude'&&agentCount<4)throw failure('orchestration_preferences','Sol + Astra + Claude requires at least 4 team roles including the coordinator.');
  const host=discoverHost();
  return {enabled,profile,policy,agentCount,reportFormat,python:config.get('orchestration.pythonPath','')||host?.python||'python3',controller:config.get('orchestration.controllerPath','')||host?.controller||'',state:config.get('orchestration.statePath','')||host?.state||''};
 }
 function safeEnv(source=process.env){return Object.fromEntries(['PATH','HOME','LANG','LC_ALL','TMPDIR','XDG_CACHE_HOME'].filter(k=>source[k]).map(k=>[k,source[k]]));}
 function invoke(config,command,payload={},options={}){
- if(!path.isAbsolute(config.controller)||!path.isAbsolute(config.state))return Promise.reject(Error('DSH Harness is not set up on this project host. Use Tvijo: Set up orchestration. No packages are installed automatically.'));
+ if(!path.isAbsolute(config.controller)||!path.isAbsolute(config.state))return Promise.reject(failure('orchestration_setup'));
  return new Promise((resolve,reject)=>{
   const child=spawn(config.python,[config.controller,'--state',config.state,command],{cwd:options.cwd,env:safeEnv(),shell:false,stdio:['pipe','pipe','pipe']});
   let stdout='',stderr='',finished=false;
-  const timer=setTimeout(()=>{child.kill('SIGTERM');finish(Error('Orchestration controller timed out. Inspect status before retrying.'));},30000);
+  const timer=setTimeout(()=>{child.kill('SIGTERM');finish(failure('orchestration_runtime'));},30000);
   function finish(error,value){if(finished)return;finished=true;clearTimeout(timer);error?reject(error):resolve(value);}
-  child.stdout.on('data',b=>{stdout+=b;if(stdout.length>2*1024*1024){child.kill('SIGTERM');finish(Error('Controller response too large.'));}});
+  child.stdout.on('data',b=>{stdout+=b;if(stdout.length>2*1024*1024){child.kill('SIGTERM');finish(failure('orchestration_runtime'));}});
   child.stderr.on('data',b=>{stderr=(stderr+b).slice(-2000);});
-  child.on('error',()=>finish(Error('Orchestration runtime is unavailable. Configure the installed controller and Python on this extension host.')));
-  child.on('close',code=>{if(code!==0)return finish(Error(stderr||'Orchestration refused the request. Run doctor.'));try{finish(null,JSON.parse(stdout));}catch{finish(Error('Invalid controller response; inspect the durable status.'));}});
+  child.on('error',()=>finish(failure('orchestration_runtime')));
+  child.on('close',code=>{if(code!==0)return finish(failure('orchestration_runtime'));try{finish(null,JSON.parse(stdout));}catch{finish(failure('orchestration_runtime'));}});
   child.stdin.on('error',()=>{});child.stdin.end(JSON.stringify(payload));
  });
 }
@@ -76,16 +77,16 @@ function createOrchestrator({state,configuration,invokeController=invoke,pollMs=
   await guard();
   const canonical=fs.realpathSync(project),key=keyFor(scope,canonical);
   const previous=state.get(key);
-  if(previous&&(previous.qualityChecking||['queued','running','launching','quality_running','cancel_requested','reconcile_required','reconnect_required'].includes(previous.status)))throw Error('This project has a durable orchestration task. Use Status, Resume or Stop before a new task.');
+  if(previous&&(previous.qualityChecking||['queued','running','launching','quality_running','cancel_requested','reconcile_required','reconnect_required'].includes(previous.status)))throw failure('orchestration_pending','This project has a durable orchestration task. Use Status, Resume or Stop before a new task.');
   const doctor=await call(config,'doctor',{},canonical);await guard();
-  if(doctor.setup_required)throw Error('DSH Harness needs setup on a Linux local or Remote SSH project host. Run Orchestration doctor and follow https://dsh.tvijo.com/orchestration/setup');
+  if(doctor.setup_required)throw failure('orchestration_setup');
   // An old controller may silently ignore additive authorize fields. Require its
   // advertised team-options capability before claiming a configured team.
-  if(!doctor.team_options||typeof doctor.team_options!=='object'||Array.isArray(doctor.team_options))throw Error('This host runtime does not advertise team options. Update it through explicit host setup before starting a team task.');
+  if(!doctor.team_options||typeof doctor.team_options!=='object'||Array.isArray(doctor.team_options))throw failure('orchestration_team_options','This host runtime does not advertise team options. Update it through explicit host setup before starting a team task.');
   const selectedPolicy=Array.isArray(doctor.team_options.policies)?doctor.team_options.policies.find(item=>item.id===config.policy):null;
-  if(!Array.isArray(doctor.team_options.agent_counts)||!doctor.team_options.agent_counts.includes(config.agentCount)||!Array.isArray(doctor.team_options.report_formats)||!doctor.team_options.report_formats.includes(config.reportFormat))throw Error('The selected team size or report format is not supported by this host runtime. Update the host or choose a supported option.');
-  if(!selectedPolicy||selectedPolicy.available!==true||!Array.isArray(selectedPolicy.agent_counts)||!selectedPolicy.agent_counts.includes(config.agentCount))throw Error('The selected subscription worker policy is unavailable for this team size on this host. No paid API fallback.');
-  if(config.policy==='sol-astra-claude'&&!doctor.native_claude_verified)throw Error('Claude native provider, exact model and subscription quota are not verified on this host. Select Sol or Sol + Astra.');
+  if(!Array.isArray(doctor.team_options.agent_counts)||!doctor.team_options.agent_counts.includes(config.agentCount)||!Array.isArray(doctor.team_options.report_formats)||!doctor.team_options.report_formats.includes(config.reportFormat))throw failure('orchestration_team_options','The selected team size or report format is not supported by this host runtime. Update the host or choose a supported option.');
+  if(!selectedPolicy||selectedPolicy.available!==true||!Array.isArray(selectedPolicy.agent_counts)||!selectedPolicy.agent_counts.includes(config.agentCount))throw failure('orchestration_team_options','The selected subscription worker policy is unavailable for this team size on this host. No paid API fallback.');
+  if(config.policy==='sol-astra-claude'&&!doctor.native_claude_verified)throw failure('orchestration_team_options','Claude native provider, exact model and subscription quota are not verified on this host. Select Sol or Sol + Astra.');
   const workspace=createHash('sha256').update(canonical).digest('hex');
   const binding={tenant,workspace,account,project:canonical};
   // authorityRoot is a host-only continuation input for explicit bounded repair/tests;

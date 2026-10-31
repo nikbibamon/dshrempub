@@ -197,14 +197,16 @@ function taskStateOf(snapshot) {
   const debited = snapshot?.receipt?.debited_micro_tvijo ?? snapshot?.task?.receipt?.debited_micro_tvijo;
   const costKnown = (typeof rawCost === 'number' || (typeof rawCost === 'string' && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(rawCost))) && Number.isFinite(Number(rawCost)) && Number(rawCost)>=0 || Number.isSafeInteger(debited) && debited>=0;
   const status = String(snapshot?.status ?? snapshot?.task?.status ?? '').toLowerCase();
-  if (['usage_unknown','charge_pending','usage_reconciliation_required','usage_recovery_unavailable'].includes(snapshot?.reason ?? snapshot?.task?.reason)) return {status,terminal:false,held:null,costKnown:false};
-  if ((snapshot?.byok || snapshot?.task?.byok)?.provider_cost_status === 'unknown') return { status, terminal:false, held:null };
+  // The reserved amount can be known while the eventual provider charge is not.
+  // Keep both facts: showing the reserve must never release an uncertain task.
+  const uncertain = ['usage_unknown','charge_pending','usage_reconciliation_required','usage_recovery_unavailable'].includes(snapshot?.reason ?? snapshot?.task?.reason) || (snapshot?.byok || snapshot?.task?.byok)?.provider_cost_status === 'unknown';
+  const state = {status, costKnown: uncertain ? false : costKnown, terminal: !uncertain && TERMINAL.has(status)};
   const serviceHeld = snapshot?.receipt?.held_micro_tvijo ?? snapshot?.task?.receipt?.held_micro_tvijo;
-  if (serviceHeld !== undefined) return { status, costKnown, terminal: TERMINAL.has(status), held: Number.isSafeInteger(serviceHeld) && serviceHeld >= 0 ? serviceHeld / 1000000 : null, heldUnit:'TT' };
+  if (serviceHeld !== undefined) return { ...state, held: Number.isSafeInteger(serviceHeld) && serviceHeld >= 0 ? serviceHeld / 1000000 : null, heldUnit:'TT' };
   const heldValue = snapshot?.held_usd ?? snapshot?.task?.held_usd ?? snapshot?.budget?.held_usd ?? snapshot?.task?.budget?.held_usd;
   const validHeld = typeof heldValue === 'number' || (typeof heldValue === 'string' && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(heldValue));
   const held = validHeld ? Number(heldValue) : null;
-  return { status, costKnown, terminal: TERMINAL.has(status), held: Number.isFinite(held) ? held : null };
+  return { ...state, held: Number.isFinite(held) && held >= 0 ? held : null };
 }
 
 // A previous task that may still hold money blocks the next paid task (same rule as the terminal client).

@@ -1194,6 +1194,8 @@ function activate(context) {
 
   function localizedMessage(error,includeEffects=true) {
     if(includeEffects && (error?.tvijoAgentEffects || error?.tvijoReceipt))return localizedMessage(error,false)+'\n'+[error.tvijoAgentEffects,error.tvijoReceipt].filter(Boolean).join('\n');
+    const runtimeNotice=require('./lib/runtime-errors').notice(error?.code,uiLocale());
+    if(runtimeNotice)return runtimeNotice;
     const scopeNotice=require('./lib/scope-notices').notice(error?.code,uiLocale());
     if(scopeNotice){if(error.scopeUri)pendingScopeUri=error.scopeUri;return scopeNotice.text;}
     const code = error?.serverCode || (typeof error?.code === 'string' ? error.code : '');

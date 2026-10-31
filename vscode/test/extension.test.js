@@ -2950,6 +2950,20 @@ test('limitation: inherited-environment Python and npm pushes fail; direct push 
  }finally{x.close();}
 });
 
+for(const locale of ['en','ru'])test('missing DSH controller shows the actual setup action: '+locale,async()=>{
+ const app=host({defaultAuto:true});
+ try{
+  await app.context.globalState.update('tvijo.uiLocale',locale);
+  app.settings.set('orchestration.controllerPath','not-an-absolute-controller');
+  app.settings.set('orchestration.statePath','not-an-absolute-state');
+  await app.receive({type:'ready'});
+  await app.commands.get('tvijo.orchestrationDoctor')();
+  assert.match(app.feedback.at(-1),locale==='ru'?/выключите DSH Harness/:/turn off DSH Harness/);
+  assert.doesNotMatch(app.feedback.at(-1),/Check the selected workspace file|Проверьте выбранный файл проекта/);
+  assert.equal(app.requests.filter(r=>r.url.endsWith('/tasks')||r.url.endsWith('/chat')).length,0);
+ }finally{app.close();}
+});
+
 test('orchestration enabled setting drives real host message dispatch and controller subprocess',async()=>{
  const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'orchestration-host-'));
  const controller=path.join(root,'controller.cjs'),calls=path.join(root,'calls.jsonl');
