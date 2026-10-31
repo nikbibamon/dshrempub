@@ -711,3 +711,29 @@ test('DSH Agent and Plan show fixed truthful engine instead of dormant ordinary-
  const view=sidebar({}, {composerMode:'chat',orchestration:{enabled:true,policy:'sol'},options:{models:[{id:'ordinary',name:'Ordinary chat model'}],model:'ordinary'}});
  assert.equal(view.element('workflow-label').textContent,'Ordinary chat model');
 });
+
+test('agent details keep size and collapse state through events and webview state restoration', () => {
+  const view = sidebar({engineering:true});
+  const event = value => view.emit('window:message',{data:{type:'agent',scopeKey:'tenant-a',event:value}});
+  event({type:'start',goal:'Inspect project'});
+  assert.equal(view.element('agent-details').hidden,false);
+  assert.equal(view.element('agent-status').textContent,'Running');
+  view.emit('agent-resize:keydown',{key:'ArrowDown',preventDefault(){}});
+  assert.equal(view.state().agentHeight,170);
+  view.emit('agent-toggle:click',{});
+  assert.equal(view.state().agentCollapsed,true);
+  event({type:'step',step:1,maxSteps:3});
+  event({type:'final',status:'partial',text:'Some output'});
+  assert.equal(view.element('agent-status').textContent,'Partial');
+  assert.equal(view.element('agent-toggle').getAttribute('aria-expanded'),'false');
+  assert.equal(view.element('agent-log').children.length,4);
+  view.emit('agent-toggle:click',{});
+  assert.equal(view.element('agent-details').style.height,'170px');
+  assert.equal(view.element('agent-log').hidden,false);
+  view.emit('agent-toggle:click',{});
+  const restored = sidebar(view.state());
+  assert.equal(restored.element('agent-toggle').getAttribute('aria-expanded'),'false');
+  assert.equal(restored.state().agentHeight,170);
+  restored.emit('lang:click',{});
+  assert.equal(restored.element('agent-toggle').getAttribute('aria-label'),'Развернуть сведения агента');
+});

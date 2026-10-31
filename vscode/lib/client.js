@@ -61,9 +61,9 @@ function apiBase(value) {
   return parsed.toString().replace(/\/$/, '');
 }
 
-async function readBounded(response) {
+async function readBounded(response, maxBytes = MAX_RESPONSE_BYTES) {
   const declared = Number(response.headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) throw new ServiceError('oversized', 'Service response exceeded 2 MiB');
+  if (Number.isFinite(declared) && declared > maxBytes) throw new ServiceError('oversized', 'Service response exceeded its size limit');
   if (!response.body) return null;
   const reader = response.body.getReader();
   const chunks = [];
@@ -73,9 +73,9 @@ async function readBounded(response) {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > MAX_RESPONSE_BYTES) {
+      if (size > maxBytes) {
         await reader.cancel();
-        throw new ServiceError('oversized', 'Service response exceeded 2 MiB');
+        throw new ServiceError('oversized', 'Service response exceeded its size limit');
       }
       chunks.push(Buffer.from(value));
     }
@@ -88,7 +88,7 @@ async function readBounded(response) {
 function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now() } = {}) {
   const root = apiBase(base);
 
-  async function request(path, { token, method = 'GET', body, signal, timeoutMs = 30_000 } = {}) {
+  async function request(path, { token, method = 'GET', body, signal, timeoutMs = 30_000, maxResponseBytes = MAX_RESPONSE_BYTES } = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const relay = () => controller.abort();
@@ -107,7 +107,7 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
         const [code, message] = HTTP_ERRORS[response.status] || ['remote_http_error', `Service returned HTTP ${response.status}.`];
         let serverCode;
         try {
-          const value = await readBounded(response);
+          const value = await readBounded(response, maxResponseBytes);
           if (typeof value?.error?.code === 'string' && (GRANT_REFUSALS.has(value.error.code) || Object.hasOwn(REFUSAL_MESSAGES, value.error.code))) serverCode = value.error.code;
         } catch { /* Unreadable errors remain ambiguous; never expose the raw body. */ }
         const error = new ServiceError(Object.hasOwn(REFUSAL_MESSAGES, serverCode) ? serverCode : code, REFUSAL_MESSAGES[serverCode] || message, response.status);
@@ -115,7 +115,7 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
         throw error;
       }
       if (response.status === 204) return null;
-      return await readBounded(response);
+      return await readBounded(response, maxResponseBytes);
     } catch (error) {
       if (error instanceof ServiceError) throw error;
       if (signal?.aborted) throw new ServiceError('interrupted', 'Request was cancelled');

@@ -34,7 +34,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
 <div class="drawer-tools"><span id="account-identity"></span><span id="account-verification"></span><button id="runtime-version" type="button"></button></div><div class="drawer-tools"><button id="auto-commit" type="button"></button><button id="signout" type="button"></button></div><p id="bridge-note" hidden></p><p id="bot-setup-note" hidden><span id="bot-setup-text"></span> <button id="bot-setup" type="button"></button> <button id="bot-settings" type="button"></button></p><p id="rules-scan-note" hidden></p><section id="loaded-rules"></section><div id="account-status" role="status"><span class="dot">●</span><span id="connection-label">Connecting…</span><span id="budget"></span></div></aside>
 <section id="rewind" aria-labelledby="rewind-title" hidden><div id="rewind-heading"><h2 id="rewind-title">Rewind</h2><button id="rewind-close" type="button">Back to chat</button></div><p id="rewind-hint"></p><p id="rewind-status" role="status"></p><div id="rewind-list"></div></section><main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
-<div id="agent-log" role="log" aria-live="polite"></div>
+<section id="agent-details" hidden aria-label="Agent details"><div id="agent-resize" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Resize agent details" aria-controls="agent-log"></div><div id="agent-heading"><strong id="agent-heading-title">Agent details</strong><span id="agent-status" role="status"></span><button id="agent-toggle" type="button" aria-controls="agent-log" aria-expanded="true">Collapse</button></div><div id="agent-log" role="log" aria-live="polite"></div></section>
 <form id="form"><button id="composer-signin" type="button">Sign in</button><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><div id="followups" hidden></div><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="workspace-choice" type="button">Choose project…</button><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode" aria-haspopup="menu" aria-controls="mode-menu" aria-expanded="false">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="settings-drawer">⚙</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
 <div id="plus-menu" role="menu" aria-label="Actions"><button id="attach" data-action-id="tvijo.attachFile" type="button" role="menuitem">Attach file…</button><button id="mention-file" data-action-id="tvijo.mentionFile" type="button" role="menuitem">Mention file…</button><button id="attach-problems" data-action-id="tvijo.attachProblems" type="button" role="menuitem">@problems</button><button id="attach-terminal" data-action-id="tvijo.attachTerminal" type="button" role="menuitem">@terminal</button><button id="workspace" type="button" role="menuitem">Choose workspace file…</button><button id="selection" type="button" role="menuitem">Use editor selection</button><button id="path" type="button" role="menuitem">Paste workspace path…</button><button id="clear-conversation" data-action-id="tvijo.newConversation" type="button" role="menuitem">Clear conversation</button><button id="rewind-action" data-action-id="tvijo.rewind" type="button" role="menuitem">Rewind…</button><button id="export-conversation" data-action-id="tvijo.export" type="button" role="menuitem">Export conversation as Markdown</button><button id="switch-model" data-action-id="tvijo.chooseWorkflow" type="button" role="menuitem">Switch model</button><button id="all-actions" type="button" role="menuitem">All commands…</button></div>
 <div id="mode-menu" role="menu" aria-label="Mode" hidden></div><div id="options-menu" role="menu" aria-label="Model and method"></div>
@@ -185,7 +185,46 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   let theme = ['dark','light','system'].includes(saved?.theme) ? saved.theme : 'system';
   document.body.setAttribute('data-theme', theme);
   const t = key => COPY[locale][key] || COPY.en[key] || key;
-  const saveState = () => { if (scopeKey) { drafts[composerScope || scopeKey] = question.value; draftModes[composerScope || scopeKey] = uiMode; draftModeExplicit[composerScope || scopeKey] = modeExplicit; } vscode.setState?.({drafts,draftModes,draftModeExplicit,draftTimes,legacyDraft,locale,theme,engineering,mode:uiMode,composerScope}); };
+  let agentHeight = Number.isFinite(saved?.agentHeight) ? Math.max(70, Math.min(600, saved.agentHeight)) : 180;
+  let agentCollapsed = saved?.agentCollapsed === true;
+  let agentStatus = '';
+  const saveState = () => { if (scopeKey) { drafts[composerScope || scopeKey] = question.value; draftModes[composerScope || scopeKey] = uiMode; draftModeExplicit[composerScope || scopeKey] = modeExplicit; } vscode.setState?.({drafts,draftModes,draftModeExplicit,draftTimes,legacyDraft,locale,theme,engineering,mode:uiMode,composerScope,agentHeight,agentCollapsed}); };
+  const agentPanel = document.getElementById('agent-details');
+  const agentToggle = document.getElementById('agent-toggle');
+  const agentResize = document.getElementById('agent-resize');
+  const L = (en, ru) => locale === 'ru' ? ru : en;
+  const agentMaxHeight = () => Math.max(70, Math.min(600, Math.floor((window.innerHeight || 2000) * 0.3)));
+  const effectiveAgentHeight = () => Math.min(agentHeight, agentMaxHeight());
+  function updateAgentPanel() {
+    agentPanel.style.height = agentCollapsed ? '' : effectiveAgentHeight() + 'px';
+    agentPanel.setAttribute('data-collapsed', String(agentCollapsed));
+    agentLog.hidden = agentCollapsed;
+    agentResize.hidden = agentCollapsed;
+    agentToggle.setAttribute('aria-expanded', String(!agentCollapsed));
+    const label = agentCollapsed ? L('Expand agent details', 'Развернуть сведения агента') : L('Collapse agent details', 'Свернуть сведения агента');
+    agentToggle.textContent = agentCollapsed ? L('Expand', 'Развернуть') : L('Collapse', 'Свернуть');
+    agentToggle.setAttribute('aria-label', label); agentToggle.title = label;
+    document.getElementById('agent-heading-title').textContent = L('Agent details', 'Сведения агента');
+    document.getElementById('agent-status').textContent = agentStatus === 'running' ? L('Running', 'Выполняется') : agentStatus === 'blocked' ? L('Blocked', 'Заблокировано') : agentStatus === 'partial' ? L('Partial', 'Частично') : agentStatus === 'final' ? L('Completed', 'Завершено') : '';
+    agentResize.setAttribute('aria-label', L('Resize agent details', 'Изменить высоту сведений агента'));
+    agentResize.setAttribute('aria-valuemin', '70'); agentResize.setAttribute('aria-valuemax', String(agentMaxHeight())); agentResize.setAttribute('aria-valuenow', String(effectiveAgentHeight()));
+  }
+  function resizeAgent(height) { agentHeight = Math.max(70, Math.min(600, Math.round(height))); updateAgentPanel(); saveState(); }
+  agentToggle.addEventListener('click', () => { agentCollapsed = !agentCollapsed; updateAgentPanel(); saveState(); });
+  agentResize.addEventListener('keydown', event => {
+    if (!['ArrowUp','ArrowDown','Home','End'].includes(event.key)) return;
+    event.preventDefault(); resizeAgent(event.key === 'Home' ? 70 : event.key === 'End' ? agentMaxHeight() : Math.min(agentMaxHeight(), effectiveAgentHeight() + (event.key === 'ArrowUp' ? 10 : -10)));
+  });
+  agentResize.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    event.preventDefault(); const startY = event.clientY, startHeight = agentPanel.getBoundingClientRect().height;
+    agentResize.setPointerCapture(event.pointerId);
+    const move = e => { if (e.pointerId === event.pointerId) resizeAgent(Math.min(agentMaxHeight(), startHeight + startY - e.clientY)); };
+    const end = () => { agentResize.removeEventListener('pointermove', move); agentResize.removeEventListener('pointerup', end); agentResize.removeEventListener('pointercancel', end); agentResize.removeEventListener('lostpointercapture', end); };
+    agentResize.addEventListener('pointermove', move); agentResize.addEventListener('pointerup', end); agentResize.addEventListener('pointercancel', end); agentResize.addEventListener('lostpointercapture', end);
+  });
+  window.addEventListener('resize', updateAgentPanel);
+  updateAgentPanel();
   const post = message => vscode.postMessage({ ...message, scopeKey });
   const saveDraft = () => { if (scopeKey) draftTimes[composerScope || scopeKey] = Date.now(); saveState(); if (scopeKey) post({type:'composerDraft',composerScope,text:question.value,mode:uiMode,modeExplicit}); };
   const setTimer = typeof setInterval === 'function' ? setInterval : () => null;
@@ -456,9 +495,9 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   function renderAgentEvent(event) {
     if (!event || typeof event !== 'object') return;
     if (event.type === 'capabilities') { agentLine(locale === 'ru' ? 'Доступ' : 'Access', (event.capabilities?.mode || 'unknown') + ' · ' + (event.capabilities?.run_command ? (locale === 'ru' ? 'терминал доступен' : 'terminal available') : (locale === 'ru' ? 'без команд' : 'no commands'))); return; }
-    if (event.type === 'reset') { agentLog.replaceChildren(); agentLog.className = ''; return; }
+    if (event.type === 'reset') { agentLog.replaceChildren(); agentLog.className = ''; agentPanel.hidden = true; agentStatus = ''; updateAgentPanel(); return; }
     if (event.type === 'start') {
-      agentLog.replaceChildren(); agentLog.className = 'visible';
+      agentLog.replaceChildren(); agentLog.className = 'visible'; agentPanel.hidden = false; agentStatus = 'running'; updateAgentPanel();
       const details = [event.planMode ? t('modePlan') : t('modeAgent')];
       if (Number.isFinite(event.maxSteps)) details.push(t('agentStep') + ' 0/' + event.maxSteps);
       if (Number.isFinite(event.budgetUsd)) details.push('$' + event.budgetUsd);
@@ -480,7 +519,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       agentLine(result.ok === false ? (result.refused ? t('agentRefused') : t('agentError')) : t('agentOk'), detail, kind);
       return;
     }
-    if (event.type === 'final') { const blocked=event.status === 'blocked',partial=event.partial || event.status === 'partial'; agentLine(blocked ? (locale === 'ru' ? 'Заблокировано' : 'Blocked') : t(partial ? 'agentPartial' : 'agentFinal'), (event.text || '').slice(0, 300), blocked || partial ? 'bad' : 'ok'); }
+    if (event.type === 'final') { const blocked=event.status === 'blocked',partial=event.partial || event.status === 'partial'; agentStatus = blocked ? 'blocked' : partial ? 'partial' : 'final'; updateAgentPanel(); agentLine(blocked ? (locale === 'ru' ? 'Заблокировано' : 'Blocked') : t(partial ? 'agentPartial' : 'agentFinal'), (event.text || '').slice(0, 300), blocked || partial ? 'bad' : 'ok'); }
   }
   function updateThemeButton() {
     const label = t(theme === 'dark' ? 'themeDark' : theme === 'light' ? 'themeLight' : 'themeSystem');
@@ -512,6 +551,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     document.getElementById('rewind-hint').textContent = locale === 'ru' ? 'Только на этом устройстве · 7 дней · до 50 МиБ. Изменённые файлы и удаление требуют подтверждения.' : 'On this machine only · 7 days · up to 50 MiB. Changed files and deletions need confirmation.';
     if (!rewindPanel.hidden) drawRewind();
     renderRunSession(runSession);
+    updateAgentPanel();
     document.getElementById('map-title').textContent = locale === 'ru' ? 'Карта агентов' : 'Agent map';
     document.getElementById('map-canvas').setAttribute('aria-label', locale === 'ru' ? 'Карта агентов' : 'Agent map');
     document.getElementById('map-close').textContent = locale === 'ru' ? 'Вернуться к чату' : 'Back to chat';

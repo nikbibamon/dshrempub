@@ -1,10 +1,10 @@
 <!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
-## What's new in 0.10.27 — 2026-10-31 (prepared operator-test build)
+## What's new in 0.10.28 — 2026-10-31 (prepared candidate)
 
-- **Bridge diagnostics without a chat panel.** The exact `/status` command is handled in the extension host and returns the loaded extension version, bridge/view state and a bounded service health result through the durable outbox. It does not require sign-in, reserve a task, call a model or clear an unresolved task.
-- **Open the view once.** An ordinary bridge message requests the Tvijo panel when it is absent. The focus attempt is recorded once per message; paid messages continue through the existing account, pending-task and execution guards.
-- **Preserve recovery evidence.** Failed outbox writes retain the diagnostic result for publication; reload recovery keeps existing interrupted-run semantics. Responses contain fixed diagnostic fields rather than server payloads, credentials or another task's text.
-- **Migration and channel scope.** This separate operator-test VSIX requires an editor reload after installation. Existing settings and permissions remain. Native editors, Marketplace and public latest downloads are separate channels; this preparation does not publish them. Linux host/VSIX checks and their limits are recorded with the artifact; Windows and an authenticated model/tool run remain unverified.
+- **Readable agent progress.** Resize or collapse the agent log, and expand individual steps. The preferred height and collapsed state survive webview reloads; the visible height and keyboard controls respect the current viewport. Reloading a destroyed view does not restore the prior run's log.
+- **Public project knowledge in Agent and Plan.** Four authenticated read tools search the Tvijo wiki, retrieve a pinned article revision, and search or inspect the connector catalog. They use the current account or project token, refuse arbitrary sources, bound responses and treat retrieved content as untrusted data. Availability requires an activated gateway route. The separate DSH Harness and external MCP client are not integrated by this change.
+- **Bridge recovery included.** The 0.10.27 host-side `/status` and one-time view focus fixes are included; diagnostics do not reserve tasks, invoke models or clear unresolved charges.
+- **Migration and channels.** Reload the editor after installing. Existing permissions, settings and task receipts are preserved. Native editor installers, Marketplace and public download promotion retain separate verification and publication receipts.
 
 Earlier versions: the **Changelog** tab.
 <!-- changelog-latest:end -->
@@ -62,7 +62,7 @@ Choose **Configuration file example** in the help section or run **Tvijo: Open c
 
 # Tvijo DSHREM for VS Code
 
-Version 0.10.27. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.28. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
