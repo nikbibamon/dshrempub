@@ -15,8 +15,8 @@
     "status": "prepared",
     "published_at": null,
     "note": {
-      "en": "Prepared candidate with individual step disclosure; final full CI and native installation checks are pending.",
-      "ru": "Кандидат с раскрытием отдельных шагов; финальные полный CI и проверка установки ожидаются."
+      "en": "Prepared candidate passed full Node22/24 CI and isolated Linux VS Code checks; publication is pending.",
+      "ru": "Кандидат прошёл полный CI на Node22/24 и проверку в изолированном Linux VS Code; публикация ожидается."
     }
   },
   "package": {
@@ -24,8 +24,8 @@
     "sha256": "b0c983a7ac12d2f47fadc24c570cf406a22f0b548ee015d323f01beb3dee7e70",
     "bytes": 1283326,
     "editor_requirement": "^1.90.0",
-    "source_commit": "5670ba6323ab2edb2b8fbb767c1daa1b8983b9c1",
-    "verified_environment": "Individual step disclosure:57 scoped tests passed on each Node22/24 and CSP browser interactions passed. The earlier candidate passed full CI and Linux native checks; full CI and exact installation for this changed candidate are pending."
+    "source_commit": "bd3148bb0eb3789f33d64cad781c1f0b2d95f95f",
+    "verified_environment": "Node22 and24: 1014 extension,12 launcher,10 terminal and17 archive tests passed each (CI41249301539). Exact VSIX passed Linux VS Code native attempt03: step disclosure, panel controls and synthetic project-key Plan callback. Installed files:77 raw matches; package.json semantic match excluding VS Code __metadata. Windows/macOS and live model execution unverified."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
@@ -1296,7 +1296,16 @@
     },
     "step_tests_node22": 57,
     "step_tests_node24": 57,
-    "full_suite": "pending for new step disclosure",
-    "native_installed_vsix": "pending for changed archive; old exact claim corrected to77 byte matches +package.json semantic match excluding VSCode __metadata"
+    "full_suite": "passed Node22/24 CI41249301539 on runtime bd3148bb0eb3789f33d64cad781c1f0b2d95f95f; prior failed attempts preserved",
+    "native_installed_vsix": "passed isolated Linux VS Code attempt03 on current VSIX:77 raw byte matches plus package.json semantic match excluding only VSCode __metadata; synthetic project-key callback; no live model/Windows/macOS claim",
+    "extension_tests_node22": 1014,
+    "extension_tests_node24": 1014,
+    "launcher_tests_each": 12,
+    "terminal_tests_each": 10,
+    "archive_tests_each": 17,
+    "ci_url": "https://github.com/nikbibamon/dshrempub/actions/runs/41249301539",
+    "ci_source_commit": "bd3148bb0eb3789f33d64cad781c1f0b2d95f95f",
+    "native_vsix_sha256": "b0c983a7ac12d2f47fadc24c570cf406a22f0b548ee015d323f01beb3dee7e70",
+    "historical_correction": "previous_candidate.native_installed_vsix raw78 claim is superseded:77 raw matches plus package.json semantic equality excluding VSCode __metadata; originals retained"
   }
 }
