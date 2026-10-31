@@ -34,7 +34,13 @@ body #settings-drawer{position:absolute;top:10px;bottom:152px;right:10px;left:10
 body #settings-drawer nav{padding:0;gap:2px}body #settings-drawer nav button{padding:6px;font-size:11px}body #settings-drawer .product-links{display:flex;padding:7px 0;border:0;gap:4px}body #settings-drawer .product-links button{width:auto;font-size:11px}
 body #settings-drawer #account-status{flex-wrap:wrap;padding:7px 0}body #settings-drawer #budget{margin-left:0;white-space:normal}body #history-note{margin:7px 0;padding:0;line-height:1.5}body #settings-drawer #recovery{padding:7px 0;max-height:none}
 body #context-panel.visible{flex:1;min-height:0;overflow:auto;max-height:none;margin:10px 12px}
-body[data-view="simple"] #agent-log,body[data-view="simple"] .task-footer{display:none}body[data-view="engineering"] #agent-log{flex-shrink:0}
+body[data-view="simple"] #agent-details,body[data-view="simple"] .task-footer{display:none}
+body[data-view="engineering"] #agent-details:not([hidden]){display:flex;flex:0 0 auto;flex-direction:column;box-sizing:border-box;min-height:0;max-height:max(70px,30vh);margin:0 8px 5px;border:1px solid var(--accent);border-radius:7px;background:var(--raised);overflow:hidden}
+body #agent-details[data-collapsed="true"]{height:auto;max-height:none}
+#agent-resize{flex:0 0 8px;cursor:ns-resize;touch-action:none;background:var(--border)}#agent-resize[hidden]{display:none}#agent-resize:focus-visible{outline:2px solid var(--vscode-focusBorder,var(--accent));outline-offset:-2px}
+#agent-heading{display:flex;align-items:center;gap:6px;min-width:0;padding:2px 8px;font-size:10px}#agent-heading-title{white-space:nowrap}#agent-status{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}#agent-toggle{font-size:10px;padding:2px 5px;white-space:nowrap}
+#agent-log .agent-step{margin:3px 0}#agent-log .agent-step summary{cursor:pointer;color:var(--accent);overflow-wrap:anywhere}#agent-log .agent-step summary:focus-visible{outline:2px solid var(--vscode-focusBorder,var(--accent))}#agent-log .agent-step-body{padding:3px 0 3px 10px}
+body #agent-log.visible{flex:1 1 0;min-height:0;max-height:none;margin:0;padding:4px 8px;border:0;border-radius:0}body #agent-log[hidden]{display:none}
 body #composer-signin{align-self:flex-start;background:var(--accent);color:#fff;padding:5px 10px;font-size:12px}
 body #attachments:empty{display:none}body #plus-menu,body #mode-menu,body #options-menu{bottom:65px;max-height:65vh;z-index:8}
 @media(max-width:300px){body #form{margin-left:8px;margin-right:8px;padding:6px}body .composer-actions{gap:2px}body #mode{max-width:86px;padding:4px}body #workflow{font-size:10px;max-width:40%}body #settings{flex-basis:23px;min-width:23px}body #plus{flex-basis:22px;min-width:22px}body #settings-drawer{left:6px;right:6px}}

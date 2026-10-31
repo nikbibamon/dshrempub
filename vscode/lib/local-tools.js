@@ -415,7 +415,7 @@ async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
   return { ok: true, path: action.path, bytes: Buffer.byteLength(content, 'utf8') };
 }
 
-function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {}, planInspect = null, codeIntelligence = null, allowShell = false, extraAccess = false, agentReview = null, reviewEnabled = false, isPrivileged = isRootHost }) {
+function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {}, planInspect = null, codeIntelligence = null, allowShell = false, extraAccess = false, agentReview = null, reviewEnabled = false, knowledge = null, isPrivileged = isRootHost }) {
   return {
     root,
     async execute(action, context = {}) {
@@ -436,6 +436,11 @@ function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite =
           const extra = typeof extraAccess === 'function' ? !!extraAccess() : !!extraAccess;
           if ((!extra && reviewEnabled !== true) || !agentReview) return {ok:false,refused:true,reason:'account_review_grant_required'};
           const value = await agentReview.review(action); await guard(); return value;
+        }
+        case 'wiki_search': case 'wiki_context': case 'catalog_search': case 'catalog_get': {
+          if (!knowledge) return {ok:false,refused:true,reason:'knowledge_unavailable'};
+          const value = await knowledge(action, {signal:context.signal || signal});
+          await guard(); return value;
         }
         case 'list_dir': return { ok: true, entries: await listDirectory(root, action.path) };
         case 'read_file': return { ok: true, ...(await readFile(root, action.path, action.start, action.end)) };

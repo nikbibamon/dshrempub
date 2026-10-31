@@ -864,6 +864,7 @@ function activate(context) {
       const reviewer = createAgentReview({root:folder.uri.fsPath,guard,signal:abort.signal,enabled:!!fullGrant?.reviews,claudeEnabled:config.get('agentReview.claudeEnabled',false),maxCalls:2});
       const tools = createTools({
         root: folder.uri.fsPath, allowShell: !!fullGrant, extraAccess: !!fullGrant?.extra, agentReview:reviewer, reviewEnabled:!!fullGrant?.reviews,
+        knowledge:require('./lib/knowledge-client').createKnowledgeTool({api,token:auth.access_token,guard}),
         codeIntelligence:(action,{signal}) => codeIntelligence.inspect({vscode,root:folder.uri.fsPath,action,guard,signal}),
         planInspect:(operation,{signal}) => planInspection.inspect({vscode,root:folder.uri.fsPath,operation,guard,signal}), guard, signal:abort.signal,
         onCommandLifecycle: observeCommand(auth,commandSession),

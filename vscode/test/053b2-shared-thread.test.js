@@ -69,7 +69,7 @@ function sidebar(initialState = {}) {
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
       value: '', disabled: false, textContent: '',
-      attributes: {},
+      style: {}, attributes: {},
       addEventListener(type, fn) { listeners.set(`${id}:${type}`, fn); },
       focus() {}, replaceChildren(...nodes) { this.children = nodes; }, append(...nodes) { this.children = [...(this.children || []), ...nodes]; }, requestSubmit() {}, querySelectorAll() { return []; }, setAttribute(name, value) { this.attributes[name] = value; }, click() {}
     });

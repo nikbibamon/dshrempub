@@ -711,3 +711,52 @@ test('DSH Agent and Plan show fixed truthful engine instead of dormant ordinary-
  const view=sidebar({}, {composerMode:'chat',orchestration:{enabled:true,policy:'sol'},options:{models:[{id:'ordinary',name:'Ordinary chat model'}],model:'ordinary'}});
  assert.equal(view.element('workflow-label').textContent,'Ordinary chat model');
 });
+
+test('agent details keep size and collapse state through events and webview state restoration', () => {
+  const view = sidebar({engineering:true});
+  const event = value => view.emit('window:message',{data:{type:'agent',scopeKey:'tenant-a',event:value}});
+  event({type:'start',goal:'Inspect project'});
+  assert.equal(view.element('agent-details').hidden,false);
+  assert.equal(view.element('agent-status').textContent,'Running');
+  view.emit('agent-resize:keydown',{key:'ArrowDown',preventDefault(){}});
+  assert.equal(view.state().agentHeight,170);
+  view.emit('agent-toggle:click',{});
+  assert.equal(view.state().agentCollapsed,true);
+  event({type:'step',step:1,maxSteps:3});
+  event({type:'final',status:'partial',text:'Some output'});
+  assert.equal(view.element('agent-status').textContent,'Partial');
+  assert.equal(view.element('agent-toggle').getAttribute('aria-expanded'),'false');
+  assert.equal(view.element('agent-log').children.length,4);
+  view.emit('agent-toggle:click',{});
+  assert.equal(view.element('agent-details').style.height,'170px');
+  assert.equal(view.element('agent-log').hidden,false);
+  view.emit('agent-toggle:click',{});
+  const restored = sidebar(view.state());
+  assert.equal(restored.element('agent-toggle').getAttribute('aria-expanded'),'false');
+  assert.equal(restored.state().agentHeight,170);
+  restored.emit('lang:click',{});
+  assert.equal(restored.element('agent-toggle').getAttribute('aria-label'),'Развернуть сведения агента');
+});
+
+test('individual steps disclose their own untrusted events and retain state until run or scope changes', () => {
+  const view=sidebar({engineering:true});
+  const event=value=>view.emit('window:message',{data:{type:'agent',scopeKey:'tenant-a',event:value}});
+  event({type:'start',goal:'Inspect'});event({type:'step',step:1,maxSteps:2});
+  const section=view.element('agent-log').children.at(-1);
+  assert.equal(section.tag,'details');assert.equal(section.children[0].tag,'summary');assert.match(section.children[0].textContent,/1\/2/);
+  section.open=true;
+  event({type:'action',step:1,action:{tool:'search',query:'<img src=x onerror=alert(1)>'}});
+  event({type:'result',step:1,result:{ok:true,path:'<script>fixture</script>'}});
+  assert.equal(section.open,true);const body=section.children[1];assert.equal(body.children.length,2);
+  assert.equal(body.children[0].children[1].textContent,'<img src=x onerror=alert(1)>');assert.equal(body.children[0].children[1].innerHTML,undefined);
+  event({type:'step',step:2,maxSteps:2});event({type:'action',step:2,action:{tool:'read_file',path:'next'}});
+  assert.equal(section.open,true);assert.equal(body.children.length,2);
+  const second=view.element('agent-log').children.at(-1);assert.equal(second.children[1].children[0].children[1].textContent,'next');
+  view.emit('agent-toggle:click',{});event({type:'result',step:2,result:{ok:true,path:'finished'}});assert.equal(view.element('agent-log').hidden,true);assert.equal(second.children[1].children.length,2);
+  view.emit('window:message',{data:{type:'state',scopeKey:'tenant-b',signedIn:true,messages:[]}});
+  assert.equal(view.element('agent-log').children.length,0);assert.equal(view.element('agent-details').hidden,true);
+  event({type:'action',step:2,action:{tool:'search',query:'wrong scope'}});assert.equal(view.element('agent-log').children.length,0);
+  view.emit('window:message',{data:{type:'agent',scopeKey:'tenant-b',event:{type:'start',goal:'New'}}});
+  view.emit('window:message',{data:{type:'agent',scopeKey:'tenant-b',event:{type:'step',step:1,maxSteps:1}}});
+  assert.notEqual(view.element('agent-log').children.at(-1),section);assert.notEqual(view.element('agent-log').children.at(-1).open,true);
+});

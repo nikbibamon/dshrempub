@@ -12,7 +12,7 @@ function sidebar(initialState = {}) {
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
       value: '', disabled: false, textContent: '',
-      attributes: {},
+      style: {}, attributes: {},
       addEventListener(type, fn) { listeners.set(`${id}:${type}`, fn); },
       focus() {}, replaceChildren() {}, append() {}, requestSubmit() {}, querySelectorAll() { return []; }, setAttribute(name, value) { this.attributes[name] = value; }, click() {}
     });
