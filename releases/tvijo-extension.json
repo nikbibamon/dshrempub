@@ -21,11 +21,11 @@
   },
   "package": {
     "filename": "tvijo-dshrem-0.10.26.vsix",
-    "sha256": null,
-    "bytes": null,
+    "sha256": "5b6e15ca36c478feb2de4c5661ae4bda2870cf4ae605769b71b0d02194e68628",
+    "bytes": 1266838,
     "editor_requirement": "^1.90.0",
-    "source_commit": null,
-    "verified_environment": "Checks pending; local operator test build, not a publication receipt."
+    "source_commit": "8b492ab207f21f1120aaebdfdcd6cfb450295ae7",
+    "verified_environment": "Node22/24:991 tests each;17 archive tests;4 EN/RU desktop/mobile browser scenarios; exact VSIX installed/activated in isolated VS Code1.143.1 Linux (76 files, guide, file write, command exit0). Native Windows/operator and live paid model remain unverified."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
@@ -1072,7 +1072,15 @@
     }
   ],
   "verification": {
-    "status": "pending",
+    "date": "2026-10-31",
+    "extension_tests_node22": 991,
+    "extension_tests_node24": 991,
+    "archive_tests": 17,
+    "browser_scenarios": 4,
+    "native_gui": {
+      "en": "Exact VSIX installed and activated in isolated Linux VS Code1.143.1:76 runtime files, offline guide, saved file and command exit0. Windows operator and paid-model checks remain pending.",
+      "ru": "Точный VSIX установлен и активирован в отдельном Linux VS Code1.143.1:76 файлов, офлайн-учебник, сохранение файла и команда с exit0. Проверки оператором в Windows и платной модели ожидаются."
+    },
     "previous_release_verification": {
       "date": "2026-10-29",
       "focused_tests": 42,
