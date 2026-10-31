@@ -1,11 +1,10 @@
 <!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
-## What's new in 0.10.25 — 2026-10-29 (prepared)
+## What's new in 0.10.27 — 2026-10-31 (prepared operator-test build)
 
-- **Honest task outcomes and receipts.** Blocked and partial work stays visible; local receipts record observed commands, edits, task IDs and known or unknown usage. A model's completion claim is not independent verification.
-- **Unknown cost stops the agent.** Missing cost remains unknown and stops further model steps until reconciled. A measured zero remains zero.
-- **Account reviews in Full.** Codex and enabled Claude account CLI reviews are advisory and bounded. Existing Full grants do not gain this permission automatically; enable it explicitly for the project. Quota failure does not fall back to an API key.
-- **Extra access on root.** ExtraFullAccess is refused on privileged root extension hosts. On a non-root host, Extra still uses the OS user's rights and is not an OS sandbox. Existing Full access and inbound Copilot integration remain separate; outbound Copilot review is not implemented.
-- **Migration and verification.** Reload the editor after installation. At preparation time the candidate had not been published, installed as a VSIX or smoke-tested with a live paid model. Desktop editors, CLI and Marketplace are independent channels; see their release receipts for subsequent verification.
+- **Bridge diagnostics without a chat panel.** The exact `/status` command is handled in the extension host and returns the loaded extension version, bridge/view state and a bounded service health result through the durable outbox. It does not require sign-in, reserve a task, call a model or clear an unresolved task.
+- **Open the view once.** An ordinary bridge message requests the Tvijo panel when it is absent. The focus attempt is recorded once per message; paid messages continue through the existing account, pending-task and execution guards.
+- **Preserve recovery evidence.** Failed outbox writes retain the diagnostic result for publication; reload recovery keeps existing interrupted-run semantics. Responses contain fixed diagnostic fields rather than server payloads, credentials or another task's text.
+- **Migration and channel scope.** This separate operator-test VSIX requires an editor reload after installation. Existing settings and permissions remain. Native editors, Marketplace and public latest downloads are separate channels; this preparation does not publish them. Linux host/VSIX checks and their limits are recorded with the artifact; Windows and an authenticated model/tool run remain unverified.
 
 Earlier versions: the **Changelog** tab.
 <!-- changelog-latest:end -->
@@ -63,7 +62,7 @@ Choose **Configuration file example** in the help section or run **Tvijo: Open c
 
 # Tvijo DSHREM for VS Code
 
-Version 0.10.25. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.27. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 

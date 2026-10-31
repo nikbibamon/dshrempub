@@ -1,6 +1,12 @@
 'use strict';
 
-const test = require('node:test');
+const nodeTest = require('node:test');
+// This aggregate needs more than a minute, but each registered case still has
+// its own one-minute ceiling. Keep existing options and any stricter deadline.
+function test(name, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  return nodeTest(name, { ...options, timeout: Math.min(options?.timeout ?? 60000, 60000) }, callback);
+}
 const assert = require('node:assert/strict');
 const Module = require('node:module');
 const path = require('node:path');
@@ -2948,6 +2954,20 @@ test('limitation: inherited-environment Python and npm pushes fail; direct push 
   await fs.writeFile(path.join(x.root,'package.json'),JSON.stringify({scripts:{test:'git push origin HEAD'}}));await fs.writeFile(path.join(x.root,'.npmrc'),'cache='+path.join(x.root,'npm-cache')+'\n');
   x.app.warning('Cancel');const n=x.app.warnings.length;await x.run();const results=x.results();for(const r of results.slice(0,2)){assert.equal(r.ok,false);assert.match(r.stderr,/transport .* not allowed/);}assert.equal(results[2].refused,true);assert.equal(x.app.warnings.length,n+1);assert.equal(execFileSync('git',['--git-dir='+remote,'rev-parse','HEAD'],{env,encoding:'utf8'}).trim(),before);assert.equal(x.app.feedback.length,0);
  }finally{x.close();}
+});
+
+for(const locale of ['en','ru'])test('missing DSH controller shows the actual setup action: '+locale,async()=>{
+ const app=host({defaultAuto:true});
+ try{
+  await app.context.globalState.update('tvijo.uiLocale',locale);
+  app.settings.set('orchestration.controllerPath','not-an-absolute-controller');
+  app.settings.set('orchestration.statePath','not-an-absolute-state');
+  await app.receive({type:'ready'});
+  await app.commands.get('tvijo.orchestrationDoctor')();
+  assert.match(app.feedback.at(-1),locale==='ru'?/выключите DSH Harness/:/turn off DSH Harness/);
+  assert.doesNotMatch(app.feedback.at(-1),/Check the selected workspace file|Проверьте выбранный файл проекта/);
+  assert.equal(app.requests.filter(r=>r.url.endsWith('/tasks')||r.url.endsWith('/chat')).length,0);
+ }finally{app.close();}
 });
 
 test('orchestration enabled setting drives real host message dispatch and controller subprocess',async()=>{

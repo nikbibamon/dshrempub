@@ -19,6 +19,33 @@ test('DSH mode is opt-in and refuses unknown worker policy',()=>{
  assert.equal(settings({get:(k,d)=>d}).enabled,false);
  assert.throws(()=>settings({get:(k,d)=>k==='orchestration.enabled'?true:k==='orchestration.workerPolicy'?'fallback':d}));
 });
+test('disabled team preferences cannot break single-model startup',()=>{
+ const values={'orchestration.enabled':false,'orchestration.agentCount':1,'orchestration.reportFormat':'obsolete','orchestration.workerPolicy':'obsolete'};
+ assert.equal(settings({get:(key,fallback)=>values[key]??fallback}).enabled,false);
+ values['orchestration.enabled']=true;
+ assert.throws(()=>settings({get:(key,fallback)=>values[key]??fallback}),error=>error.code==='orchestration_preferences');
+});
+test('missing controller yields a fixed diagnostic instead of a workspace-file error',async()=>{
+ const {invoke}=require('../lib/orchestration'),{notice}=require('../lib/runtime-errors');
+ await assert.rejects(invoke({controller:'',state:''},'doctor'),error=>{
+  assert.equal(error.code,'orchestration_setup');
+  assert.match(notice(error.code,'en'),/turn off DSH Harness/);
+  assert.match(notice(error.code,'ru'),/выключите DSH Harness/);
+  return true;
+ });
+ assert.equal(notice('__proto__'),null);assert.equal(notice('unexpected_secret_error'),null);
+});
+test('controller failure does not expose arbitrary stderr in either locale',async()=>{
+ const {invoke}=require('../lib/orchestration'),{notice}=require('../lib/runtime-errors');
+ const root=fs.mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS||os.tmpdir(),'orchestration-stderr-'));
+ const controller=path.join(root,'refuse.cjs');
+ fs.writeFileSync(controller,"process.stderr.write('PRIVATE_STDERR_SENTINEL');process.exit(1);");
+ await assert.rejects(invoke({controller,state:root,python:process.execPath},'doctor'),error=>{
+  assert.equal(error.code,'orchestration_runtime');
+  for(const locale of ['en','ru'])assert.ok(!notice(error.code,locale).includes('PRIVATE_STDERR_SENTINEL'));
+  assert.ok(!error.message.includes('PRIVATE_STDERR_SENTINEL'));return true;
+ });
+});
 test('production adapter dispatch binds root account and caps; prompt is JSON not shell',async()=>{
  const f=fixture();const result=await f.host.run(f.options);
  assert.equal(result.job.status,'quality_pending');

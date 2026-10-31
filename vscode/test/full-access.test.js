@@ -3,6 +3,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { PREFIX, createFullAccess } = require('../lib/full-access');
 
+test('Full access help identifies Tvijo and keeps Codex permissions separate',()=>{
+  const {FULL_ACCESS_LIMITS}=require('../lib/full-access');
+  assert.match(FULL_ACCESS_LIMITS.en,/controls Tvijo Agent/);
+  assert.match(FULL_ACCESS_LIMITS.en,/Codex has its own permissions/);
+  assert.match(FULL_ACCESS_LIMITS.ru,/У Codex собственное меню разрешений/);
+});
+
 const a = 'a'.repeat(64), b = 'b'.repeat(64), c = 'c'.repeat(64);
 function setup(locale='en') {
   const folder = (name, uri = {}) => ({ name, uri: { scheme: 'file', authority: '', fsPath: `/work/${name}`, ...uri } });

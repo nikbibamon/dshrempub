@@ -1,6 +1,6 @@
 {
   "schema": "tvijo.extension-release/v1",
-  "as_of": "2026-10-29",
+  "as_of": "2026-10-31",
   "product": {
     "id": "tvijo-dshrem-vscode",
     "name": "Tvijo DSHREM for VS Code",
@@ -9,31 +9,43 @@
       "ru": "Помощь с кодом: выбранный контекст, проверяемые правки и задачи с лимитом."
     }
   },
-  "latest_version": "0.10.25",
+  "latest_version": "0.10.27",
   "channel": "preview",
   "publication": {
-    "status": "published",
-    "published_at": "2026-10-29",
+    "status": "prepared",
+    "published_at": null,
     "note": {
-      "en": "GitHub preview 0.10.25 was anonymously downloaded and verified; Marketplace and native editors remain independent channels.",
-      "ru": "GitHub preview 0.10.25 скачан без авторизации и проверен; Marketplace и настольные редакторы остаются отдельными каналами."
+      "en": "Prepared operator-test VSIX; isolated Linux installation and real inbox/webview acceptance passed. Public latest and native editors are separate channels.",
+      "ru": "Подготовлен VSIX для проверки оператором; отдельная установка в Linux и настоящий inbox/webview проверены. Публичный latest и нативные редакторы — отдельные каналы."
     }
   },
   "package": {
-    "filename": "tvijo-dshrem-0.10.25.vsix",
-    "sha256": "453d1fa8d6753de5009fdaec2d6d956b80aac678a4cff670b3d124d9d2a355ba",
-    "bytes": 1258166,
+    "filename": "tvijo-dshrem-0.10.27.vsix",
+    "sha256": "adc2cb608440f4d887dfb47a143ab6793cd78f5fc496e4fc185d479d55e65df0",
+    "bytes": 1271364,
     "editor_requirement": "^1.90.0",
-    "source_commit": "65206538c2664baec436438373d215716aba4358",
-    "verified_environment": "Node 22 and 24: 983 tests each passed. Exact VSIX installed and activated in isolated Linux VS Code 1.143.1. Live paid model and Tvijo desktop channels remain unverified."
+    "source_commit": "a98a9fb3def6bbd859784cbcb749cb71930f0596",
+    "verified_environment": "1008 extension tests passed on each of Node22.20.0 and Node24.10.0;12 launcher checks on Node22; exact VSIX installed in isolated official VS Code1.143.1 Linux,77 files matched,6 actual inbox/webview checks passed. Windows,macOS and real authenticated model/tool execution remain unverified."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
-    "source": "https://github.com/nikbibamon/dshrempub/tree/65206538c2664baec436438373d215716aba4358",
-    "changelog": "https://github.com/nikbibamon/dshrempub/blob/65206538c2664baec436438373d215716aba4358/vscode/CHANGELOG.md",
+    "source": "https://github.com/nikbibamon/dshrempub/tree/release/tvijo-0.10.27-20261031-a74c",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/release/tvijo-0.10.27-20261031-a74c/vscode/CHANGELOG.md",
     "issues": "https://github.com/nikbibamon/dshrempub/issues"
   },
   "features": [
+    {
+      "id": "bridge-host-diagnostics",
+      "since": "0.10.27",
+      "title": {
+        "en": "Diagnostics independent of chat state",
+        "ru": "Диагностика независимо от состояния чата"
+      },
+      "description": {
+        "en": "A bounded read-only health result through the durable inbox/outbox; paid-task guards remain.",
+        "ru": "Ограниченная диагностика через сохраняемые inbox/outbox; проверки платных задач сохранены."
+      }
+    },
     {
       "id": "task-receipts-and-outcomes",
       "since": "0.10.25",
@@ -192,6 +204,66 @@
     }
   ],
   "releases": [
+    {
+      "version": "0.10.27",
+      "date": "2026-10-31",
+      "status": "prepared",
+      "channel": "preview",
+      "title": {
+        "en": "Bridge diagnostics and closed-view recovery",
+        "ru": "Диагностика моста и открытие закрытой панели"
+      },
+      "changes": [
+        {
+          "en": "Exact /status runs in the host without login or paid work.",
+          "ru": "Точная команда /status выполняется на хосте без входа и платной работы."
+        },
+        {
+          "en": "Ordinary messages request the chat view once and preserve pending-task guards.",
+          "ru": "Обычное сообщение однократно открывает панель и сохраняет блокировку незавершённых задач."
+        },
+        {
+          "en": "Diagnostic output excludes credentials, task content and arbitrary service payloads.",
+          "ru": "Диагностика исключает ключи, тексты задач и произвольные ответы сервиса."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Operator-test build; native Windows, macOS and a real authenticated model/tool run are unverified.",
+          "ru": "Сборка для проверки оператором; нативные Windows, macOS и настоящая задача с авторизацией не проверены."
+        }
+      ]
+    },
+    {
+      "version": "0.10.26",
+      "date": "2026-10-31",
+      "status": "prepared",
+      "channel": "preview",
+      "title": {
+        "en": "Standalone client fixes for operator testing",
+        "ru": "Исправления отдельного клиента для проверки оператором"
+      },
+      "changes": [
+        {
+          "en": "Actionable DSH errors and single-model startup.",
+          "ru": "Понятные ошибки DSH и запуск одной модели."
+        },
+        {
+          "en": "Known reserves stay visible while unknown cost keeps paid requests blocked.",
+          "ru": "Известный резерв виден, неизвестный расход продолжает блокировать платные запросы."
+        },
+        {
+          "en": "Rule-scan metadata work is reduced; agent permission ownership is explicit.",
+          "ru": "Меньше чтений метаданных при проверке правил; права агентов разграничены явно."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Prepared operator test build; native Windows and a live paid model remain unverified.",
+          "ru": "Подготовленная тестовая сборка; нативный Windows и живая платная модель не проверены."
+        }
+      ]
+    },
     {
       "version": "0.10.25",
       "date": "2026-10-29",
@@ -997,6 +1069,10 @@
   ],
   "limits": [
     {
+      "en": "Marketplace API lists0.10.26 on2026-10-31; those download bytes were not verified in this phase.0.10.27 remains an operator-test artifact, with no latest-channel promotion.",
+      "ru": "API Marketplace показывает0.10.26 на31.10.2026; байты этой загрузки здесь не проверялись.0.10.27 остаётся артефактом для оператора без переключения latest."
+    },
+    {
       "en": "Extra access is refused on root; non-root host shell is not an OS sandbox. Full account reviews require a separate project grant.",
       "ru": "Extra недоступен на root; shell обычного пользователя не является песочницей ОС. Для ревью через подписку в Full нужно отдельное разрешение проекта."
     },
@@ -1042,89 +1118,113 @@
     }
   ],
   "verification": {
-    "date": "2026-10-29",
-    "focused_tests": 42,
-    "extension_tests_node22": 983,
-    "extension_tests_node24": 983,
+    "date": "2026-10-31",
+    "focused_bridge_checks": 22,
     "native_gui": {
-      "en": "Exact VSIX installed and activated in isolated non-root Linux VS Code 1.143.1; Tvijo desktop installers not tested.",
-      "ru": "Точный VSIX установлен и активирован в изолированном Linux VS Code 1.143.1 без root; установщики Tvijo не проверены."
+      "en": "Exact isolated Linux VSIX:77 files matched,6 host/webview checks passed; no new task/reserve/model calls. Complete Node22/24 extension regression passed with bounded individual and whole-suite deadlines.",
+      "ru": "Точный VSIX в отдельном Linux-профиле:77 файлов совпали,6 проверок host/webview прошли; новых вызовов task/reserve/model нет. Полный набор расширения прошёл на Node22/24 с ограничениями времени отдельного теста и всего набора."
     },
     "previous_release_verification": {
-      "date": "2026-10-28",
-      "extension_tests": 961,
-      "final_adapter_tests": 20,
-      "webview_checks": 4,
+      "date": "2026-10-31",
+      "extension_tests_node22": 991,
+      "extension_tests_node24": 991,
+      "archive_tests": 17,
+      "browser_scenarios": 4,
       "native_gui": {
-        "en": "Isolated Linux VS Code Server installation passed; interactive editor activation not verified.",
-        "ru": "Изолированная установка Linux VS Code Server прошла; интерактивная активация редактора не проверена."
+        "en": "Exact VSIX installed and activated in isolated Linux VS Code1.143.1:76 runtime files, offline guide, saved file and command exit0. Windows operator and paid-model checks remain pending.",
+        "ru": "Точный VSIX установлен и активирован в отдельном Linux VS Code1.143.1:76 файлов, офлайн-учебник, сохранение файла и команда с exit0. Проверки оператором в Windows и платной модели ожидаются."
       },
-      "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.23",
-      "tag_commit": "e2fbbf5654c7867aca35af83820ad29132aaa274",
       "previous_release_verification": {
-        "date": "2026-10-27",
-        "extension_tests": 891,
-        "runner_tests": 7,
-        "cli_tests": 10,
-        "archive_tests": 17,
+        "date": "2026-10-29",
+        "focused_tests": 42,
+        "extension_tests_node22": 983,
+        "extension_tests_node24": 983,
         "native_gui": {
-          "en": "Native Windows editor1.140.07214 CI40524272994 passed activation of extension0.10.17, offline guide and symbols/definitions/references on2026-10-27;71embedded files match the publicVSIX. Interactive sign-in, EXE installation and a complete paid coding session remain untested.",
-          "ru": "Нативный Windows-редактор1.140.07214 в CI40524272994 прошёл активацию расширения0.10.17, учебник и символы/определения/использования27.10.2026;71встроенный файл совпадает с публичнымVSIX. Интерактивный вход, установка EXE и полная платная задача ещё не проверены."
+          "en": "Exact VSIX installed and activated in isolated non-root Linux VS Code 1.143.1; Tvijo desktop installers not tested.",
+          "ru": "Точный VSIX установлен и активирован в изолированном Linux VS Code 1.143.1 без root; установщики Tvijo не проверены."
         },
-        "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.17",
-        "tag_commit": "454ea1fd3527964eef1e5b3aec0cf2ad1d32d5e5",
         "previous_release_verification": {
-          "version": "0.10.15",
-          "date": "2026-10-26",
-          "extension_tests": 870,
-          "final_affected_tests": 49,
-          "manual_browser_checks": 159,
+          "date": "2026-10-28",
+          "extension_tests": 961,
+          "final_adapter_tests": 20,
+          "webview_checks": 4,
           "native_gui": {
-            "en": "Native Windows editor1.140.07195 CI40385199326 passed activation of extension0.10.15, offline guide and symbols/definitions/references on2026-10-26. Interactive sign-in, EXE installation and a complete paid coding session remain untested.",
-            "ru": "Нативный Windows-редактор1.140.07195 в CI40385199326 прошёл активацию расширения0.10.15, учебник и символы/определения/использования26.10.2026. Интерактивный вход, установка EXE и полная платная задача ещё не проверены."
+            "en": "Isolated Linux VS Code Server installation passed; interactive editor activation not verified.",
+            "ru": "Изолированная установка Linux VS Code Server прошла; интерактивная активация редактора не проверена."
           },
-          "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.15",
-          "tag_commit": "1e9cabfa80d008f2d505c9fe177ef7c1d161c435",
-          "github_ci": "https://github.com/nikbibamon/dshrempub/actions/runs/40378532809"
-        }
-      },
-      "anonymous_sha256": "9461cd246c45f68e89d2dcb3d45efdeb5ffecd7ecdfec01f7d8c52bac4f97f56",
-      "anonymous_observed_at": "2026-10-28T20:35:40.862349+00:00",
-      "historical_main_verification": {
-        "date": "2026-10-26",
-        "extension_tests": 870,
-        "runner_tests": 7,
-        "cli_tests": 10,
-        "archive_tests": 17,
-        "final_affected_tests": 49,
-        "manual_browser_checks": 159,
-        "native_gui": {
-          "en": "Native Windows editor1.140.07195 CI40385199326 passed activation of extension0.10.15, offline guide and symbols/definitions/references on2026-10-26. Interactive sign-in, EXE installation and a complete paid coding session remain untested.",
-          "ru": "Нативный Windows-редактор1.140.07195 в CI40385199326 прошёл активацию расширения0.10.15, учебник и символы/определения/использования26.10.2026. Интерактивный вход, установка EXE и полная платная задача ещё не проверены."
+          "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.23",
+          "tag_commit": "e2fbbf5654c7867aca35af83820ad29132aaa274",
+          "previous_release_verification": {
+            "date": "2026-10-27",
+            "extension_tests": 891,
+            "runner_tests": 7,
+            "cli_tests": 10,
+            "archive_tests": 17,
+            "native_gui": {
+              "en": "Native Windows editor1.140.07214 CI40524272994 passed activation of extension0.10.17, offline guide and symbols/definitions/references on2026-10-27;71embedded files match the publicVSIX. Interactive sign-in, EXE installation and a complete paid coding session remain untested.",
+              "ru": "Нативный Windows-редактор1.140.07214 в CI40524272994 прошёл активацию расширения0.10.17, учебник и символы/определения/использования27.10.2026;71встроенный файл совпадает с публичнымVSIX. Интерактивный вход, установка EXE и полная платная задача ещё не проверены."
+            },
+            "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.17",
+            "tag_commit": "454ea1fd3527964eef1e5b3aec0cf2ad1d32d5e5",
+            "previous_release_verification": {
+              "version": "0.10.15",
+              "date": "2026-10-26",
+              "extension_tests": 870,
+              "final_affected_tests": 49,
+              "manual_browser_checks": 159,
+              "native_gui": {
+                "en": "Native Windows editor1.140.07195 CI40385199326 passed activation of extension0.10.15, offline guide and symbols/definitions/references on2026-10-26. Interactive sign-in, EXE installation and a complete paid coding session remain untested.",
+                "ru": "Нативный Windows-редактор1.140.07195 в CI40385199326 прошёл активацию расширения0.10.15, учебник и символы/определения/использования26.10.2026. Интерактивный вход, установка EXE и полная платная задача ещё не проверены."
+              },
+              "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.15",
+              "tag_commit": "1e9cabfa80d008f2d505c9fe177ef7c1d161c435",
+              "github_ci": "https://github.com/nikbibamon/dshrempub/actions/runs/40378532809"
+            }
+          },
+          "anonymous_sha256": "9461cd246c45f68e89d2dcb3d45efdeb5ffecd7ecdfec01f7d8c52bac4f97f56",
+          "anonymous_observed_at": "2026-10-28T20:35:40.862349+00:00",
+          "historical_main_verification": {
+            "date": "2026-10-26",
+            "extension_tests": 870,
+            "runner_tests": 7,
+            "cli_tests": 10,
+            "archive_tests": 17,
+            "final_affected_tests": 49,
+            "manual_browser_checks": 159,
+            "native_gui": {
+              "en": "Native Windows editor1.140.07195 CI40385199326 passed activation of extension0.10.15, offline guide and symbols/definitions/references on2026-10-26. Interactive sign-in, EXE installation and a complete paid coding session remain untested.",
+              "ru": "Нативный Windows-редактор1.140.07195 в CI40385199326 прошёл активацию расширения0.10.15, учебник и символы/определения/использования26.10.2026. Интерактивный вход, установка EXE и полная платная задача ещё не проверены."
+            },
+            "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.15",
+            "tag_commit": "1e9cabfa80d008f2d505c9fe177ef7c1d161c435",
+            "github_ci": "https://github.com/nikbibamon/dshrempub/actions/runs/40378532809",
+            "previous_release_verification": {
+              "version": "0.10.11",
+              "date": "2026-10-24",
+              "extension_tests": 851,
+              "native_gui": {
+                "en": "Interactive installed editor not observed. Production host integration, real native subscription receipts and synthetic EN/RU desktop/mobile Chromium are separate evidence layers.",
+                "ru": "Интерактивная сессия установленного редактора не наблюдалась. Рабочие обработчики, реальные квитанции нативных подписок и синтетический Chromium EN/RU desktop/mobile — отдельные уровни доказательств."
+              },
+              "final_affected_tests": 54,
+              "settings_browser_flows": 4,
+              "private_report_previews": 2,
+              "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.11",
+              "tag_commit": "03e1f54141ad799b0f7f0d1d47afd6934ef03807",
+              "github_ci": "https://github.com/nikbibamon/dshrempub/actions/runs/40109919542"
+            }
+          }
         },
-        "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.15",
-        "tag_commit": "1e9cabfa80d008f2d505c9fe177ef7c1d161c435",
-        "github_ci": "https://github.com/nikbibamon/dshrempub/actions/runs/40378532809",
-        "previous_release_verification": {
-          "version": "0.10.11",
-          "date": "2026-10-24",
-          "extension_tests": 851,
-          "native_gui": {
-            "en": "Interactive installed editor not observed. Production host integration, real native subscription receipts and synthetic EN/RU desktop/mobile Chromium are separate evidence layers.",
-            "ru": "Интерактивная сессия установленного редактора не наблюдалась. Рабочие обработчики, реальные квитанции нативных подписок и синтетический Chromium EN/RU desktop/mobile — отдельные уровни доказательств."
-          },
-          "final_affected_tests": 54,
-          "settings_browser_flows": 4,
-          "private_report_previews": 2,
-          "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.11",
-          "tag_commit": "03e1f54141ad799b0f7f0d1d47afd6934ef03807",
-          "github_ci": "https://github.com/nikbibamon/dshrempub/actions/runs/40109919542"
-        }
+        "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.25",
+        "tag_commit": "d06c5057974fa2388d61f589b37418dc93e64260",
+        "anonymous_sha256": "453d1fa8d6753de5009fdaec2d6d956b80aac678a4cff670b3d124d9d2a355ba",
+        "anonymous_observed_at": "2026-10-29T10:32:30.184783+00:00"
       }
     },
-    "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.25",
-    "tag_commit": "d06c5057974fa2388d61f589b37418dc93e64260",
-    "anonymous_sha256": "453d1fa8d6753de5009fdaec2d6d956b80aac678a4cff670b3d124d9d2a355ba",
-    "anonymous_observed_at": "2026-10-29T10:32:30.184783+00:00"
+    "extension_tests_node22": 1008,
+    "extension_tests_node24": 1008,
+    "launcher_checks_node22": 12,
+    "focused_restart_recovery_checks": 9,
+    "archive_tests": 17
   }
 }

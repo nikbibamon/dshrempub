@@ -233,6 +233,10 @@ function fingerprintProject(options){
    handle=fs.opendirSync(dir);let entry;
    while((entry=handle.readSync())){
     if(result.scannedEntries>=maxEntries){result.truncated=true;break;}result.scannedEntries++;
+    // Ordinary file contents and metadata cannot change rule fingerprints.
+    // Avoid one synchronous lstat per source/artifact file on every tool guard.
+    // Entries still count toward the same safety bound; traversal is unchanged.
+    if(!clinerules && !entry.isDirectory() && !entry.isSymbolicLink() && !isRulesPath(path.join(dir,entry.name)))continue;
     const absolute=path.join(dir,entry.name),lower=entry.name.toLowerCase();let stat;
     try{stat=fs.lstatSync(absolute,{bigint:true});}catch{result.truncated=true;continue;}
     const insideRules=clinerules || lower==='.clinerules';
