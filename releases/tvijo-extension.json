@@ -12,11 +12,11 @@
   "latest_version": "0.10.28",
   "channel": "preview",
   "publication": {
-    "status": "prepared",
-    "published_at": null,
+    "status": "published",
+    "published_at": "2026-10-31",
     "note": {
-      "en": "Prepared candidate passed full Node22/24 CI and isolated Linux VS Code checks; publication is pending.",
-      "ru": "Кандидат прошёл полный CI на Node22/24 и проверку в изолированном Linux VS Code; публикация ожидается."
+      "en": "GitHub preview is available; anonymous download bytes and SHA256 verified. Marketplace and bundled editors are separate channels.",
+      "ru": "Preview доступен на GitHub; анонимная загрузка и SHA256 проверены. Marketplace и встроенные редакторы — отдельные каналы."
     }
   },
   "package": {
@@ -29,8 +29,8 @@
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
-    "source": "https://github.com/nikbibamon/dshrempub/tree/feature/tvijo-panel-20261031-e6b4",
-    "changelog": "https://github.com/nikbibamon/dshrempub/blob/feature/tvijo-panel-20261031-e6b4/vscode/CHANGELOG.md",
+    "source": "https://github.com/nikbibamon/dshrempub/tree/tvijo-v0.10.28",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/tvijo-v0.10.28/vscode/CHANGELOG.md",
     "issues": "https://github.com/nikbibamon/dshrempub/issues"
   },
   "features": [
@@ -1306,6 +1306,10 @@
     "ci_url": "https://github.com/nikbibamon/dshrempub/actions/runs/41249301539",
     "ci_source_commit": "bd3148bb0eb3789f33d64cad781c1f0b2d95f95f",
     "native_vsix_sha256": "b0c983a7ac12d2f47fadc24c570cf406a22f0b548ee015d323f01beb3dee7e70",
-    "historical_correction": "previous_candidate.native_installed_vsix raw78 claim is superseded:77 raw matches plus package.json semantic equality excluding VSCode __metadata; originals retained"
+    "historical_correction": "previous_candidate.native_installed_vsix raw78 claim is superseded:77 raw matches plus package.json semantic equality excluding VSCode __metadata; originals retained",
+    "github_release": "https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.28",
+    "tag_commit": "2f0f13e2ca3e9bdd9266bc035258e5cb10d46efe",
+    "anonymous_sha256": "b0c983a7ac12d2f47fadc24c570cf406a22f0b548ee015d323f01beb3dee7e70",
+    "anonymous_observed_at": "2026-10-31T22:56:02.987924+00:00"
   }
 }
