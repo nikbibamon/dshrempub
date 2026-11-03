@@ -32,12 +32,19 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
+      - name: Refuse a jump over unreleased versions
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: python3 -B scripts/check_release_sequence.py --version "${GITHUB_REF_NAME#tvijo-v}"
       - name: Verify source and package
         id: package
         shell: bash
         run: |
           set -euo pipefail
           python3 -B -m unittest discover -s scripts -p test_check_extension_release.py
+          python3 -B -m unittest discover -s scripts -p test_check_release_sequence.py
           npm test
           python3 - <<'PY'
           import json, os, re, subprocess

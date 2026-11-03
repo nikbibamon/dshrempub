@@ -39,3 +39,19 @@ announce the package version. After publishing, the same CHANGELOG entry goes to
 the git tag and GitHub release notes, the Marketplace version, and the site metadata
 (`releases/tvijo-extension.json`: `latest_version`, `publication`, `features`). A surface that
 shows an older version than Marketplace is a defect, not a "later" task.
+
+
+## Rule: GitHub releases follow the catalog, no jumps
+
+Every version in `releases/tvijo-extension.json` was handed to someone, operator-test builds
+included. Before `gh release create tvijo-vX` run
+
+```sh
+python3 scripts/check_release_sequence.py --version X
+```
+
+It refuses while any catalog version between the newest GitHub release below X and X is missing
+(2026-10-31: GitHub went 0.10.25 -> 0.10.28, users on 0.10.26 could not find their version).
+Publish the missing ones first, in order, from their own source commit and verified bytes. A
+version that must never ship gets `"status": "withdrawn"` in the catalog; an unexplained gap is a
+defect. The tag workflow runs the same check and goes red on a jump.
