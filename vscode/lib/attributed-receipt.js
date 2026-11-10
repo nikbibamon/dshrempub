@@ -1,4 +1,5 @@
 'use strict';
+const {createHash} = require('node:crypto');
 
 // A scoped projection of observed service receipts, never model-generated proof.
 // Provider USD is a Decimal string; service credits are separate integer units.
@@ -15,8 +16,43 @@ const amount = value => typeof value === 'string' && value.length <= 64 && !/\s/
   && /^(?:0|[1-9]\d{0,19})(?:\.\d{1,28})?$/.test(value) ? value : null;
 const units = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
 
+const validHash = value => typeof value === 'string' && value.length === 64 && SHA.test(value);
+function canonical(value) {
+  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
+  if (value && typeof value === 'object') return '{' + Object.keys(value).sort()
+    .map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}';
+  return JSON.stringify(value);
+}
+
+// The caller must already have an authenticated Workspace response. The hash
+// checks exact receipt bytes; it is not a signature or an authority grant.
+function fixtureReceipt(value, projectId) {
+  const {projection_sha256: fingerprint, ...body} = value;
+  const states = ['quoted','running','completed','cancelled','unknown'];
+  if (value.schema !== 'tvijo.execution.evidence/1' || value.fixture_id !== 'sha256-public-worker-v1'
+      || value.admission_version !== 'public-fixture/v1' || value.model_request_sent !== false
+      || value.customer_model_workflow !== 'NOT_RUN' || value.execution_repeated !== false
+      || value.task_id !== value.id || value.attempt_id !== value.id || !states.includes(value.status)
+      || ![fingerprint,value.configuration_hash,value.input_hash,value.contract_hash].every(validHash)
+      || createHash('sha256').update(canonical(body)).digest('hex') !== fingerprint) return null;
+  const complete = value.status === 'completed';
+  if (complete && (value.process_count !== 1 || value.launch_intent_count !== 1 || value.local_outbox_ack !== true
+      || value.deterministic_fixture !== 'pass' || value.result_envelope?.contract_hash !== value.contract_hash
+      || !/^fixture-sha256:[a-f0-9]{64}$/.test(value.result) || value.result.length !== 79)) return null;
+  return {
+    schema:'tvijo.execution.evidence/1', task_id:value.id, project_id:projectId, status:value.status,
+    configuration_hash:value.configuration_hash, input_hash:value.input_hash, contract_hash:value.contract_hash,
+    fixture_id:'sha256-public-worker-v1', source_projection_sha256:fingerprint,
+    deterministic_fixture:complete ? 'pass' : 'unknown', model_request_sent:false, customer_model_workflow:'NOT_RUN',
+    cost:{service_unit:'micro_tvijo',debited:0,held:0,provider_usd:'0',provider_cost_status:'fixture_no_provider',
+      provider_cost_source:'fixed_public_fixture_only',invoice_usd:'0'},
+    verification:{status:'not_independently_verified',reviewer:null},runtime_ack:'UNKNOWN'
+  };
+}
+
 function attributedReceipt(value, projectId) {
   if (!validId(projectId) || !value || value.project_id !== projectId || !validId(value.id)) return null;
+  if (value.fixture_id !== undefined || value.admission_version !== undefined) return fixtureReceipt(value, projectId);
   const receipt = value.receipt || {};
   const costStatus = value.byok?.provider_cost_status;
   const costSource = value.byok?.provider_cost_source;
