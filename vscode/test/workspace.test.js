@@ -5,7 +5,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const Module = require('node:module');
-const { workspaceState, workspaceClient, viewScope, PROJECT_AUTH_KEY, AUTH_MODE, sharedTaskCap } = require('../workspace');
+const { createHash } = require('node:crypto');
+const { workspaceState, workspaceClient, viewScope, PROJECT_AUTH_KEY, FIXTURE_AUTH_KEY, AUTH_MODE, sharedTaskCap } = require('../workspace');
 const { scopeKey, tenantState } = require('../lib/tenant-state');
 
 const memory = () => {
@@ -67,24 +68,28 @@ test('only proven pregrant project-key refusals clear a new request; idempotency
   }
 });
 
-function extensionHost() {
-  const context = { subscriptions: [], secrets: memory(), globalState: memory(), workspaceState: memory(), globalStorageUri: { fsPath: fs.mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || os.tmpdir(), 'journal-host-')) } };
-  const commands = new Map(), posts = [], errors = [], calls = [];
+function extensionHost({ base = 'http://localhost:18106/api/dshrem/v1', fixture = null, development = false } = {}) {
+  const context = { extensionMode: development ? 2 : 1, subscriptions: [], secrets: memory(), globalState: memory(), workspaceState: memory(), globalStorageUri: { fsPath: fs.mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || os.tmpdir(), 'journal-host-')) } };
+  const commands = new Map(), posts = [], errors = [], calls = [], documents = [];
   const disposable = { dispose() {} };
-  const base = 'http://localhost:18106/api/dshrem/v1';
   let provider, receive, blocker, release, configurationChanged;
   let configuredBase = base;
   let input = 'tvijo-project-test-key';
   let pick = items => items.find(item => item.thread) || items[0];
   const vscode = {
+    ExtensionMode: { Development: 2 },
     Uri: { parse: value => ({ toString: () => value }) },
     env: { clipboard: { writeText: async () => {} }, openExternal: async () => {} },
     StatusBarAlignment: { Right: 1 }, ProgressLocation: { Notification: 1 }, ViewColumn: { Beside: 2 },
     commands: { registerCommand: (id, fn) => { commands.set(id, fn); return disposable; }, executeCommand: async id => commands.get(id)?.() },
-    workspace: { getConfiguration: () => ({ get: (key, fallback) => key === 'apiBase' ? configuredBase : fallback }), onDidChangeConfiguration: fn => { configurationChanged = fn; return disposable; } },
+    workspace: {
+      getConfiguration: () => ({ get: (key, fallback) => key === 'apiBase' ? configuredBase : fallback }),
+      onDidChangeConfiguration: fn => { configurationChanged = fn; return disposable; }, openTextDocument: async document => document
+    },
     window: {
       createStatusBarItem: () => ({ show() {} }), registerWebviewViewProvider: (_id, value) => { provider = value; return disposable; },
-      showInputBox: async () => input, showQuickPick: async items => pick(items),
+      showTextDocument: async document => { documents.push(document); },
+      showInputBox: async options => typeof input === 'function' ? input(options) : input, showQuickPick: async items => pick(items),
       showErrorMessage: async message => { errors.push(message); }, showInformationMessage: async (...args) => args.includes('Open browser') ? 'Open browser' : undefined,
       withProgress: async (_options, fn) => fn({}, { onCancellationRequested() {} })
     }
@@ -104,7 +109,8 @@ function extensionHost() {
     if (route === '/auth/token') return Response.json({ access_token: 'new-device-token', expires_in: 3600 });
     if (route === '/account') return Response.json({ tenant_id: 'tenant-a' });
     if (route === '/auth/logout') return Response.json({ revoked: true });
-    if (route === '/projects') return Response.json({ tenant_id: 'tenant-a', project_id: 'p-a', key_limits: { max_task_usd: '0.01', daily_max_usd: '1' }, projects: [{ id: 'p-a', name: 'Project A', role: 'editor' }] });
+    if (route === '/projects') return Response.json({ tenant_id: 'tenant-a', project_id: 'p-a', key_limits: fixture ? { max_task_usd: '0', daily_max_usd: '0' } : { max_task_usd: '0.01', daily_max_usd: '1' }, key_scopes: ['tasks:read'], projects: [{ id: 'p-a', name: 'Project A', role: 'editor' }] });
+    if (fixture && route === `/projects/p-a/fixture-v3/executions/${fixture.id}`) return Response.json(fixture);
     if (route === '/projects/p-a/threads' && options.method === 'GET') return Response.json({ threads: [{ id: 't-a', title: 'Browser thread' }, { id: 't-b', title: 'Other thread' }] });
     if (route === '/projects/p-a/threads' && options.method === 'POST') return Response.json({ id: 't-new', title: body.title });
     if (route.startsWith('/projects/p-a/threads/')) return Response.json({ id: route.split('/').at(-1), project_id: 'p-a', messages: [{ role: 'user', content: route.endsWith('t-b') ? 'Thread B only' : 'Browser history' }], tasks: [] });
@@ -115,12 +121,62 @@ function extensionHost() {
     throw new Error('Unexpected URL ' + route);
   };
   provider.resolveWebviewView({ webview: { cspSource: 'test:', onDidReceiveMessage: fn => { receive = fn; return disposable; }, postMessage: async message => { posts.push(message); } }, onDidDispose() {} });
-  return { context, commands, posts, errors, calls, receive: message => receive(message), base,
+  return { context, commands, posts, errors, calls, documents, receive: message => receive(message), base,
     scope: scopeKey(base, 'tenant-a'), state: () => posts.filter(post => post.type === 'state').at(-1),
     changeBase: value => { configuredBase = value; configurationChanged({ affectsConfiguration: key => key === 'tvijo.apiBase' }); },
     input: value => { input = value; }, pick: fn => { pick = fn; }, block: fn => { blocker = fn; }, waiting: () => !!release,
     release: () => { blocker = null; release?.(); }, close: () => { globalThis.fetch = oldFetch; } };
 }
+
+test('fixed fixture inspector is default-off and uses a separate SecretStorage key for the Workspace project', async () => {
+  const base = 'http://127.0.0.1:18106/api/dshrem/v1';
+  const id = 'cf-' + 'a'.repeat(48);
+  const fixture = {
+    schema: 'tvijo.execution.evidence/1', fixture_id: 'sha256-public-worker-v1', admission_version: 'public-fixture/v1',
+    id, task_id: id, attempt_id: id, status: 'unknown', project_id: 'p-a', tenant_id: 'tenant-a',
+    configuration_hash: 'b'.repeat(64), input_hash: 'c'.repeat(64), contract_hash: 'd'.repeat(64),
+    model_request_sent: false, customer_model_workflow: 'NOT_RUN', execution_repeated: false
+  };
+  const canonical = JSON.stringify(Object.fromEntries(Object.keys(fixture).sort().map(key => [key, fixture[key]])));
+  fixture.projection_sha256 = createHash('sha256').update(canonical).digest('hex');
+  const previousFlag = process.env.TVIJO_FIXED_FIXTURE_INSPECTION;
+  delete process.env.TVIJO_FIXED_FIXTURE_INSPECTION;
+  const app = extensionHost({ base, fixture, development: true });
+  try {
+    const inspect = app.commands.get('tvijo.inspectFixedFixture');
+    await inspect();
+    assert.deepEqual(app.calls, []);
+    assert.deepEqual(app.documents, []);
+
+    process.env.TVIJO_FIXED_FIXTURE_INSPECTION = '1';
+    app.input(options => options.password ? 'tvijo_pk_fixture-test-key' : id);
+    const route = `/projects/p-a/fixture-v3/executions/${id}`;
+    await inspect();
+    assert.deepEqual(app.calls, ['/projects', route].map(path => ({ route: path, body: undefined, method: 'GET', token: 'Bearer tvijo_pk_fixture-test-key' })));
+    assert.equal(JSON.parse(app.context.secrets.get(FIXTURE_AUTH_KEY)).token, 'tvijo_pk_fixture-test-key');
+    assert.equal(app.context.secrets.get(PROJECT_AUTH_KEY), undefined);
+    assert.equal(app.context.globalState.get(AUTH_MODE), undefined);
+    assert.equal(app.documents.length, 1);
+    const projected = JSON.parse(app.documents[0].content);
+    assert.equal(projected.source_projection_sha256, fixture.projection_sha256);
+    assert.equal(projected.customer_model_workflow, 'NOT_RUN');
+    assert.ok(!app.documents[0].content.includes('tvijo_pk_fixture-test-key'));
+
+    app.block(path => path === route);
+    const delayed = inspect();
+    await waitingFor(app);
+    await inspect();
+    assert.equal(app.calls.length, 3, 'concurrent inspections share no credential writes or duplicate GETs');
+    delete process.env.TVIJO_FIXED_FIXTURE_INSPECTION;
+    app.release();
+    await delayed;
+    assert.equal(app.documents.length, 1, 'a response that arrives after opt-out stays hidden');
+  } finally {
+    app.release(); app.close();
+    if (previousFlag === undefined) delete process.env.TVIJO_FIXED_FIXTURE_INSPECTION;
+    else process.env.TVIJO_FIXED_FIXTURE_INSPECTION = previousFlag;
+  }
+});
 
 test('project sign-in uses its own SecretStorage slot and opens browser history without provider or account calls', async () => {
   const app = extensionHost();

@@ -17,7 +17,7 @@ const { ACTIONS, ACTION_BY_ID, PLUS_ACTIONS, slashAction, fileReference } = requ
 const { createBot } = require('./lib/telegram-bot');
 const { scopeKey, tenantState } = require('./lib/tenant-state');
 
-const { sharedThreadUrl, PROJECT_AUTH_KEY, AUTH_MODE, workspaceState, workspaceClient, sharedTaskCap, sharedTaskMicroCap } = require('./workspace');
+const { sharedThreadUrl, PROJECT_AUTH_KEY, FIXTURE_AUTH_KEY, AUTH_MODE, workspaceState, workspaceClient, sharedTaskCap, sharedTaskMicroCap, fixtureEndpointAllowed, validFixtureExecutionId } = require('./workspace');
 const coding = require('./lib/coding');
 const customerConnection = require('./lib/byok');
 const {createContextSelection} = require('./lib/context-selection');
@@ -411,6 +411,9 @@ function activate(context) {
   context.subscriptions.push(status);
 
   const client = () => core.createClient({ base: vscode.workspace.getConfiguration('tvijo').get('apiBase') });
+  const fixtureDevelopmentHost = !!vscode.ExtensionMode && context.extensionMode === vscode.ExtensionMode.Development;
+  const fixedFixtureInspectionEnabled = () => fixtureDevelopmentHost && process.env.TVIJO_FIXED_FIXTURE_INSPECTION === '1';
+  if (fixedFixtureInspectionEnabled()) void vscode.commands.executeCommand('setContext', 'tvijo.fixedFixtureInspection', true);
 
   async function currentPack(auth) {
     const catalogue = await packCache.get(auth, core.createClient({ base: auth.api_base }));
@@ -1268,10 +1271,10 @@ function activate(context) {
     vscode.window.showErrorMessage(`Tvijo: ${message}`, ...actions).then((pick) => { if (pick === credit) vscode.env.openExternal(vscode.Uri.parse('https://dsh.tvijo.com/billing')); if (pick === signIn) vscode.commands.executeCommand('tvijo.signIn'); if (pick === usage) vscode.commands.executeCommand('tvijo.account'); if (pick === resolve) vscode.commands.executeCommand('tvijo.cancelPending'); if (pick === preview) vscode.commands.executeCommand('tvijo.contextPreview'); });
   }
 
-  function command(id, fn) {
+  function command(id, fn, { refresh = id !== 'tvijo.rewind' } = {}) {
     handlers.set(id, fn);
     context.subscriptions.push(vscode.commands.registerCommand(id, async (...args) => {
-      try { await fn(...args); } catch (error) { report(error); } finally { if (id !== 'tvijo.rewind') await refreshStatus(); }
+      try { await fn(...args); } catch (error) { report(error); } finally { if (refresh) await refreshStatus(); }
     }));
   }
 
@@ -2057,6 +2060,65 @@ function activate(context) {
     const tasks = await core.createClient({ base: auth.api_base }).request('/tasks' + (selected ? '?project_id=' + encodeURIComponent(selected.projectId) : ''), { token: auth.access_token });
     await showPrivateDocument('json', JSON.stringify(tasks, null, 2), auth);
   });
+  async function inspectFixedFixture() {
+    if (!fixedFixtureInspectionEnabled()) throw new core.ServiceError('fixture_inspection_disabled', 'Fixed fixture inspection requires an Extension Development Host with TVIJO_FIXED_FIXTURE_INSPECTION=1.');
+    const api = client();
+    if (!fixtureEndpointAllowed(api.base)) throw new core.ServiceError('fixture_endpoint_refused', 'Fixed fixture inspection requires a loopback Workspace fixture server.');
+    const selectedProject = identity && shared.selection(identity.scope)?.projectId;
+    const view = () => identity && currentViewScope(identity.scope);
+    const epoch = workspaceEpoch, attempt = authAttempt, scope = view();
+    const guard = () => {
+      if (!fixedFixtureInspectionEnabled() || epoch !== workspaceEpoch || attempt !== authAttempt || scope !== view() || client().base !== api.base) throw new core.ServiceError('account_changed', 'The account or workspace changed. Inspect the fixture again in the intended project.');
+    };
+    let credential;
+    try { credential = JSON.parse(await context.secrets.get(FIXTURE_AUTH_KEY) || 'null'); } catch { credential = null; }
+    guard();
+    const reuse = credential?.apiBase === api.base && (!selectedProject || credential.projectId === selectedProject);
+    if (!reuse) {
+      const token = (await vscode.window.showInputBox({ title: 'Fixture project key', password: true, ignoreFocusOut: true, prompt: 'Enter the zero-cap project key that admitted the fixed fixture.' }))?.trim();
+      if (!token) return;
+      if (!token.startsWith('tvijo_pk_')) throw new core.ServiceError('fixture_project_key_required', 'Enter a fixture Workspace project key.');
+      guard();
+      const account = await workspaceClient(api, token).projects();
+      guard();
+      const projectId = account?.project_id;
+      if (!projectId || !account.projects?.some(project => project.id === projectId) || !account.tenant_id || (selectedProject && selectedProject !== projectId)
+        || account.key_limits?.max_task_usd !== '0' || account.key_limits?.daily_max_usd !== '0' || !Array.isArray(account.key_scopes) || !account.key_scopes.includes('tasks:read')) {
+        throw new core.ServiceError('fixture_project_key_required', 'Use a zero-cap fixture key for the current Workspace project.');
+      }
+      credential = { apiBase: api.base, token, projectId, tenantId: account.tenant_id };
+    }
+    const executionId = await vscode.window.showInputBox({
+      title: 'Inspect fixed fixture receipt', prompt: `Enter the fixed fixture execution ID for ${credential.projectId}.`,
+      validateInput: value => validFixtureExecutionId(value) ? undefined : 'Enter a fixed fixture execution ID.'
+    });
+    if (executionId === undefined) return;
+    guard();
+    const workspace = workspaceClient(api, credential.token);
+    let receipt;
+    try { receipt = await workspace.inspectFixedFixture({ projectId: credential.projectId, tenantId: credential.tenantId, executionId }); }
+    catch (error) {
+      if (reuse && error.status === 401) {
+        guard();
+        await context.secrets.delete(FIXTURE_AUTH_KEY);
+      }
+      throw error;
+    }
+    guard();
+    if (!reuse) await context.secrets.store(FIXTURE_AUTH_KEY, JSON.stringify(credential));
+    guard();
+    const document = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(receipt, null, 2) });
+    localPreviewDocuments.add(document);
+    guard();
+    await vscode.window.showTextDocument(document, { preview: false });
+  }
+  let inspectingFixedFixture = false;
+  command('tvijo.inspectFixedFixture', async () => {
+    if (inspectingFixedFixture) return;
+    inspectingFixedFixture = true;
+    try { await inspectFixedFixture(); }
+    finally { inspectingFixedFixture = false; }
+  }, { refresh: false });
   command('tvijo.metrics', async () => {
     // Local metadata only; reading it never needs an account or a paid task.
     await showDocument('json', JSON.stringify(await metrics.summary(), null, 2));

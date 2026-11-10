@@ -2,11 +2,20 @@
 const { createHash, randomUUID } = require('node:crypto');
 const core = require('./lib/client');
 const byok = require('./lib/byok');
+const { attributedReceipt } = require('./lib/attributed-receipt');
 
 const PROJECT_AUTH_KEY = 'tvijo.project.auth';
+const FIXTURE_AUTH_KEY = 'tvijo.fixedFixture.auth';
 const AUTH_MODE = 'tvijo.auth.mode';
 const segment = value => encodeURIComponent(value);
 const viewScope = (scope, project, thread) => project ? createHash('sha256').update(JSON.stringify([scope, project, thread || null])).digest('hex') : scope;
+const FIXTURE_ID = 'sha256-public-worker-v1';
+const validFixtureExecutionId = value => typeof value === 'string' && value.length === 51 && /^cf-[a-f0-9]{48}$/.test(value);
+
+function fixtureEndpointAllowed(base) {
+  return /^http:\/\/127\.0\.0\.1:[0-9]+\/api\/dshrem\/v1$/.test(base);
+}
+
 function sharedTaskCap(auth) {
   if (auth.kind !== 'project') return '0.05';
   const cap = auth.key_limits?.max_task_usd;
@@ -63,6 +72,15 @@ function workspaceClient(api, token) {
   return {
     services: () => request('/services'),
     usage: projectId => request('/services/usage?project_id=' + segment(projectId)),
+    async inspectFixedFixture({ projectId, tenantId, executionId }) {
+      if (!fixtureEndpointAllowed(api.base)) throw new core.ServiceError('fixture_endpoint_refused', 'Fixed fixture inspection requires a loopback Workspace fixture server.');
+      if (typeof token !== 'string' || !token.startsWith('tvijo_pk_')) throw new core.ServiceError('fixture_project_key_required', 'Sign in with the project key that admitted this fixture.');
+      if (typeof projectId !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(projectId) || /[\r\n]/.test(projectId) || !validFixtureExecutionId(executionId)) throw new core.ServiceError('invalid_fixture_identity', 'Choose a Workspace project and enter its fixed fixture execution ID.');
+      const value = await request(`/projects/${segment(projectId)}/fixture-v3/executions/${executionId}`, { method: 'GET', maxResponseBytes: 64 * 1024 });
+      const receipt = attributedReceipt(value, projectId);
+      if (!tenantId || value?.tenant_id !== tenantId || receipt?.fixture_id !== FIXTURE_ID || receipt.task_id !== executionId) throw new core.ServiceError('fixture_receipt_mismatch', 'The service did not return a valid receipt for this fixture execution.');
+      return receipt;
+    },
     async askService({ messages, idempotencyKey, title, serviceId = 'standard', method = 'evidence-first', projectId, threadId, maxMicroTvijo, payer = null, signal, onQuote, beforeGrant, onGrant, beforeChat }) {
       core.validateMessages(messages);
       if (!projectId || !threadId || !Number.isSafeInteger(maxMicroTvijo) || maxMicroTvijo <= 0 || maxMicroTvijo > 50000000) throw new core.ServiceError('key_limit_unknown', 'A verified shared service-unit limit is required before starting a task.');
@@ -111,4 +129,4 @@ function workspaceClient(api, token) {
     }
   };
 }
-module.exports = { sharedThreadUrl, PROJECT_AUTH_KEY, AUTH_MODE, viewScope, workspaceState, workspaceClient, sharedTaskCap, sharedTaskMicroCap };
+module.exports = { sharedThreadUrl, PROJECT_AUTH_KEY, FIXTURE_AUTH_KEY, AUTH_MODE, viewScope, workspaceState, workspaceClient, sharedTaskCap, sharedTaskMicroCap, fixtureEndpointAllowed, validFixtureExecutionId };
