@@ -94,3 +94,23 @@ test('a refusal source cannot attest a positive provider charge',()=>{
   const r=attributedReceipt({...observed,status:'failed',byok:{provider_cost_usd:'1',provider_cost_status:'reported',provider_cost_source:'provider_rejected'}},'project-a');
   assert.equal(r.cost.provider_usd,null);
 });
+
+
+const liveFixtureReceipt = process.env.TVIJO_FIXTURE_RECEIPT_PATH;
+test('source parser projects actual fixed Worker evidence without expanding it into customer execution',
+    {skip:!liveFixtureReceipt}, () => {
+  const value=JSON.parse(require('node:fs').readFileSync(liveFixtureReceipt,'utf8'));
+  const projected=attributedReceipt(value,value.project_id);
+  assert.equal(projected.deterministic_fixture,'pass');
+  assert.equal(projected.status,'completed');
+  assert.equal(projected.model_request_sent,false);
+  assert.equal(projected.customer_model_workflow,'NOT_RUN');
+  assert.equal(projected.source_projection_sha256,value.projection_sha256);
+  assert.equal(projected.cost.provider_usd,'0');
+  assert.equal(projected.verification.status,'not_independently_verified');
+  assert.equal(attributedReceipt({...value,process_count:2},value.project_id),null);
+  assert.equal(attributedReceipt(value,'project-foreign'),null);
+  const local=createTaskReceipt({id:'local-fixture',projectId:value.project_id,mode:'agent'});
+  local.answer({taskId:value.task_id,cost:value});
+  assert.equal(local.finish().attributed_service_receipts.length,1);
+});

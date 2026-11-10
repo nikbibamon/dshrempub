@@ -79,6 +79,12 @@
         "category": "Tvijo"
       },
       {
+        "command": "tvijo.inspectFixedFixture",
+        "title": "Inspect fixed fixture receipt",
+        "category": "Tvijo",
+        "enablement": "tvijo.fixedFixtureInspection"
+      },
+      {
         "command": "tvijo.chooseProject",
         "title": "Choose shared project",
         "category": "Tvijo"
@@ -395,6 +401,10 @@
         {
           "command": "tvijo.choosePack",
           "when": "tvijo.hasPacks"
+        },
+        {
+          "command": "tvijo.inspectFixedFixture",
+          "when": "tvijo.fixedFixtureInspection"
         }
       ],
       "editor/context": [
