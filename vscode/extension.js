@@ -2098,14 +2098,11 @@ function activate(context) {
     let receipt;
     try { receipt = await workspace.inspectFixedFixture({ projectId: credential.projectId, tenantId: credential.tenantId, executionId }); }
     catch (error) {
-      if (reuse && error.status === 401) {
-        guard();
-        await context.secrets.delete(FIXTURE_AUTH_KEY);
-      }
+      if (reuse && error.status === 401) await writeAuthSecret(guard, FIXTURE_AUTH_KEY, undefined);
       throw error;
     }
     guard();
-    if (!reuse) await context.secrets.store(FIXTURE_AUTH_KEY, JSON.stringify(credential));
+    if (!reuse) await writeAuthSecret(guard, FIXTURE_AUTH_KEY, JSON.stringify(credential));
     guard();
     const document = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(receipt, null, 2) });
     localPreviewDocuments.add(document);

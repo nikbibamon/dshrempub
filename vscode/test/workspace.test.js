@@ -128,8 +128,7 @@ function extensionHost({ base = 'http://localhost:18106/api/dshrem/v1', fixture 
     release: () => { blocker = null; release?.(); }, close: () => { globalThis.fetch = oldFetch; } };
 }
 
-test('fixed fixture inspector is default-off and uses a separate SecretStorage key for the Workspace project', async () => {
-  const base = 'http://127.0.0.1:18106/api/dshrem/v1';
+function fixedFixtureReceipt() {
   const id = 'cf-' + 'a'.repeat(48);
   const fixture = {
     schema: 'tvijo.execution.evidence/1', fixture_id: 'sha256-public-worker-v1', admission_version: 'public-fixture/v1',
@@ -139,6 +138,13 @@ test('fixed fixture inspector is default-off and uses a separate SecretStorage k
   };
   const canonical = JSON.stringify(Object.fromEntries(Object.keys(fixture).sort().map(key => [key, fixture[key]])));
   fixture.projection_sha256 = createHash('sha256').update(canonical).digest('hex');
+  return fixture;
+}
+
+test('fixed fixture inspector is default-off and uses a separate SecretStorage key for the Workspace project', async () => {
+  const base = 'http://127.0.0.1:18106/api/dshrem/v1';
+  const fixture = fixedFixtureReceipt();
+  const id = fixture.id;
   const previousFlag = process.env.TVIJO_FIXED_FIXTURE_INSPECTION;
   delete process.env.TVIJO_FIXED_FIXTURE_INSPECTION;
   const app = extensionHost({ base, fixture, development: true });
@@ -177,6 +183,57 @@ test('fixed fixture inspector is default-off and uses a separate SecretStorage k
     else process.env.TVIJO_FIXED_FIXTURE_INSPECTION = previousFlag;
   }
 });
+
+for (const invalidate of ['opt-out', 'sign-out']) {
+  test(`fixed fixture credential written during ${invalidate} is rolled back`, { timeout: 5000 }, async () => {
+    const fixture = fixedFixtureReceipt();
+    const previousFlag = process.env.TVIJO_FIXED_FIXTURE_INSPECTION;
+    process.env.TVIJO_FIXED_FIXTURE_INSPECTION = '1';
+    const app = extensionHost({ base: 'http://127.0.0.1:18106/api/dshrem/v1', fixture, development: true });
+    const token = 'tvijo_pk_delayed-fixture-key';
+    const previous = invalidate === 'sign-out' ? JSON.stringify({
+      apiBase: 'http://127.0.0.1:18107/api/dshrem/v1', projectId: 'p-old', tenantId: 'tenant-old', token: 'tvijo_pk_prior-key'
+    }) : undefined;
+    const originalStore = app.context.secrets.store;
+    let signalStore, releaseStore;
+    const storeStarted = new Promise(resolve => { signalStore = resolve; });
+    const storeReleased = new Promise(resolve => { releaseStore = resolve; });
+    app.context.secrets.store = async (key, value) => {
+      if (key === FIXTURE_AUTH_KEY && JSON.parse(value).token === token) {
+        signalStore();
+        await storeReleased;
+      }
+      await originalStore(key, value);
+    };
+    try {
+      if (previous) await originalStore(FIXTURE_AUTH_KEY, previous);
+      const inspect = app.commands.get('tvijo.inspectFixedFixture');
+      app.input(options => options.password ? token : fixture.id);
+      const delayed = inspect();
+      await storeStarted;
+      if (invalidate === 'opt-out') delete process.env.TVIJO_FIXED_FIXTURE_INSPECTION;
+      else await app.commands.get('tvijo.signOut')();
+      releaseStore();
+      await delayed;
+
+      assert.equal(app.context.secrets.get(FIXTURE_AUTH_KEY), previous);
+      assert.deepEqual(app.documents, []);
+      assert.deepEqual(app.calls, ['/projects', `/projects/p-a/fixture-v3/executions/${fixture.id}`]
+        .map(route => ({ route, body: undefined, method: 'GET', token: `Bearer ${token}` })));
+
+      process.env.TVIJO_FIXED_FIXTURE_INSPECTION = '1';
+      const prompts = [];
+      app.input(options => { prompts.push(options.password); return undefined; });
+      await inspect();
+      assert.deepEqual(prompts, [true], 'next inspection must prompt for a new key');
+      assert.equal(app.calls.length, 2);
+    } finally {
+      releaseStore(); app.close();
+      if (previousFlag === undefined) delete process.env.TVIJO_FIXED_FIXTURE_INSPECTION;
+      else process.env.TVIJO_FIXED_FIXTURE_INSPECTION = previousFlag;
+    }
+  });
+}
 
 test('project sign-in uses its own SecretStorage slot and opens browser history without provider or account calls', async () => {
   const app = extensionHost();
