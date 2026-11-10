@@ -1,4 +1,5 @@
 'use strict';
+const {attributedReceipt} = require('./attributed-receipt');
 
 // A local execution receipt. Model prose cannot create verification evidence.
 const OUTCOMES = new Set(['done','blocked','partial','cancelled','failed','unknown']);
@@ -15,6 +16,7 @@ function outcomeOf(result) {
 const line = (value, limit = 300) => typeof value === 'string' ? value.replace(/[\r\n\u0000]/g,' ').slice(0,limit) : '';
 function createTaskReceipt({id, projectScope, projectId = null, folder, mode, model, startedAt = Date.now()}) {
   const taskIds = [], commands = [], edits = [], reviews = [], editorChecks = [], grantedModels = new Set(), reportedModels = new Set();
+  const serviceReceipts = new Map();
   let knownCost = 0, unknownCost = false, answers = 0, requests = 0, steps = 0, eventCount = 0, truncated = false;
   function task(taskId, servedModel) {
     if (typeof taskId === 'string' && !taskIds.includes(taskId)) {
@@ -24,6 +26,13 @@ function createTaskReceipt({id, projectScope, projectId = null, folder, mode, mo
   }
   function answer(value) {
     answers++; task(value?.taskId);
+    // Existing API responses may not carry project attribution. Keep that gap
+    // explicit; a local selected project alone cannot prove a server binding.
+    const observed = attributedReceipt(value?.cost, projectId);
+    if (observed && observed.task_id === value?.taskId) {
+      if (serviceReceipts.size < 201 || serviceReceipts.has(observed.task_id)) serviceReceipts.set(observed.task_id, observed);
+      else truncated = true;
+    }
     if (typeof value?.execution?.model === 'string' && reportedModels.size < 40) reportedModels.add(line(value.execution.model,100));
     const cost = measuredCost(value);
     if (cost === null) unknownCost = true; else knownCost += cost;
@@ -54,12 +63,12 @@ function createTaskReceipt({id, projectScope, projectId = null, folder, mode, mo
     const receipt = {schema:1,id,project:{scope:line(projectScope,64),id:projectId ? line(projectId,256) : null,folder:line(folder,1000)},mode,started_at:startedAt,ended_at:endedAt,
       execution:{outcome,reason:line(error?.code || result?.reason,100),model_claimed_status:line(result?.modelStatus || result?.status,30) || null,steps:result?.steps ?? steps},
       verification:{status:'not_independently_verified',basis:'observed_local_tool_results',commands,edits,editor_checks:editorChecks,reviews,event_count:eventCount,truncated},
-      provider_tasks:taskIds,models:{requested:model || null,granted:[...grantedModels],reported_served:[...reportedModels]},
+      provider_tasks:taskIds,attributed_service_receipts:[...serviceReceipts.values()],models:{requested:model || null,granted:[...grantedModels],reported_served:[...reportedModels]},
       usage:{status:pendingCost ? 'unknown' : answers ? 'measured' : 'no_provider_calls',spent_usd:pendingCost ? null : knownCost,known_spent_usd:knownCost},
       remaining_operator_steps:Array.isArray(result?.remainingOperatorSteps) ? result.remainingOperatorSteps.filter(x=>typeof x==='string').slice(0,12).map(x=>line(x,300)) : []};
     // Keep the receipt independently bounded even with maximum-size server IDs.
     while (Buffer.byteLength(JSON.stringify(receipt)) > 60000) {
-      const list = [commands,editorChecks,edits,taskIds].find(rows=>rows.length>1);
+      const list = [commands,editorChecks,edits,taskIds,receipt.attributed_service_receipts].find(rows=>rows.length>1);
       if (!list) break;
       list.shift(); receipt.verification.truncated = true;
     }
@@ -78,6 +87,11 @@ function formatReceipt(receipt, locale = 'en') {
     (ru ? 'Расход API: ' : 'API cost: ') + usage,
     ru ? 'Статус модели не является независимой проверкой. Ниже только наблюдаемые результаты инструментов.' : 'Model completion is not independent verification. The following are observed tool results.'];
   if (receipt.usage.settlement === 'pending_reconciliation') lines.push(ru ? 'Финансовая сверка ещё не завершена; запись заявки сохранена.' : 'Financial reconciliation is pending; the request record is retained.');
+  for (const item of (receipt.attributed_service_receipts || []).slice(-8)) {
+    lines.push('Service receipt: ' + code(item.task_id) + ' · project ' + code(item.project_id)
+      + ' · ' + item.status + ' · provider USD ' + (item.cost.provider_usd ?? 'UNKNOWN')
+      + ' · invoice UNKNOWN · independent acceptance pending · runtime ACK UNKNOWN');
+  }
   for (const item of receipt.verification.commands.slice(-8)) lines.push((ru ? 'Команда: ' : 'Command: ') + code(item.command) + ' · ' + (item.cancelled ? 'cancelled' : item.timed_out ? 'timed out' : item.exit_code === null ? (ru ? 'код выхода неизвестен' : 'exit unknown') : 'exit ' + item.exit_code) + (item.ok ? '' : ' · ' + (item.error || 'not successful')));
   if (!receipt.verification.commands.length) lines.push(ru ? 'Выполнение run_command не зарегистрировано.' : 'No run_command execution was recorded.');
   if (receipt.verification.editor_checks.length) lines.push((ru ? 'Наблюдаемые проверки редактора: ' : 'Observed editor checks: ') + receipt.verification.editor_checks.slice(-3).map(x=>code(x.path)+': '+line(x.syntax_feedback || x.diagnostics_feedback,200)).join('; '));
