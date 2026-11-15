@@ -82,3 +82,20 @@ test('unknown-cost guidance is localized and never offers a financial bypass',()
  assert.match(retryNotice({retryDisposition:'reconciliation_required'},'en'),/retry is unavailable/);
  assert.match(retryNotice({retryDisposition:'reconciliation_required'},'ru'),/повтор недоступен/);
 });
+test('a claimed step total cannot turn an unknown task cost into measured zero',async()=>{
+ let executed=0;
+ await assert.rejects(runAgent({goal:'work',ask:async()=>({content:'{"tool":"list_dir","path":"."}',cost:{},stepSpentUsd:0}),tools:{execute:async()=>{executed++;}}}),{code:'usage_unknown'});
+ assert.equal(executed,0);
+});
+test('final answer retains safety and budget rules and counts both retry costs',async()=>{
+ let calls=0,finalRequest;
+ const result=await runAgent({goal:'work',maxSteps:1,budgetUsd:.5,fullAccess:true,rules:'Never modify protected files. Budget ceilings are mandatory.',tools:{execute:async()=>({ok:true})},ask:async request=>{
+  if(++calls===1)return {content:'{"tool":"list_dir","path":"."}',cost:{spent_usd:.1}};
+  finalRequest=request;return {content:'Observed partial result.',cost:{spent_usd:.2},stepSpentUsd:.3};
+ }});
+ assert.equal(result.spent,.4);assert.equal(finalRequest.tools,false);
+ assert.match(finalRequest.messages[0].content,/Never modify protected files/);
+ assert.match(finalRequest.messages[0].content,/Never read or write secrets/);
+ assert.match(finalRequest.messages[0].content,/Tools are disabled/);
+ assert.match(finalRequest.messages.at(-1).content,/budget: \$0.5/);
+});

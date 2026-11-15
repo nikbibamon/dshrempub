@@ -99,6 +99,11 @@ function parseAction(text) {
 function costOf(answer) {
   return require('./task-receipt').measuredCost(answer);
 }
+function stepCostOf(answer){
+  const measured=costOf(answer);
+  if(measured===null)return null;
+  return answer.stepSpentUsd===undefined?measured:Number.isFinite(answer.stepSpentUsd)&&answer.stepSpentUsd>=measured?answer.stepSpentUsd:null;
+}
 
 // Conversation is data, not tool instructions. Bound the serialized UTF-8
 // block, retaining newest turns first and the tail of an oversized newest turn.
@@ -145,7 +150,7 @@ async function runAgent({ goal, tree, projectContext = '', rules = '', history =
     onEvent({ type: 'step', step, maxSteps: steps, spent });
     const requestMessages=[...agentContext.compactTranscript(messages),{role:'system',content:'[TVIJO STEP] Step '+step+' of at most '+steps+'. Local session budget: $'+budget+'. Spent: $'+spent+'.'}];
     const answer = await ask({ messages:requestMessages, projectContext: projectData, step, askMode, signal });
-    const cost = answer.stepSpentUsd === undefined ? costOf(answer) : Number.isFinite(answer.stepSpentUsd)&&answer.stepSpentUsd>=costOf(answer) ? answer.stepSpentUsd : null;
+    const cost = stepCostOf(answer);
     if (cost === null) throw Object.assign(new Error('Unknown agent cost; reconcile the task receipt before continuing.'), {code:'usage_unknown',spent});
     spent += cost;
     if (getBudget) { const updated=Number(getBudget()); if(!Number.isFinite(updated)||updated<budget||updated>100)throw Error('Invalid approved budget'); budget=updated; }
@@ -205,9 +210,9 @@ async function runAgent({ goal, tree, projectContext = '', rules = '', history =
   // No tools are offered or executed, even if the model returns an action.
   if (signal?.aborted) throw Object.assign(new Error('Agent stopped by the user.'), { code: 'agent_stopped' });
   if (spent >= budget) throw Object.assign(new Error('Local agent budget exhausted. No final call was started.'), { code: 'agent_budget', spent, budget });
-  const finalMessages = [{ role: 'system', content: 'Tools are disabled. Answer the user in the user\'s language using only the collected evidence. State briefly what is missing. Return plain text, no tool JSON or raw TOOL_RESULT.' + memory + (rules ? '\n[TVIJO OPTIONAL RULES]\n'+rules+'[END TVIJO OPTIONAL RULES]\n' : '') }, ...messages.slice(1)];
+  const finalMessages = [{ role: 'system', content: messages[0].content+'\nTools are disabled. Answer the user in the user\'s language using only collected evidence. State briefly what is missing. Return plain text, no tool JSON or raw TOOL_RESULT.' }, ...messages.slice(1),{role:'system',content:'[TVIJO STEP] Final answer after '+steps+' steps. Local session budget: $'+budget+'. Spent: $'+spent+'. Tools remain disabled; permissions and money restrictions above still apply.'}];
   const answer = await ask({ messages: agentContext.compactTranscript(finalMessages), projectContext: projectData, step: steps + 1, signal, tools: false, finalization: true });
-  const cost = costOf(answer);
+  const cost = stepCostOf(answer);
   if (cost === null) throw Object.assign(new Error('Unknown agent cost; reconcile the task receipt before continuing.'), {code:'usage_unknown',spent});
   spent += cost;
     if (getBudget) { const updated=Number(getBudget()); if(!Number.isFinite(updated)||updated<budget||updated>100)throw Error('Invalid approved budget'); budget=updated; }
