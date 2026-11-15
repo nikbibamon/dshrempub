@@ -26,6 +26,9 @@ async function askWithRetry({invoke,lookup,beforeRetry=async()=>{},onAttempt=()=
    // marker. An answer without a cost receipt is never retried here.
    return {...answer,...(cost===null?{}:{stepSpentUsd:knownFailedCost+cost}),stepAttempt:{step,attempt:attempt+1,taskId:answer.taskId,retry_of:retryOf,status:cost===null?'unknown':'completed',spent_usd:cost}};
   }catch(error){
+   // A refused/lost grant is handled by the existing idempotency recovery.
+   // Without a task identity there is no failed provider step to retry.
+   if(!error?.taskId){error.retryAllowed=false;throw error;}
    let snapshot=null;
    if(error?.taskId)try{snapshot=await lookup(error.taskId);}catch{/* Missing authoritative evidence refuses retry. */}
    if(snapshot?.id!==error?.taskId)snapshot=null;

@@ -99,3 +99,9 @@ test('final answer retains safety and budget rules and counts both retry costs',
  assert.match(finalRequest.messages[0].content,/Tools are disabled/);
  assert.match(finalRequest.messages.at(-1).content,/budget: \$0.5/);
 });
+test('a grant refusal without a task keeps ordinary admission guidance and never invents a provider retry',async()=>{
+ let calls=0,lookups=0,attempts=0;
+ const error=Object.assign(Error('Available credit cannot cover this task reservation.'),{code:'insufficient_credit',definitiveGrantRefusal:true});
+ await assert.rejects(askWithRetry({invoke:async()=>{calls++;throw error;},lookup:async()=>{lookups++;},onAttempt:()=>{attempts++;}}),e=>e===error&&e.retryAllowed===false&&e.retryDisposition===undefined);
+ assert.equal(calls,1);assert.equal(lookups,0);assert.equal(attempts,0);
+});

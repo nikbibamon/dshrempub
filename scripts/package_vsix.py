@@ -24,7 +24,7 @@ def build(repo, output):
         raise ValueError('Dirty source tree; commit all authorized source changes before building')
     commit = subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip()
     root = repo / "vscode"
-    meta = json.loads((root / "package.json").read_text())
+    meta = json.loads(subprocess.check_output(['git','-C',str(repo),'show',commit+':vscode/package.json']))
     tags = subprocess.check_output(['git','-C',str(repo),'tag','--points-at',commit],text=True).splitlines()
     release_tag = 'tvijo-v' + meta['version']
     if not any(tag==release_tag or tag.startswith(release_tag+'-candidate.') for tag in tags):
@@ -32,7 +32,7 @@ def build(repo, output):
     if meta.get("dependencies"):
         raise ValueError("Runtime npm dependencies require an explicit packaging design")
     tracked = subprocess.check_output(
-        ["git", "-C", str(repo), "ls-files", "-z", "--", "vscode"]
+        ["git", "-C", str(repo), "ls-tree", "-r", "--name-only", "-z", commit, "--", "vscode"]
     ).decode().split("\0")
     files = {}
     for name in sorted(filter(None, tracked)):
@@ -52,7 +52,7 @@ def build(repo, output):
         source = repo / name
         if source.is_symlink() or not source.resolve().is_relative_to(root.resolve()):
             raise ValueError(f"Unsafe source: {name}")
-        files["extension/" + rel.as_posix()] = source.read_bytes()
+        files["extension/" + rel.as_posix()] = subprocess.check_output(['git','-C',str(repo),'show',commit+':'+name])
     # The Marketplace Overview is README.md frozen into this version: it must announce this
     # version, not an older one (0.10.14 stayed on the page while 0.10.20 was live).
     readme = files["extension/README.md"].decode() if "extension/README.md" in files else ""
@@ -125,6 +125,8 @@ def build(repo, output):
     receipt = output.with_name(output.name + ".sha256.json")
     if output.exists() or receipt.exists():
         raise FileExistsError("Output or hash manifest already exists")
+    if subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip()!=commit or subprocess.check_output(['git','-C',str(repo),'status','--porcelain=v1','--untracked-files=all'],text=True):
+        raise ValueError('Source changed during build; artifact creation refused')
     # ZIP_STORED avoids compression-library differences; source bytes and metadata
     # alone determine the archive. A filesystem timestamp never enters the build.
     with output.open("xb") as target:
