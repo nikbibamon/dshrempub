@@ -1,9 +1,9 @@
 ## 0.10.29 — 2026-11-14 (prepared preview)
 
-- **Smaller Agent requests.** Stable instructions and read-only Ask tools for short project questions; source bodies enter only after a task read. Long rules use a deterministic digest with source paths; safety, permissions and money restrictions remain. Older read results become named receipts while local history stays intact.
+- **Smaller Agent requests.** Stable instructions and read-only Ask tools for short project questions; source bodies enter only after a task read. Long rules use a deterministic digest with source paths; safety, permissions and money restrictions remain. Ask removes repeated quoting and prose whitespace while retaining policy words and fenced code. Older read results become named receipts while local history stays intact.
 - **One confirmed retry.** A failed step may create one new task after a final, known-cost receipt, within the remaining budget and normal server limits. Both task costs and retry links are recorded. Unknown charges stop the agent and disable retry. Saved edits remain.
 - **Build and diagnostics.** `/status` includes extension and gateway versions plus the build commit. Release packages require a clean tagged source and carry a file hash inventory. Missing provider cache fields remain unknown.
-- **Download and channels.** Installation links use https://dsh.tvijo.com/download#vscode. Editor downloads remain separate. Reload after installing; existing grants and settings remain. Registry packaging is prepared; actual registry publication requires operator tokens. Paid live validation is a separate operator step.
+- **Download and channels.** Installation links use https://dsh.tvijo.com/download#vscode. Editor downloads remain separate. Reload after installing; existing grants and settings remain. Registry packaging includes an offline required-field manifest check; actual registry publication requires operator tokens. Paid live validation is a separate operator step.
 
 ## 0.10.28 — 2026-10-31 (prepared candidate)
 

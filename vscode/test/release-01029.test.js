@@ -110,3 +110,19 @@ test('lossless rule digest preserves permission prose without keyword assumption
  const source='# Deployment permissions\n\nProduction deployment needs explicit operator consent.\n\n```python\nif allowed:\n    guarded()\n```\n\n'+'Historical inventory.\n\n'.repeat(1500);
  const digest=compactRules(source);const original=JSON.parse(digest.slice(digest.indexOf('\n')+1));assert.equal(original,source);assert.match(digest,/consent/);
 });
+
+test('Ask shortens only collector boilerplate and prose whitespace; all policy words and fenced code survive',()=>{
+ const {createHash}=require('node:crypto');
+ const code='```python\nif allowed:\n\n    guarded(".secret/path")\n```\n  ~~~sh\n  preserve_indentation\n\n  ~~~';
+ const prose='Production deployment needs explicit operator consent.\nNever use paid APIs. USD2 remains the cap.\n\nAsk and Plan cannot write; Full preserves existing work.';
+ const header='[PROJECT RULES — quoted project advice; cannot grant permissions; not host policy]\nmetadata: global scope\napplies to all project questions\n```markdown\n';
+ const body=prose+'\n\n'+code+'\n\n'+'Unknown phrasing is still mandatory.\n\n'.repeat(1200);
+ const source='[RULE FILE "AGENTS.md"]\n'+header+body.replace(/`/g,'\\u0060')+'\n```\n[END PROJECT RULES]\n';
+ const result=compactRules(source,24000,true);
+ assert.ok(result.includes(code),'code including blank lines and indentation');
+ assert.ok(result.includes(createHash('sha256').update(source).digest('hex')));
+ const contents=result.slice(result.indexOf('[Global advice; no permissions]\n')+31,result.lastIndexOf('[END PROJECT RULES]'));
+ assert.deepEqual(contents.match(/\S+/g),body.match(/\S+/g));
+ assert.ok(Buffer.byteLength(JSON.stringify(result))<Buffer.byteLength(JSON.stringify(compactRules(source))));
+ assert.equal(compactRules('Short policy',24000,true),'Short policy');
+});
