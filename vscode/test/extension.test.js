@@ -1999,7 +1999,8 @@ test('each agent result is durable before the next dispatch and recovery data ne
   app=host({root,chatSequence:['{"tool":"read_file","path":"evidence.txt"}','{"tool":"finish","answer":"done"}'],onRequest:req=>{
     if (!req.url.endsWith('/chat')) return;
     const run=journalFor(app).list(recoveryKeyFor(app)).runs[0];
-    assert.equal(run.events.at(-1).type,'step');
+    assert.ok(run.events.some(e=>e.type==='step'));
+    assert.equal(run.events.at(-1).type,'step_attempt_started');
     if (++chats===2) {
       assert.equal(run.events.filter(e=>e.type==='result').length,1);
       assert.equal(run.events.find(e=>e.type==='result').result.content,'synthetic tool evidence');
@@ -3428,5 +3429,16 @@ test('root Extra remains disabled after upgrade and refuses before any paid gran
   await app.receive({type:'ready'});state=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.fullAccess.enabled,false);assert.equal(state.fullAccess.extraAvailable,false);
   await app.receive({type:'ask',question:'Try old root Extra',agent:true});assert.equal(app.requests.filter(r=>r.method==='POST'&&r.url.endsWith('/tasks')).length,0);assert.match(app.feedback.at(-1),/privileged root/);assert.equal(app.context.globalState.get(key).level,'extra');
   await enableFullAccess(app);await app.receive({type:'ask',question:'Use supported Full',agent:true});assert.ok(app.requests.some(r=>r.url.endsWith('/chat')));
+ }finally{app.close();}
+});
+
+
+test('chat retryStep reaches the host command and refuses a missing failed-step scope without a paid task',async()=>{
+ const app=host();
+ try{
+  await app.receive({type:'ready'});const scopeKey=app.posts.filter(x=>x.type==='state').at(-1).scopeKey;
+  const before=app.feedback.length;await app.receive({type:'retryStep',scopeKey});
+  assert.ok(app.feedback.length>before,'host must report the missing retry scope');
+  assert.ok(!app.requests.some(x=>x.method==='POST'&&x.url.endsWith('/tasks')));
  }finally{app.close();}
 });
