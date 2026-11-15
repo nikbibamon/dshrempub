@@ -105,3 +105,8 @@ test('a grant refusal without a task keeps ordinary admission guidance and never
  await assert.rejects(askWithRetry({invoke:async()=>{calls++;throw error;},lookup:async()=>{lookups++;},onAttempt:()=>{attempts++;}}),e=>e===error&&e.retryAllowed===false&&e.retryDisposition===undefined);
  assert.equal(calls,1);assert.equal(lookups,0);assert.equal(attempts,0);
 });
+
+test('lossless rule digest preserves permission prose without keyword assumptions and exact code formatting',()=>{
+ const source='# Deployment permissions\n\nProduction deployment needs explicit operator consent.\n\n```python\nif allowed:\n    guarded()\n```\n\n'+'Historical inventory.\n\n'.repeat(1500);
+ const digest=compactRules(source);const original=JSON.parse(digest.slice(digest.indexOf('\n')+1));assert.equal(original,source);assert.match(digest,/consent/);
+});

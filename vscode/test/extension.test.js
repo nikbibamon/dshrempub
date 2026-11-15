@@ -3431,3 +3431,14 @@ test('root Extra remains disabled after upgrade and refuses before any paid gran
   await enableFullAccess(app);await app.receive({type:'ask',question:'Use supported Full',agent:true});assert.ok(app.requests.some(r=>r.url.endsWith('/chat')));
  }finally{app.close();}
 });
+
+
+test('chat retryStep reaches the host command and refuses a missing failed-step scope without a paid task',async()=>{
+ const app=host();
+ try{
+  await app.receive({type:'ready'});const scopeKey=app.posts.filter(x=>x.type==='state').at(-1).scopeKey;
+  const before=app.feedback.length;await app.receive({type:'retryStep',scopeKey});
+  assert.ok(app.feedback.length>before,'host must report the missing retry scope');
+  assert.ok(!app.requests.some(x=>x.method==='POST'&&x.url.endsWith('/tasks')));
+ }finally{app.close();}
+});
