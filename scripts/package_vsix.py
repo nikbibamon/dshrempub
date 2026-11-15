@@ -19,8 +19,16 @@ def digest(data):
 
 
 def build(repo, output):
+    dirty = subprocess.check_output(['git','-C',str(repo),'status','--porcelain=v1','--untracked-files=all'],text=True)
+    if dirty:
+        raise ValueError('Dirty source tree; commit all authorized source changes before building')
+    commit = subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip()
     root = repo / "vscode"
     meta = json.loads((root / "package.json").read_text())
+    tags = subprocess.check_output(['git','-C',str(repo),'tag','--points-at',commit],text=True).splitlines()
+    release_tag = 'tvijo-v' + meta['version']
+    if not any(tag==release_tag or tag.startswith(release_tag+'-candidate.') for tag in tags):
+        raise ValueError('Source HEAD must have its exact version release/candidate tag')
     if meta.get("dependencies"):
         raise ValueError("Runtime npm dependencies require an explicit packaging design")
     tracked = subprocess.check_output(
@@ -110,6 +118,10 @@ def build(repo, output):
     }.items():
         ET.SubElement(types, "Default", {"Extension": suffix, "ContentType": mime})
     files["[Content_Types].xml"] = ET.tostring(types, encoding="utf-8", xml_declaration=True)
+    info = {'schema':1,'version':meta['version'],'commit':commit,
+            'hash_scope':'Every VSIX member except BUILD_INFO.json itself (self-reference excluded)',
+            'files':{name:digest(data) for name,data in sorted(files.items())}}
+    files['extension/BUILD_INFO.json'] = (json.dumps(info,indent=2,sort_keys=True)+'\n').encode()
     receipt = output.with_name(output.name + ".sha256.json")
     if output.exists() or receipt.exists():
         raise FileExistsError("Output or hash manifest already exists")

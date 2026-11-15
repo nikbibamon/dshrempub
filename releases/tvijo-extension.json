@@ -1,6 +1,6 @@
 {
   "schema": "tvijo.extension-release/v1",
-  "as_of": "2026-10-31",
+  "as_of": "2026-11-14",
   "product": {
     "id": "tvijo-dshrem-vscode",
     "name": "Tvijo DSHREM for VS Code",
@@ -9,28 +9,28 @@
       "ru": "Помощь с кодом: выбранный контекст, проверяемые правки и задачи с лимитом."
     }
   },
-  "latest_version": "0.10.28",
+  "latest_version": "0.10.29",
   "channel": "preview",
   "publication": {
-    "status": "published",
-    "published_at": "2026-10-31",
+    "status": "prepared",
+    "published_at": null,
     "note": {
-      "en": "GitHub preview is available; anonymous download bytes and SHA256 verified. Marketplace and bundled editors are separate channels.",
-      "ru": "Preview доступен на GitHub; анонимная загрузка и SHA256 проверены. Marketplace и встроенные редакторы — отдельные каналы."
+      "en": "Prepared preview; public publication and registry uploads are separate verified steps.",
+      "ru": "Подготовленный preview; публичный выпуск и загрузка в каталоги проверяются отдельно."
     }
   },
   "package": {
-    "filename": "tvijo-dshrem-0.10.28.vsix",
-    "sha256": "b0c983a7ac12d2f47fadc24c570cf406a22f0b548ee015d323f01beb3dee7e70",
-    "bytes": 1283326,
+    "filename": "tvijo-dshrem-0.10.29.vsix",
+    "sha256": "pending-build",
+    "bytes": 0,
     "editor_requirement": "^1.90.0",
-    "source_commit": "bd3148bb0eb3789f33d64cad781c1f0b2d95f95f",
-    "verified_environment": "Node22 and24: 1014 extension,12 launcher,10 terminal and17 archive tests passed each (CI41249301539). Exact VSIX passed Linux VS Code native attempt03: step disclosure, panel controls and synthetic project-key Plan callback. Installed files:77 raw matches; package.json semantic match excluding VS Code __metadata. Windows/macOS and live model execution unverified."
+    "source_commit": "pending-build",
+    "verified_environment": "Offline tests and tagged build verification pending; no live paid validation claimed."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
-    "source": "https://github.com/nikbibamon/dshrempub/tree/tvijo-v0.10.28",
-    "changelog": "https://github.com/nikbibamon/dshrempub/blob/tvijo-v0.10.28/vscode/CHANGELOG.md",
+    "source": "https://github.com/nikbibamon/dshrempub/tree/tvijo-v0.10.29",
+    "changelog": "https://github.com/nikbibamon/dshrempub/blob/tvijo-v0.10.29/vscode/CHANGELOG.md",
     "issues": "https://github.com/nikbibamon/dshrempub/issues"
   },
   "features": [
@@ -138,8 +138,8 @@
         "ru": "Устойчивый движок DSH Harness"
       },
       "description": {
-        "en": "Optional DSH Harness engine: ds41f coordinates native subscription Codex Sol, Astra/high advice and optional Claude Opus5.5 on a configured Linux editor host. Settings discovers the owner manifest without path entry.",
-        "ru": "Дополнительный движок DSH Harness: ds41f координирует Codex Sol по подписке, совет Astra/high и дополнительный Claude Opus5.5 на настроенном Linux-хосте редактора. Настройки находят манифест владельца без ввода путей."
+        "en": "Optional DSH Harness engine: ds41f coordinates native subscription coding account worker Sol, Astra/high advice and optional review account worker Opus5.5 on a configured Linux editor host. Settings discovers the owner manifest without path entry.",
+        "ru": "Дополнительный движок DSH Harness: ds41f координирует coding account worker Sol по подписке, совет Astra/high и дополнительный review account worker Opus5.5 на настроенном Linux-хосте редактора. Настройки находят манифест владельца без ввода путей."
       }
     },
     {
@@ -228,6 +228,32 @@
     }
   ],
   "releases": [
+    {
+      "version": "0.10.29",
+      "date": "2026-11-14",
+      "status": "prepared",
+      "channel": "preview",
+      "title": {
+        "en": "Smaller context and confirmed step retry",
+        "ru": "Меньше контекста и повтор подтверждённого шага"
+      },
+      "changes": [
+        {
+          "en": "Stable Agent prefix, read-only Ask, named rule digests and deterministic older-step receipts.",
+          "ru": "Стабильный префикс Agent, Ask только для чтения, выжимки правил с путями и детерминированные квитанции прошлых шагов."
+        },
+        {
+          "en": "One new-task retry only after confirmed final failure; both tasks and costs are linked, unknown charges stop work.",
+          "ru": "Один повтор новой задачей только после подтверждённого итогового отказа; задачи и расходы связаны, неизвестные списания останавливают работу."
+        }
+      ],
+      "limitations": [
+        {
+          "en": "Registry uploads and paid live validation are operator steps. Native editor bundles have their own release status.",
+          "ru": "Загрузка в каталоги и платная живая проверка — шаги оператора. Встроенные редакторы имеют отдельный статус выпуска."
+        }
+      ]
+    },
     {
       "version": "0.10.28",
       "date": "2026-10-31",
@@ -385,12 +411,12 @@
       ],
       "limitations": [
         {
-          "en": "Commands run with your OS account rights and are not confined to the project. The review adapter enforces call limits and project pauses; an arbitrary host script is not an OS sandbox. Claude review is off by default; Copilot currently calls Tvijo, not the reverse.",
-          "ru": "Команды работают с правами пользователя ОС и не ограничены проектом. Лимиты вызовов и паузы проекта проверяет адаптер ревью; произвольный shell-скрипт не изолирован ОС. Claude-ревью по умолчанию выключено; Copilot вызывает Tvijo, обратного вызова нет."
+          "en": "Commands run with your OS account rights and are not confined to the project. The review adapter enforces call limits and project pauses; an arbitrary host script is not an OS sandbox. review account worker review is off by default; Copilot currently calls Tvijo, not the reverse.",
+          "ru": "Команды работают с правами пользователя ОС и не ограничены проектом. Лимиты вызовов и паузы проекта проверяет адаптер ревью; произвольный shell-скрипт не изолирован ОС. review account worker-ревью по умолчанию выключено; Copilot вызывает Tvijo, обратного вызова нет."
         },
         {
-          "en": "POSIX hosts support shell scripts; Windows retains literal commands. 961 extension tests, 20 final adapter tests and four EN/RU webview checks passed. Isolated VS Code Server installation and one authenticated Codex advisory completed. Native interactive editor activation, Claude execution and full paid end-to-end task remain unverified.",
-          "ru": "POSIX-хосты поддерживают shell-скрипты; на Windows остаются буквальные команды. Прошли961 тест расширения,20 финальных тестов адаптера и4 проверки веб-панели EN/RU. Подтверждены изолированная установка VS Code Server и одно подписочное ревью Codex. Интерактивная активация редактора, вызов Claude и полная платная задача ещё не проверены."
+          "en": "POSIX hosts support shell scripts; Windows retains literal commands. 961 extension tests, 20 final adapter tests and four EN/RU webview checks passed. Isolated VS Code Server installation and one authenticated coding account worker advisory completed. Native interactive editor activation, review account worker execution and full paid end-to-end task remain unverified.",
+          "ru": "POSIX-хосты поддерживают shell-скрипты; на Windows остаются буквальные команды. Прошли961 тест расширения,20 финальных тестов адаптера и4 проверки веб-панели EN/RU. Подтверждены изолированная установка VS Code Server и одно подписочное ревью coding account worker. Интерактивная активация редактора, вызов review account worker и полная платная задача ещё не проверены."
         }
       ]
     },
@@ -438,13 +464,13 @@
       "version": "0.10.20",
       "date": "2026-10-27",
       "title": {
-        "en": "Larger bounded Devstral agent response",
-        "ru": "Увеличен ограниченный ответ Devstral"
+        "en": "Larger bounded reasoning worker agent response",
+        "ru": "Увеличен ограниченный ответ reasoning worker"
       },
       "changes": [
         {
-          "en": "Larger bounded Devstral agent response",
-          "ru": "Увеличен ограниченный ответ Devstral"
+          "en": "Larger bounded reasoning worker agent response",
+          "ru": "Увеличен ограниченный ответ reasoning worker"
         }
       ],
       "limitations": [
@@ -635,8 +661,8 @@
       },
       "changes": [
         {
-          "en": "Optional DSH Harness engine: ds41f coordinates native subscription Codex Sol, Astra/high advice and optional Claude Opus5.5 on a configured Linux editor host. Settings discovers the owner manifest without path entry.",
-          "ru": "Дополнительный движок DSH Harness: ds41f координирует Codex Sol по подписке, совет Astra/high и дополнительный Claude Opus5.5 на настроенном Linux-хосте редактора. Настройки находят манифест владельца без ввода путей."
+          "en": "Optional DSH Harness engine: ds41f coordinates native subscription coding account worker Sol, Astra/high advice and optional review account worker Opus5.5 on a configured Linux editor host. Settings discovers the owner manifest without path entry.",
+          "ru": "Дополнительный движок DSH Harness: ds41f координирует coding account worker Sol по подписке, совет Astra/high и дополнительный review account worker Opus5.5 на настроенном Linux-хосте редактора. Настройки находят манифест владельца без ввода путей."
         },
         {
           "en": "Detached tmux tasks preserve goal, original authority, limits and jobs across reconnects. Unknown outcomes are retained; Resume does not repeat a completed provider call or refill a budget.",
@@ -1127,8 +1153,8 @@
       "ru": "Extra недоступен на root; shell обычного пользователя не является песочницей ОС. Для ревью через подписку в Full нужно отдельное разрешение проекта."
     },
     {
-      "en": "Commands run with your OS account rights and are not confined to the project. The review adapter enforces call limits and project pauses; an arbitrary host script is not an OS sandbox. Claude review is off by default; Copilot currently calls Tvijo, not the reverse.",
-      "ru": "Команды работают с правами пользователя ОС и не ограничены проектом. Лимиты вызовов и паузы проекта проверяет адаптер ревью; произвольный shell-скрипт не изолирован ОС. Claude-ревью по умолчанию выключено; Copilot вызывает Tvijo, обратного вызова нет."
+      "en": "Commands run with your OS account rights and are not confined to the project. The review adapter enforces call limits and project pauses; an arbitrary host script is not an OS sandbox. review account worker review is off by default; Copilot currently calls Tvijo, not the reverse.",
+      "ru": "Команды работают с правами пользователя ОС и не ограничены проектом. Лимиты вызовов и паузы проекта проверяет адаптер ревью; произвольный shell-скрипт не изолирован ОС. review account worker-ревью по умолчанию выключено; Copilot вызывает Tvijo, обратного вызова нет."
     },
     {
       "en": "Team preferences require a host controller advertising supported counts, report formats and an available selected policy. Update the configured host before using the new team options.",

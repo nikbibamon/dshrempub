@@ -48,10 +48,7 @@ To point at a development endpoint, set `DSHREM_API_BASE`. HTTPS is required. Pl
 
 ## VS Code
 
-Extension 0.10.7 adds **Work in Tvijo** to the Explorer folder menu and a visual
-folder browser in chat. New sessions use Agent tools with confirmations; Full
-access activates only after explicit approval. The account row shows the running
-version and a reload action. See [folder selection and modes](vscode/README.md#choose-the-execution-folder).
+Extension 0.10.29 reduces repeated Agent context, provides read-only Ask for short project questions, and records one separately budgeted retry only after a confirmed final failure. Unknown charges stop work. [Download and installation](https://dsh.tvijo.com/download#vscode). Existing permissions remain; reload the editor after updating.
 
 Preview data flow is documented in [vscode/PRIVACY.md](vscode/PRIVACY.md).
 For graph orchestration, see the two-node [LangGraph/LangChain adapter](integrations/LANGGRAPH.md).

@@ -1999,7 +1999,8 @@ test('each agent result is durable before the next dispatch and recovery data ne
   app=host({root,chatSequence:['{"tool":"read_file","path":"evidence.txt"}','{"tool":"finish","answer":"done"}'],onRequest:req=>{
     if (!req.url.endsWith('/chat')) return;
     const run=journalFor(app).list(recoveryKeyFor(app)).runs[0];
-    assert.equal(run.events.at(-1).type,'step');
+    assert.ok(run.events.some(e=>e.type==='step'));
+    assert.equal(run.events.at(-1).type,'step_attempt_started');
     if (++chats===2) {
       assert.equal(run.events.filter(e=>e.type==='result').length,1);
       assert.equal(run.events.find(e=>e.type==='result').result.content,'synthetic tool evidence');
