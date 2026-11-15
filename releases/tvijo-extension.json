@@ -1,6 +1,6 @@
 {
   "schema": "tvijo.extension-release/v1",
-  "as_of": "2026-11-14",
+  "as_of": "2026-11-15",
   "product": {
     "id": "tvijo-dshrem-vscode",
     "name": "Tvijo DSHREM for VS Code",
@@ -21,11 +21,11 @@
   },
   "package": {
     "filename": "tvijo-dshrem-0.10.29.vsix",
-    "sha256": "fd51b7686591b84a6058d5439c5411f7b5d8349c843cbae4d8fd0553b619289a",
-    "bytes": 1313597,
+    "sha256": "0cfbc77f5dc6cbeba2dd36692dfb8dbe980a0c27a0a165594de177b5fd6916a1",
+    "bytes": 1314048,
     "editor_requirement": "^1.90.0",
-    "source_commit": "3396f934b887f501c70f1557797736b49e2ea3c2",
-    "verified_environment": "Node22 and24: 1034 extension tests, 12 launcher and10 terminal tests passed per runtime; 17 archive checks passed. Native Linux installed-VSIX test activated 0.10.29 and returned gateway0.5.2/build commit. Registry packaging passed; the unsupported Open VSX dry-run flag is documented, with a loopback CLI rehearsal only. Paid login/model use and native Windows/macOS remain unverified."
+    "source_commit": "60d00ea18beb1a24236d51c163f26ff8bea3cad5",
+    "verified_environment": "Node22 and24: 1037 extension tests,12 launcher and10 terminal tests per runtime;18 archive checks. Final native and registry preparation checks pending. Live paid use remains unverified."
   },
   "links": {
     "download": "https://dsh.tvijo.com/download#vscode",
