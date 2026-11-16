@@ -76,5 +76,15 @@
   "tvijo.orchestration.reportFormat.enum.3": "Светлый и тёмный отчёты",
   "tvijo.orchestrationReport.title": "Открыть приватный отчёт задачи",
   "tvijo.orchestration.workerPolicy.enum.3": "Sol + Claude · координатор, исполнитель, рецензент",
-  "tvijo.agentReview.claudeEnabled.description": "Разрешить рекомендательное ревью через подписку Claude после отдельного разрешения в меню полного доступа либо согласия ExtraFullAccess. По умолчанию выключено. Правила проекта могут приостановить Claude. Без API-подмены и рекурсивных вызовов."
+  "tvijo.agentReview.claudeEnabled.description": "Разрешить рекомендательное ревью через подписку Claude после отдельного разрешения в меню полного доступа либо согласия ExtraFullAccess. По умолчанию выключено. Правила проекта могут приостановить Claude. Без API-подмены и рекурсивных вызовов.",
+  "tvijo.learn.startExercise.title": "Начать учебное упражнение",
+  "tvijo.learn.openProposal.title": "Открыть учебного кандидата",
+  "tvijo.learn.runTrustedTests.title": "Запустить доверенные учебные тесты",
+  "tvijo.learn.runMyCheck.title": "Запустить мою учебную проверку",
+  "tvijo.learn.progress.title": "Мой учебный прогресс",
+  "tvijo.learn.exportData.title": "Экспорт моих учебных данных",
+  "tvijo.learn.deleteData.title": "Удалить мои локальные учебные данные",
+  "tvijo.learn.enabled.description": "Включить локальные учебные упражнения и приватный журнал решений. Баллы практики не дают прав и не подтверждают мастерство.",
+  "tvijo.learn.context.exercise.description": "Практика только в проверенном авторском упражнении; реальные проекты исключены.",
+  "tvijo.learn.context.description": "Обучение работает только в авторском упражнении. Реальные проекты исключены."
 }

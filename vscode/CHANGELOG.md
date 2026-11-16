@@ -1,3 +1,7 @@
+## Unreleased
+
+- **Local learning practice (off by default).** Review five authored candidates, run trusted checks, record decisions and inspect or export private progress. Practice points do not change permissions or certify mastery.
+
 ## 0.10.29 — 2026-11-14 (prepared preview)
 
 - **Smaller Agent requests.** Stable instructions and read-only Ask tools for short project questions; source bodies enter only after a task read. Long rules use a deterministic digest with source paths; safety, permissions and money restrictions remain. Ask removes repeated quoting and prose whitespace while retaining policy words and fenced code. Older read results become named receipts while local history stays intact.

@@ -1,0 +1,24 @@
+{
+  "task_id": "task-dp-p2",
+  "project_id": "learn-day-planner",
+  "thread_id": "TEMPLATE",
+  "snapshot_hash": "TEMPLATE",
+  "financial_status": "completed",
+  "receipt": {
+    "held_micro_tvijo": 0
+  },
+  "tests": {
+    "test_result_verified": false,
+    "result_trust": "untrusted_test_process",
+    "exit_code": 0,
+    "reported_test_count": 2
+  },
+  "edits": [
+    {
+      "path": "p2/planner.py",
+      "content": "\"\"\"Plan positive-duration tasks by priority, stable input order, in earliest fitting slot.\nSlots are sorted and non-overlapping; durations are 1..480 minutes.\nZero duration is unspecified: ordering and placement are not defined for it.\n\"\"\"\ndef plan_day(tasks, slots):\n    remaining = [[start, end] for start, end in slots]\n    answer = []\n    ordered = sorted(enumerate(tasks), key=lambda pair: (-pair[1]['priority'], pair[0]))\n    for _, task in ordered:\n        if task['minutes'] <= 0:\n            continue\n        for slot in remaining:\n            if slot[1] - slot[0] >= task['minutes']:\n                answer.append((task['id'], slot[0]))\n                slot[0] += task['minutes']\n                break\n    return answer\n",
+      "base_sha256": "3fc1a447cd021079ea6043422e81682e786e589478159348e3dbe64cd8e6d5cf",
+      "new_sha256": "1578ae505fcd47e9e96a4e79f7b698b1b6cc3cecd399dc9ab5a02dd44df06274"
+    }
+  ]
+}

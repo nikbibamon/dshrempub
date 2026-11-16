@@ -1,0 +1,24 @@
+{
+  "task_id": "task-dp-p5",
+  "project_id": "learn-day-planner",
+  "thread_id": "TEMPLATE",
+  "snapshot_hash": "TEMPLATE",
+  "financial_status": "completed",
+  "receipt": {
+    "held_micro_tvijo": 0
+  },
+  "tests": {
+    "test_result_verified": false,
+    "result_trust": "untrusted_test_process",
+    "exit_code": 0,
+    "reported_test_count": 2
+  },
+  "edits": [
+    {
+      "path": "p5/planner.py",
+      "content": "\"\"\"Plan positive-duration tasks by priority, stable input order, in earliest fitting slot.\nSlots are sorted and non-overlapping; durations are 1..480 minutes.\nZero duration is unspecified: ordering and placement are not defined for it.\n\"\"\"\ndef plan_day(tasks, slots):\n    cursors = [start for start, end in slots]\n    result = []\n    for task in sorted(tasks, key=lambda t: -t['priority']):\n        if task['minutes'] == 0:\n            continue\n        for i, (start, end) in enumerate(slots):\n            if cursors[i] + task['minutes'] <= end:\n                result.append((task['id'], cursors[i]))\n                cursors[i] += task['minutes']\n                break\n    return [(t['id'], slots[0][0]) for t in tasks if t['minutes'] == 0] + result\n",
+      "base_sha256": "3fc1a447cd021079ea6043422e81682e786e589478159348e3dbe64cd8e6d5cf",
+      "new_sha256": "e2229878414ceb08c833628eed84f8ea6676029eaef39482a3a1317c0ea185a0"
+    }
+  ]
+}
