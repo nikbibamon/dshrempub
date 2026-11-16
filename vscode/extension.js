@@ -2721,6 +2721,7 @@ function activate(context) {
     await previewCoding({auth,...captured,artifact});
   });
   // learn:begin commands
+  const learnPanels=new Set();
   const learnHost=require('./lib/learn-host').createHost({vscode,storageRoot:context.globalStorageUri?.fsPath,L,enabled:()=>vscode.workspace.getConfiguration('tvijo').get('learn.enabled',false),scope:()=>identity?.scope,folder:()=>permissionFolder()?.uri.fsPath});
   async function learnAuth(){
     const saved=await readAuth();
@@ -2743,6 +2744,24 @@ function activate(context) {
   });
   command('tvijo.learn.runTrustedTests',async()=>learnHost.check(codingReview,'trusted'));
   command('tvijo.learn.runMyCheck',async()=>learnHost.check(codingReview,'case'));
+  command('tvijo.learn.exportData',async()=>{
+    const auth=await learnAuth(),value=await learnHost.data();if(!await isCurrentAuth(auth))return;
+    const uri=await vscode.window.showSaveDialog({saveLabel:L('Export Learn data','Экспортировать данные Learn'),filters:{JSON:['json']}});if(!uri||!await isCurrentAuth(auth))return;
+    await require('node:fs/promises').writeFile(uri.fsPath,JSON.stringify({schema:'tvijo.learn.export/1',events:value.events,progress:value.progress},null,2),{mode:0o600});
+  });
+  command('tvijo.learn.deleteData',async()=>{
+    const auth=await learnAuth(),yes=L('Delete local Learn data','Удалить локальные данные Learn');
+    if(await vscode.window.showWarningMessage(L('Delete the local learning journal for this account? Export it first if you want to keep a copy.','Удалить локальный учебный журнал этого аккаунта? Сначала экспортируйте его, если нужна копия.'),{modal:true},yes)!==yes||!await isCurrentAuth(auth))return;
+    const wasLearning=learnHost.belongs(codingReview);await learnHost.deleteData();if(wasLearning)codingReview=null;for(const panel of learnPanels)panel.dispose();learnPanels.clear();
+    void vscode.window.showInformationMessage(L('Local Learn data deleted. Start a new exercise to continue.','Локальные данные Learn удалены. Для продолжения начните новое упражнение.'));
+  });
+  command('tvijo.learn.progress',async()=>{
+    if(!vscode.workspace.getConfiguration('tvijo').get('learn.enabled',false))throw new core.ServiceError('learn_disabled',L('Enable Tvijo Learn in settings first.','Сначала включите Tvijo Learn в настройках.'));
+    const auth=await learnAuth(),value=await learnHost.data();if(!await isCurrentAuth(auth))return;
+    const view=require('./lib/learn-progress-view'),nonce=require('node:crypto').randomBytes(16).toString('hex'),panel=vscode.window.createWebviewPanel('tvijo.learn.progress',L('My progress','Мой прогресс'),vscode.ViewColumn.Beside,{enableScripts:true,localResourceRoots:[]});
+    reportPanels.add(panel);learnPanels.add(panel);panel.onDidDispose(()=>{reportPanels.delete(panel);learnPanels.delete(panel);});panel.webview.html=view.render(value.progress,nonce,L);
+    panel.webview.onDidReceiveMessage(async message=>{try{if(!view.validMessage(message)||!await isCurrentAuth(auth))return;const commandId=message.type==='export'?'tvijo.learn.exportData':message.type==='delete'?'tvijo.learn.deleteData':'tvijo.learn.startExercise';await handlers.get(commandId)(...(message.type==='open-exercise'?['day-planner/1']:[]));}catch(error){report(error);}});
+  });
   // learn:end
   command('tvijo.applyCoding', async () => {
     ensureIdle(); const review = codingReview;

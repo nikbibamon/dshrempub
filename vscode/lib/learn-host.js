@@ -55,6 +55,14 @@ function createHost({vscode,storageRoot,L=en=>en,enabled,scope,folder,loadExerci
    void vscode.window.showInformationMessage(L('Learn check result: ','Результат проверки Learn: ')+(result.result==='pass'?L('pass','пройдена'):result.result==='fail'?L('fail','ошибка'):L('unknown','неизвестно')));return result;
   }finally{m.pending--;}
  }
- return {start,openProposal,belongs,ready,present,revalidate,confirm,recordApply,check,active:()=>active,flush:()=>active?.recorder.flush()};
+ async function data(){
+  const account=scope();if(!account)fail('scope_missing');const pack=active?.scope===account?active.exercise:await loadExercise('day-planner/1');
+  const journal=active?.scope===account&&active.journal?active.journal:await openJournal({root:storageRoot,scope:account,ctx:exerciseApi.ctxFor(pack)});
+  if(active?.scope===account)await active.recorder.flush();const events=await journal.read();if(scope()!==account)fail('scope_missing');
+  const {derive}=require('./learn-scorer'),opts={truth:pack.manifest.truth,ctx:exerciseApi.ctxFor(pack)},cumulative=derive(events,undefined,opts),instance=cumulative.instances.at(-1),lastAttempt=instance?derive(events,undefined,{...opts,instance}):derive([],undefined,opts);
+  return {events,progress:require('./learn-progress-view').project({cumulative,lastAttempt}),journal,account};
+ }
+ async function deleteData(){const value=await data();if(value.account!==scope())fail('scope_missing');await value.journal.purge();if(active?.scope===value.account)active=null;}
+ return {start,openProposal,belongs,ready,present,revalidate,confirm,recordApply,check,data,deleteData,active:()=>active,flush:()=>active?.recorder.flush()};
 }
 module.exports={createHost};
