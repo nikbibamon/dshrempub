@@ -19,6 +19,7 @@ async function open({root,scope,ctx,client={name:'tvijo-vsix',version:'0.10.28'}
   return lines.map(line=>{try{return JSON.parse(line);}catch{return null;}});
  }
  async function appendOne(input){
+  input={schema:'tvijo.learn.event/1',...input};
   const rows=await read(),id=eventId(input),given=input.event_id;
   const same=rows.find(e=>e&&e.type!=='observation_gap'&&e.event_id===(given||id));
   if(same){if(content(same)!==content(input))fail('event_conflict');return same;}
