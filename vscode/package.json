@@ -388,6 +388,46 @@
         "command": "tvijo.orchestrationReport",
         "title": "%tvijo.orchestrationReport.title%",
         "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.learn.startExercise",
+        "title": "%tvijo.learn.startExercise.title%",
+        "category": "Tvijo",
+        "enablement": "config.tvijo.learn.enabled"
+      },
+      {
+        "command": "tvijo.learn.openProposal",
+        "title": "%tvijo.learn.openProposal.title%",
+        "category": "Tvijo",
+        "enablement": "config.tvijo.learn.enabled && tvijo.learn.exerciseActive"
+      },
+      {
+        "command": "tvijo.learn.runTrustedTests",
+        "title": "%tvijo.learn.runTrustedTests.title%",
+        "category": "Tvijo",
+        "enablement": "config.tvijo.learn.enabled && tvijo.learn.exerciseActive"
+      },
+      {
+        "command": "tvijo.learn.runMyCheck",
+        "title": "%tvijo.learn.runMyCheck.title%",
+        "category": "Tvijo",
+        "enablement": "config.tvijo.learn.enabled && tvijo.learn.exerciseActive"
+      },
+      {
+        "command": "tvijo.learn.progress",
+        "title": "%tvijo.learn.progress.title%",
+        "category": "Tvijo",
+        "enablement": "config.tvijo.learn.enabled"
+      },
+      {
+        "command": "tvijo.learn.exportData",
+        "title": "%tvijo.learn.exportData.title%",
+        "category": "Tvijo"
+      },
+      {
+        "command": "tvijo.learn.deleteData",
+        "title": "%tvijo.learn.deleteData.title%",
+        "category": "Tvijo"
       }
     ],
     "menus": {
@@ -773,6 +813,19 @@
           "default": false,
           "scope": "machine",
           "markdownDescription": "%tvijo.agentReview.claudeEnabled.description%"
+        },
+        "tvijo.learn.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "%tvijo.learn.enabled.description%"
+        },
+        "tvijo.learn.context": {
+          "type": "string",
+          "enum": [
+            "exercise"
+          ],
+          "default": "exercise",
+          "description": "%tvijo.learn.context.description%"
         }
       }
     },

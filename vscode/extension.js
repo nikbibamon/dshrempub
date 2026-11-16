@@ -2580,7 +2580,10 @@ function activate(context) {
     await review.guard();
     coding.validateArtifact(review.artifact, review.snapshot);
     await mapTask(review.auth, review.artifact.task_id, {...review.artifact, status:review.artifact.financial_status});
-    const summary = coding.evidenceText(review.artifact);
+    // learn:begin preview-summary
+    let learnCurrent=false;try{learnCurrent=learnHost.belongs(review);if(learnCurrent)learnHost.present(review);}catch{}
+    const summary = learnCurrent ? L('Review the candidate in the diff. Run your own checks before deciding.','Просмотрите кандидата в diff. Перед решением запустите свои проверки.') : coding.evidenceText(review.artifact); // learn:edit
+    // learn:end
     await showPrivateDocument('markdown', summary, review.auth);
     await review.guard();
     for (const edit of review.artifact.edits) {
@@ -2591,8 +2594,20 @@ function activate(context) {
     }
     codingReview = review;
     if (review.artifact.workflow && review.artifact.workflow !== 'single' && !coding.canApplyWorkflow(review.artifact)) return;
-    const choice = await codingChecked(review.guard, vscode.window.showInformationMessage('Tvijo coding proposal is ready for review. Tests do not authorize editing your workspace.', 'Apply reviewed coding proposal'));
-    if (choice === 'Apply reviewed coding proposal') await handlers.get('tvijo.applyCoding')();
+    // learn:begin preview-actions
+    if(learnCurrent){
+      while(true){
+        const apply=L('Apply reviewed coding proposal','Применить просмотренное предложение'),trusted=L('Run trusted tests','Запустить доверенные тесты'),mine=L('Run my check','Запустить мою проверку');
+        const actions=learnHost.ready(review)?[trusted,mine,apply]:[apply];
+        const choice=await codingChecked(review.guard,vscode.window.showInformationMessage(L('Review this candidate and choose your next step.','Просмотрите кандидата и выберите следующий шаг.'),...actions));
+        if(choice===trusted||choice===mine){await learnHost.check(review,choice===trusted?'trusted':'case');continue;}
+        if(choice===apply)await handlers.get('tvijo.applyCoding')();break;
+      }
+      return;
+    }
+    // learn:end
+    const choice = await codingChecked(review.guard, vscode.window.showInformationMessage('Tvijo coding proposal is ready for review. Tests do not authorize editing your workspace.', 'Apply reviewed coding proposal')); // learn:edit
+    if (choice === 'Apply reviewed coding proposal') await handlers.get('tvijo.applyCoding')(); // learn:edit
   }
   async function codingChecked(guard, promise) { const value = await promise; await guard(); return value; }
   async function captureCoding(auth) {
@@ -2705,16 +2720,66 @@ function activate(context) {
     if (artifact.task_id !== taskId.trim() || artifact.project_id !== selected.projectId || artifact.thread_id !== selected.threadId) throw new core.ServiceError('coding_refused','The coding task identity does not match.');
     await previewCoding({auth,...captured,artifact});
   });
+  // learn:begin commands
+  const learnPanels=new Set();
+  const learnHost=require('./lib/learn-host').createHost({vscode,storageRoot:context.globalStorageUri?.fsPath,L,enabled:()=>vscode.workspace.getConfiguration('tvijo').get('learn.enabled',false),scope:()=>identity?.scope,folder:()=>permissionFolder()?.uri.fsPath});
+  async function learnAuth(){
+    const saved=await readAuth();
+    if(!identity||!saved||identity.token!==saved.access_token||identity.base!==saved.api_base)throw new core.ServiceError('scope_missing',L('Sign in to Tvijo before opening the learning journal.','Войдите в Tvijo перед открытием учебного журнала.'));
+    return requireAuth();
+  }
+  command('tvijo.learn.startExercise',async(id='day-planner/1')=>{
+    ensureIdle();const auth=await learnAuth(),root=await learnHost.start(id,auth.scope),uri=vscode.Uri.file(root);
+    void vscode.commands.executeCommand('setContext','tvijo.learn.exerciseActive',true);
+    const owner=vscode.workspace.getWorkspaceFolder(uri);
+    if(owner)await activeWorkspace.select(uri);
+    else if(vscode.workspace.updateWorkspaceFolders){pendingScopeUri=uri;vscode.workspace.updateWorkspaceFolders(vscode.workspace.workspaceFolders?.length||0,0,{uri,name:'Tvijo Learn'});}
+    void vscode.window.showInformationMessage(L('Exercise ready. Choose its folder as the Tvijo workspace, then open a candidate.','Упражнение готово. Выберите его папку рабочей папкой Tvijo, затем откройте кандидата.'));
+    return root;
+  });
+  command('tvijo.learn.openProposal',async(task)=>{
+    ensureIdle();const auth=await learnAuth(),active=learnHost.active();
+    if(!task){const picked=await vscode.window.showQuickPick(Object.keys(active?.exercise.manifest.tasks||{}),{title:L('Choose a learning candidate','Выберите учебного кандидата')});task=picked;}
+    if(!task)return;const root=active?.root;if(!root)throw new core.ServiceError('no_exercise',L('Start an exercise first.','Сначала запустите упражнение.'));
+    const review=await learnHost.openProposal(task,codingGuard(auth,root,workspaceEpoch));review.auth=auth;await previewCoding(review);
+  });
+  command('tvijo.learn.runTrustedTests',async()=>learnHost.check(codingReview,'trusted'));
+  command('tvijo.learn.runMyCheck',async()=>learnHost.check(codingReview,'case'));
+  command('tvijo.learn.exportData',async()=>{
+    const auth=await learnAuth(),value=await learnHost.data();if(!await isCurrentAuth(auth))return;
+    const uri=await vscode.window.showSaveDialog({saveLabel:L('Export Learn data','Экспортировать данные Learn'),filters:{JSON:['json']}});if(!uri||!await isCurrentAuth(auth))return;
+    await require('node:fs/promises').writeFile(uri.fsPath,JSON.stringify({schema:'tvijo.learn.export/1',events:value.events,progress:value.progress},null,2),{mode:0o600});
+  });
+  command('tvijo.learn.deleteData',async()=>{
+    const auth=await learnAuth(),yes=L('Delete local Learn data','Удалить локальные данные Learn');
+    if(await vscode.window.showWarningMessage(L('Delete the local learning journal for this account? Export it first if you want to keep a copy.','Удалить локальный учебный журнал этого аккаунта? Сначала экспортируйте его, если нужна копия.'),{modal:true},yes)!==yes||!await isCurrentAuth(auth))return;
+    const wasLearning=learnHost.belongs(codingReview);await learnHost.deleteData();if(wasLearning)codingReview=null;
+    void vscode.commands.executeCommand('setContext','tvijo.learn.exerciseActive',false);for(const panel of learnPanels)panel.dispose();learnPanels.clear();
+    void vscode.window.showInformationMessage(L('Local Learn data deleted. Start a new exercise to continue.','Локальные данные Learn удалены. Для продолжения начните новое упражнение.'));
+  });
+  command('tvijo.learn.progress',async()=>{
+    if(!vscode.workspace.getConfiguration('tvijo').get('learn.enabled',false))throw new core.ServiceError('learn_disabled',L('Enable Tvijo Learn in settings first.','Сначала включите Tvijo Learn в настройках.'));
+    const auth=await learnAuth(),value=await learnHost.data();if(!await isCurrentAuth(auth))return;
+    const view=require('./lib/learn-progress-view'),nonce=require('node:crypto').randomBytes(16).toString('hex'),panel=vscode.window.createWebviewPanel('tvijo.learn.progress',L('My progress','Мой прогресс'),vscode.ViewColumn.Beside,{enableScripts:true,localResourceRoots:[]});
+    reportPanels.add(panel);learnPanels.add(panel);panel.onDidDispose(()=>{reportPanels.delete(panel);learnPanels.delete(panel);});panel.webview.html=view.render(value.progress,nonce,L);
+    panel.webview.onDidReceiveMessage(async message=>{try{if(!view.validMessage(message)||!await isCurrentAuth(auth))return;const commandId=message.type==='export'?'tvijo.learn.exportData':message.type==='delete'?'tvijo.learn.deleteData':'tvijo.learn.startExercise';await handlers.get(commandId)(...(message.type==='open-exercise'?['day-planner/1']:[]));}catch(error){report(error);}});
+  });
+  // learn:end
   command('tvijo.applyCoding', async () => {
     ensureIdle(); const review = codingReview;
     if (!review) throw new core.ServiceError('coding_refused','Open and review a coding proposal first.');
     await review.guard();
     const applyEpoch = authAttempt, applyWorkspaceEpoch = workspaceEpoch, applyScope = currentViewScope(review.auth.scope);
     const guardSync = () => { if (authAttempt !== applyEpoch || workspaceEpoch !== applyWorkspaceEpoch || client().base !== review.auth.api_base || identity?.token !== review.auth.access_token || currentViewScope(review.auth.scope) !== applyScope) throw new core.ServiceError('account_changed','The coding apply scope changed.'); };
-    const applied = await coding.apply({vscode,snapshot:review.snapshot,artifact:review.artifact,guard:review.guard,guardSync,
+    // learn:begin apply
+    let applied,learnIntegrityOk=false; // learn:edit
+    try{
+    applied = await coding.apply({vscode,snapshot:review.snapshot,artifact:review.artifact,guard:review.guard,guardSync,
       beforeWrite:checks => captureRewind({root:review.snapshot.root,runId:randomUUID(),step:1,model:review.artifact.model || '—',title:'Reviewed coding proposal',files:checks.map(entry => ({absolute:entry.target,content:entry.edit.content,document:entry.document}))}),
-      revalidate:() => coding.codingClient(core.createClient({base:review.auth.api_base}),review.auth.access_token).artifact(review.artifact.task_id),
-      confirm:async () => (await vscode.window.showWarningMessage('Apply exactly the reviewed Tvijo edits to the selected workspace? Existing selected files must still match their captured bytes. New files must still be absent.', {modal:true}, 'Apply reviewed edits')) === 'Apply reviewed edits' });
+      revalidate:() => {if(learnHost.belongs(review)){const frozen=learnHost.revalidate(review);learnIntegrityOk=true;return frozen;}return coding.codingClient(core.createClient({base:review.auth.api_base}),review.auth.access_token).artifact(review.artifact.task_id);}, // learn:edit
+      confirm:async () => {const baseConfirm=async()=>(await vscode.window.showWarningMessage('Apply exactly the reviewed Tvijo edits to the selected workspace? Existing selected files must still match their captured bytes. New files must still be absent.',{modal:true},'Apply reviewed edits'))==='Apply reviewed edits';try{return await learnHost.confirm(review,baseConfirm);}catch{return baseConfirm();}} }); // learn:edit
+    }finally{try{learnHost.recordApply(review,learnIntegrityOk);}catch{}}
+    // learn:end
     if (applied) {
       codingReview = null;
       const syntaxRun=syntaxChecks.newRun(),syntaxNotices=[];

@@ -1,0 +1,55 @@
+{
+  "id": "day-planner/1",
+  "runner": "python-unittest",
+  "files": {
+    "stand/planner.py": "3fc1a447cd021079ea6043422e81682e786e589478159348e3dbe64cd8e6d5cf",
+    "stand/tests/test_planner.py": "f2891be264bb6b5850a98f8175b599d6e234ee91ac6329f792f01e724c066566",
+    "stand/tests/test_planner_edge.py": "41c727f2e04386fc3c084370d9055dea277e0430c24fa4257496bd91d5cbc5f5",
+    "reference_planner.py": "a3334f87a51fbabf05c693667de2a0d21e86ccb59f9478e8880f129141e4bd93",
+    "learn_case_harness.py": "725adafc229f42564a0672edd16ee089511cb66666ba9a44369ab1c777d8d672",
+    "proposals/p1.json": "14dd5d600881ffa18a53bcb08ec29c323c82777a4e73b26bd96746a96f241bdb",
+    "proposals/p2.json": "8c1662a1096937a7e589d470b3ffe0d879061b7f265dac033350985147d8577f",
+    "proposals/p3.json": "b47e18cb7f04ed390a35829b8695a2b35fc5ed91a6318ec1825e12659c494a6a",
+    "proposals/p4.json": "c47e29e21440d364ae8c9df98207ff6103d941cebfbe5830bfc52e3b1db5e4f2",
+    "proposals/p5.json": "061d9d1c72d01cc801fb2cbede01fbd6f30797020d14f97c34af108c2c621431"
+  },
+  "tasks": {
+    "task-dp-p1": {
+      "dir": "p1",
+      "proposal": "proposals/p1.json",
+      "criteria_without_check": []
+    },
+    "task-dp-p2": {
+      "dir": "p2",
+      "proposal": "proposals/p2.json",
+      "criteria_without_check": []
+    },
+    "task-dp-p3": {
+      "dir": "p3",
+      "proposal": "proposals/p3.json",
+      "criteria_without_check": []
+    },
+    "task-dp-p4": {
+      "dir": "p4",
+      "proposal": "proposals/p4.json",
+      "criteria_without_check": []
+    },
+    "task-dp-p5": {
+      "dir": "p5",
+      "proposal": "proposals/p5.json",
+      "criteria_without_check": [
+        "zero_duration_task"
+      ]
+    }
+  },
+  "truth": {
+    "task-dp-p1": "correct",
+    "task-dp-p2": "correct",
+    "task-dp-p3": "defective",
+    "task-dp-p4": "defective",
+    "task-dp-p5": "ambiguous"
+  },
+  "criteria_without_check": [
+    "zero_duration_task"
+  ]
+}
