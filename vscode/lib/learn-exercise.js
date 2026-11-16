@@ -1,7 +1,7 @@
 'use strict';
 const fs=require('node:fs/promises'),path=require('node:path'),{randomBytes}=require('node:crypto');
 const {sha256,treeSha256,exerciseInstance,threadIdFor,instantiateProposal,artifactSha256,candidateId}=require('./learn-candidate');
-const PINNED_MANIFEST_SHA256='0000000000000000000000000000000000000000000000000000000000000000';
+const PINNED_MANIFEST_SHA256='4c4b001863b592a3be5a97752a8e0828ad19dac25b8a2b530c6747b2b0111c24';
 function checkFrozen({ templateBytes, manifestSha256, frozenArtifact, fields, anchor }) {
   const errors = [];
   if (sha256(templateBytes) !== manifestSha256) errors.push('template_hash_mismatch');                   // external anchor: the manifest pins the template
