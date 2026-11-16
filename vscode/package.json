@@ -817,6 +817,7 @@
         "tvijo.learn.enabled": {
           "type": "boolean",
           "default": false,
+          "markdownDescription": "%tvijo.learn.enabled.description%",
           "description": "%tvijo.learn.enabled.description%"
         },
         "tvijo.learn.context": {
@@ -825,6 +826,8 @@
             "exercise"
           ],
           "default": "exercise",
+          "markdownDescription": "%tvijo.learn.context.description%",
+          "enumDescriptions": ["%tvijo.learn.context.exercise.description%"],
           "description": "%tvijo.learn.context.description%"
         }
       }

@@ -14,7 +14,7 @@ function createHost({vscode,storageRoot,L=en=>en,enabled,scope,folder,loadExerci
  function ready(review){try{return belongs(review)&&active.recorder.ready();}catch{return false;}}
  async function start(id,accountScope){
   if(!enabled())fail('learn_disabled');if(!accountScope)fail('scope_missing');
-  let timer;const pack=await Promise.race([loadExercise(id),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Object.assign(new Error('pack_preload_failed'),{code:'pack_preload_failed'})),2000);})]).finally(()=>clearTimeout(timer));
+  let timer;const pack=await Promise.race([Promise.resolve().then(()=>loadExercise(id)),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Object.assign(new Error('pack_preload_failed'),{code:'pack_preload_failed'})),2000);})]).catch(()=>fail('pack_preload_failed')).finally(()=>clearTimeout(timer));
   const session=await exerciseApi.start({exercise:pack,storageRoot});let journal=null;try{journal=await openJournal({root:storageRoot,scope:accountScope,ctx:exerciseApi.ctxFor(pack)});}catch{}
   active={...session,scope:accountScope,journal,recorder:recorderFactory({journal}),truth:pack.manifest.truth};
   if(journal)try{checkSeq=(await journal.read()).reduce((n,e)=>e?.type==='check'?Math.max(n,Number(e.check_id.slice(4))||0):n,0);}catch{}

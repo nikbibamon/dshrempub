@@ -85,5 +85,6 @@
   "tvijo.learn.exportData.title": "Export my learning data",
   "tvijo.learn.deleteData.title": "Delete my local learning data",
   "tvijo.learn.enabled.description": "Enable local learning exercises and a private decision journal. Practice points do not grant permissions or certify mastery.",
+  "tvijo.learn.context.exercise.description": "Practice only in the verified authored exercise; real projects are excluded.",
   "tvijo.learn.context.description": "Learning runs only in an authored exercise. Real projects are excluded."
 }
