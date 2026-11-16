@@ -106,3 +106,50 @@ test('account changes while decision modal is open cannot write an old candidate
  if(process.env.LEARN_REPRO_RECEIPTS){const name='repro-account-modal-'+Date.now()+'.json';await fs.writeFile(path.join(process.env.LEARN_REPRO_RECEIPTS,name),JSON.stringify({sequence:['present old account candidate','open decision modal','switch scope and start new account exercise while modal is open','choose Apply','record integrity failure after guard refuses'],before,afterOld,afterNew},null,2),{flag:'wx'});}
  assert.deepEqual(afterOld,before);assert.deepEqual(afterNew,[]);
 });
+
+// AC-5: a finite, slow append is distinct from a hung or throwing append.
+test('AC-5 slow append: virtual clock confirm returns the disabled-Learn approved value before journal write', async () => {
+ const {createRecorder}=require('../lib/learn-recorder');
+ const drain=async()=>{for(let i=0;i<30;i++)await Promise.resolve();};
+ for(const approved of [true,false]){
+  let now=0,next=0,on=true;const tasks=new Map(),written=[];
+  const timers={setTimeout(fn,ms){const id=++next;tasks.set(id,{at:now+ms,fn});return id;},clearTimeout(id){tasks.delete(id);}};
+  const tick=async ms=>{now+=ms;for(const [id,job]of [...tasks])if(job.at<=now){tasks.delete(id);job.fn();}await drain();};
+  const f=await coreFixture({enabled:()=>on,openJournal:async()=>({read:async()=>[],append:event=>new Promise(resolve=>timers.setTimeout(()=>{written.push(event);resolve();},100))}),recorderFactory:opts=>createRecorder({...opts,timers})});
+  await drain();f.setChoice(approved?'Apply reviewed edits':'Return for rework');
+  on=false;const baseline=await f.h.confirm(f.review,async()=>approved);on=true;
+  let returned=false;const confirming=f.h.confirm(f.review,async()=>{throw Error('unexpected base fallback');}).then(value=>{returned=true;return value;});
+  await drain();assert.equal(returned,true,'confirm must settle while the clock is frozen');
+  assert.equal(await confirming,baseline);assert.equal(now,0);assert.deepEqual(written,[]);
+  if(approved)f.h.recordApply(f.review,true);
+  let flushed=false;const flushing=f.h.flush().then(()=>{flushed=true;});await drain();assert.equal(flushed,false);
+  await tick(99);assert.deepEqual(written,[]);assert.equal(flushed,false);
+  await tick(1);assert.equal(written[0].type,'candidate_presented');assert.equal(flushed,false);
+  await tick(100);await flushing;
+  assert.equal(written.at(-1).type,'decision');assert.equal(written.at(-1).decision,approved?'accept':'return');
+  assert.equal(f.h.ready(f.review),true,'finite slow writes do not degrade observation');
+ }
+});
+
+for(const mode of ['rejection','timeout'])test(`AC-5 verified pack preload ${mode}: pack_preload_failed, exercise never starts and apply is refused`,async t=>{
+ const module=require('../lib/learn-host'),original=module.createHost;let h,entered,preloadError;
+ const starting=new Promise(resolve=>entered=resolve);
+ module.createHost=opts=>{
+  h=original({...opts,loadExercise:()=>mode==='rejection'?Promise.reject(Error('synthetic loader failure')):new Promise(()=>{})});
+  const start=h.start;h.start=(...args)=>{t.mock.timers.enable({apis:['setTimeout']});const pending=start(...args).catch(error=>{preloadError=error;throw error;});entered();return pending;};return h;
+ };
+ let f;
+ try{
+  const pending=appFixture();await starting;
+  if(mode==='timeout')t.mock.timers.tick(2000);
+  f=await pending;t.mock.timers.reset();
+  assert.equal(h.active(),null);assert.deepEqual(f.docs.all,[]);
+  const error=f.app.posts.filter(x=>x.type==='state'&&x.error).at(-1).error;
+  assert.equal(preloadError.code,'pack_preload_failed');assert.match(error.text,/exercise could not be loaded and verified/i);
+  assert.ok(!f.app.infos.some(x=>/Exercise ready|Review this candidate/.test(x[0])));
+  await assert.rejects(fs.stat(f.stand),{code:'ENOENT'});
+  await f.app.commands.get('tvijo.applyCoding')();
+  assert.match(f.app.posts.filter(x=>x.type==='state'&&x.error).at(-1).error.text,/Open and review a coding proposal first/);
+  assert.deepEqual(f.docs.all,[]);assert.equal(f.app.warnings.length,0);
+ }finally{module.createHost=original;t.mock.timers.reset();f?.app.close();}
+});
