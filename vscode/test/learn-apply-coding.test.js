@@ -41,7 +41,7 @@ async function coreFixture(options={}){
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'learn-core-'));let folder=root,scope=sha256('account'),choice='Apply reviewed edits';const docs=await documents();
  const vscode={workspace:{get textDocuments(){return docs.all;}},window:{showWarningMessage:async()=>choice,showInformationMessage:async()=>{},showInputBox:async()=>'{invalid'}};
  const h=createHost({vscode,storageRoot:root,enabled:()=>true,scope:()=>scope,folder:()=>folder,...options});folder=await h.start('day-planner/1',scope);const review=await h.openProposal('task-dp-p1',async()=>{});h.present(review);
- return {h,review,docs,folder,setChoice:v=>choice=v,setScope:v=>scope=v};
+ return {h,review,docs,folder,vscode,setChoice:v=>choice=v,setScope:v=>scope=v};
 }
 test('frozen revalidate uses no journal or loader; altered instance and thrown integrity check refuse',async()=>{
  let loads=0,io=0;const f=await coreFixture({loadExercise:async id=>{loads++;return exercise.load(id);},openJournal:async()=>({read:async()=>[],append:async()=>{io++;return {};}})});
@@ -94,4 +94,12 @@ test('throwing readiness, unavailable journal and disabled scope preserve both b
   const f=await coreFixture(options);for(const approved of [true,false])assert.equal(await f.h.confirm(f.review,async()=>approved),approved);
  }
  const f=await coreFixture();f.setScope(sha256('other-account'));assert.equal(f.h.ready(f.review),false);assert.equal(await f.h.confirm(f.review,async()=>false),false);
+});
+test('account changes while decision modal is open cannot write an old candidate into the new account journal',async()=>{
+ const f=await coreFixture();await f.h.flush();const oldJournal=f.h.active().journal,before=await oldJournal.read();
+ f.vscode.window.showWarningMessage=async()=>{f.setScope(sha256('new-account'));await f.h.start('day-planner/1',sha256('new-account'));return 'Apply reviewed edits';};
+ assert.equal(await f.h.confirm(f.review,async()=>false),true);f.h.recordApply(f.review,false);await f.h.flush();
+ const afterOld=await oldJournal.read(),afterNew=await f.h.active().journal.read();
+ if(process.env.LEARN_REPRO_RECEIPTS){const name='repro-account-modal-'+Date.now()+'.json';await fs.writeFile(path.join(process.env.LEARN_REPRO_RECEIPTS,name),JSON.stringify({sequence:['present old account candidate','open decision modal','switch scope and start new account exercise while modal is open','choose Apply','record integrity failure after guard refuses'],before,afterOld,afterNew},null,2),{flag:'wx'});}
+ assert.deepEqual(afterOld,before);assert.deepEqual(afterNew,[]);
 });
