@@ -153,3 +153,28 @@ for(const mode of ['rejection','timeout'])test(`AC-5 verified pack preload ${mod
   assert.deepEqual(f.docs.all,[]);assert.equal(f.app.warnings.length,0);
  }finally{module.createHost=original;t.mock.timers.reset();f?.app.close();}
 });
+
+// AC-8: compare the same task in the same attempt before and after a saved edit.
+for(const n of [1,4])test(`AC-8 paired candidate_id before/after saved edge-test edit P${n}: ${n===1?'new snapshot and candidate, no refusal':'stand_modified, file preserved'}`,async()=>{
+ const f=await coreFixture(),task='task-dp-p'+n,edge=path.join(f.folder,`p${n}/tests/test_planner_edge.py`);
+ // P1 is opened by coreFixture; P4 uses the very same real capture path.
+ const before=n===1?f.review:await f.h.openProposal(task,async()=>{});
+ const {candidateId,treeSha256}=require('../lib/learn-candidate');
+ const beforeId=candidateId(before.artifact),beforeHash=before.artifact.snapshot_hash;
+ const saved=(await fs.readFile(edge,'utf8'))+'\n# learner saved edge check\n';await fs.writeFile(edge,saved);
+ const stat=await fs.stat(edge);
+ if(n===1){
+  const after=await f.h.openProposal(task,async()=>{});
+  assert.notEqual(after.artifact.snapshot_hash,beforeHash);assert.notEqual(candidateId(after.artifact),beforeId);
+  assert.equal(after.artifact.thread_id,before.artifact.thread_id,'same exercise attempt');
+  assert.equal(after.artifact.snapshot_hash,treeSha256(Object.fromEntries(after.snapshot.files.map(file=>[file.path,file.content]))));
+  assert.equal(after.snapshot.files.find(file=>file.path==='p1/tests/test_planner_edge.py').content,saved);
+  assert.ok(!after.artifact.edits.some(edit=>edit.path.endsWith('test_planner_edge.py')));
+  assert.doesNotThrow(()=>coding.validateArtifact(after.artifact,after.snapshot));
+ }else{
+  assert.ok(before.artifact.edits.some(edit=>edit.path==='p4/tests/test_planner_edge.py'));
+  await assert.rejects(f.h.openProposal(task,async()=>{}),{code:'stand_modified'});
+ }
+ assert.equal(await fs.readFile(edge,'utf8'),saved);assert.equal((await fs.stat(edge)).mtimeMs,stat.mtimeMs);
+ await f.h.flush();
+});
