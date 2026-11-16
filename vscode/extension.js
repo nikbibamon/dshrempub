@@ -199,6 +199,7 @@ function activate(context) {
   let lastActivity = '';
   let lastError = null;
   let lastAgentOutcome = null;
+  let retryAgentStep = null;
   let settingsPanel = null;
   const reportPanels=new Set();
   const settingsWriteQueue = require('./lib/settings-controls').createSettingsWriteQueue();
@@ -757,7 +758,7 @@ function activate(context) {
     } finally {agentAbort=null;agentRunning=false;busy=false;await postActivity('done','');await postChatState();}
   }
 
-  async function runAgentFlow(goal, { planMode = false } = {}) {
+  async function runAgentFlow(goal, { planMode = false, budgetLimit = null, retryOf = null } = {}) {
     ensureIdle();
     if (!goal?.trim()) return;
     await requireWorkspace();
@@ -782,7 +783,7 @@ function activate(context) {
     const config = vscode.workspace.getConfiguration('tvijo');
     if (orchestration.enabled() && !fullGrant?.extra) return runHarnessFlow({goal,modelGoal,auth,folder,agentScope,planMode,guard,fullGrant,config});
     const maxSteps = config.get('agentMaxSteps', 60);
-    let budgetUsd = config.get('agentBudgetUsd', 2);
+    let budgetUsd = budgetLimit===null ? config.get('agentBudgetUsd', 2) : Math.min(config.get('agentBudgetUsd',2),budgetLimit);
     const taskBudget=require('./lib/task-limits').createTaskBudget(budgetUsd);
     const autoRun = !!config.get('agentAutoRun', true);
     const autoApply = !!config.get('agentAutoApply', true);
@@ -790,7 +791,7 @@ function activate(context) {
     const terminalCaptureEpoch = terminalCaptures.epoch;
     const abort = new AbortController();
     let diagnosticsTracker = null;
-    agentAbort = abort; agentRunning = true; busy = true; lastError = null; lastAgentOutcome = null;
+    agentAbort = abort; agentRunning = true; busy = true; lastError = null; lastAgentOutcome = null; retryAgentStep=null;
     const rulesTracker=projectRulesHost.beginTask(folder);
     let taskRefsChanged=false;
     const taskEffectsText=()=>[rulesTracker.scanTruncated && !fullGrant?L('Rules scan truncated; commands require confirmation for this task.','Сканирование правил усечено; команды этой задачи требуют подтверждения.'):'',taskRefsChanged?L('HEAD or Git refs changed during this task through a command or another writer. Auto-commit refused.','HEAD или ссылки Git изменились во время задачи командой или другим процессом. Автокоммит отклонён.'):'',rulesTracker.changed().length?L('Rules changed outside an approved direct edit and were quarantined: ','Правила изменены вне одобренной прямой правки и помещены в карантин: ')+rulesTracker.changed().map(row=>row.file).join(', '):''].filter(Boolean).join('\n');
@@ -831,7 +832,7 @@ function activate(context) {
         }
         const contextBytes = core.previewContextBytes(Math.min(60000, config.get('workspaceContextMaxBytes',200000)),freshAccount);
         if (enabled && contextBytes > 0) {
-          const collected = await projectRulesHost.collect({ folder:permissionFolder(), selectionForFolder:contextSelection.selected, knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: contextBytes });
+          const collected = await projectRulesHost.collect({ agentContext:true, folder:permissionFolder(), selectionForFolder:contextSelection.selected, knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: contextBytes });
           tree = collected.text;agentRules=collected.rulesText;rulesSnapshotTaken=true;
           agentRuleGrants = collected.ruleGrants;
           lastContextSummary = collected.summary;
@@ -1018,14 +1019,10 @@ function activate(context) {
             return choices.includes(picked)?additions[choices.indexOf(picked)]:0;
           },async()=>{await guard();if(signal?.aborted)throw Object.assign(Error('Agent stopped'),{code:'agent_stopped'});});
           if(previousCeiling!==budgetUsd)runJournals.append(recoveryKey,localAgentRunId,{type:'notice',text:'User approved task budget increase: $'+previousCeiling+' -> $'+budgetUsd+'. Spent retained: $'+agentSpent+'.'});
-          messages[0]={...messages[0],content:messages[0].content.replace(/Local session budget: \$[\d.]+\./,'Local session budget: $'+budgetUsd+'.')};
+          messages=messages.map(message=>message.role==='system'&&message.content.startsWith('[TVIJO STEP]')?{...message,content:message.content.replace(/Local session budget: \$[\d.]+\./,'Local session budget: $'+budgetUsd+'.')}:message);
           const remaining = taskBudget.remaining(agentSpent);
           if (!Number.isFinite(remaining) || remaining <= 0) throw Object.assign(new Error('Agent budget exhausted'), { code: 'agent_budget', spent: agentSpent, budget: budgetUsd });
-          const bounded = finalization ? [...messages] : [messages[0], messages[1]];
-          if (!finalization && firstAgentAnswer) bounded.push(firstAgentAnswer);
-          if (!finalization && step > 1) exchanges.push(...messages.slice(-2));
-          while (exchanges.length > 8) exchanges.splice(0, 2);
-          if (!finalization) bounded.push(...exchanges);
+          const bounded = [...messages];
           await guard();
           const stepAccount = auth.kind === 'project' ? accountSnapshot : await api.account(auth.access_token);
           await guard();
@@ -1041,17 +1038,26 @@ function activate(context) {
           }
           if (!shared.selection(auth.scope)) stepMessages = fitContext(stepMessages,stepAccount,{preserveFirstUser:true}).messages;
           core.validateMessages(stepMessages);
+          let finalIdempotencyKey;
+          const answer=await require('./lib/step-retry').askWithRetry({step,signal,
+            lookup:taskId=>api.failedReceipt(auth.access_token,taskId),
+            beforeRetry:async()=>{await guard();const fresh=auth.kind==='project'?accountSnapshot:await api.account(auth.access_token);await guard();if(auth.kind!=='project'&&fresh.tenant_id!==auth.tenant_id)throw new core.ServiceError('account_changed','The account changed.');accountSnapshot=fresh;if(taskBudget.remaining(agentSpent)<=0)throw Object.assign(Error('Agent budget exhausted'),{code:'agent_budget'});},
+            onAttempt:async attempt=>{taskReceipt.attempt(attempt);runJournals.append(recoveryKey,localAgentRunId,{type:'step_attempt',...attempt});if(attempt.spent_usd!==null)agentSpent+=attempt.spent_usd;},
+            invoke:async({attempt,retry_of})=>{
+          await guard();
+          const remaining=taskBudget.remaining(agentSpent);if(remaining<=0)throw Object.assign(Error('Agent budget exhausted'),{code:'agent_budget'});
           const idempotencyKey = randomUUID();
+          finalIdempotencyKey=idempotencyKey;
           await local.savePending(auth.scope, { idempotencyKey, apiBase: auth.api_base, tenantId: auth.tenant_id, createdAt: new Date().toISOString() });
           projectRulesHost.assertCurrent(agentRuleGrants);
           taskReceipt.request();
-          const answer = await api.ask({
+          return await api.ask({
             beforeChat:() => projectRulesHost.assertCurrent(agentRuleGrants),
             token: auth.access_token, messages: stepMessages, maxUsd: Math.min(1, Math.floor(remaining * 1e9) / 1e9), idempotencyKey,
             title: 'VS Code agent step ' + step + ': ' + goal.trim().slice(0, 50),
             // Devstral reasons at length and was cut off at 2048 (empty step); 4096 is the gateway ceiling.
             maxTokens: agentModel === 'devstral' ? 4096 : 2048, model: agentModel, mode: 'single', method: config.get('reasoningMethod', 'evidence-first'), signal,
-            onGrant: async grant => { taskReceipt.task(grant.id,grant.model); if(grant.model)servedModels.add(grant.model);runJournals.task(recoveryKey,localAgentRunId,grant.id); await mapTask(auth, grant.id, {...grant, title:'Agent step ' + step, model:grant.model || agentModel, status:'running', startedAt:Date.now()}); await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); projectRulesHost.assertCurrent(agentRuleGrants); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
+            onGrant: async grant => { taskReceipt.task(grant.id,grant.model); if(grant.model)servedModels.add(grant.model);runJournals.task(recoveryKey,localAgentRunId,grant.id);runJournals.append(recoveryKey,localAgentRunId,{type:'step_attempt_started',step,attempt:attempt+1,taskId:grant.id,retry_of:retry_of || retryOf}); await mapTask(auth, grant.id, {...grant, title:'Agent step ' + step, model:grant.model || agentModel, status:'running', startedAt:Date.now()}); await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); projectRulesHost.assertCurrent(agentRuleGrants); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
           }).catch(async error => {
             const pending = local.pending(auth.scope, idempotencyKey);
             if (error.definitiveGrantRefusal && !pending?.taskId) { await local.savePending(auth.scope, undefined, idempotencyKey); }
@@ -1060,7 +1066,11 @@ function activate(context) {
             }
             throw error;
           });
+            }
+          });
+          const idempotencyKey=finalIdempotencyKey;
           taskReceipt.answer(answer);
+          runJournals.append(recoveryKey,localAgentRunId,{type:'step_attempt',...answer.stepAttempt,prompt_cache_hit_tokens:answer.cache?.prompt_cache_hit_tokens ?? 'unknown',prompt_cache_miss_tokens:answer.cache?.prompt_cache_miss_tokens ?? 'unknown'});
           await mapAnswer(auth, answer);
           await guard();
           const cost = measuredCost(answer);
@@ -1114,6 +1124,7 @@ function activate(context) {
       await postChatState(lastAgentOutcome.text);
       return {outcome,receiptId:localAgentRunId};
     } catch (error) {
+      if(error.retryAllowed===true&&taskBudget.remaining(agentSpent)>0)retryAgentStep={goal,planMode,budgetLimit:taskBudget.remaining(agentSpent),retryOf:error.taskId,scope:currentViewScope(auth.scope),workspaceEpoch};
       if(taskEffectsText())error.tvijoAgentEffects=taskEffectsText();
       const receipt=taskReceipt.finish({error,cancelled:abort.signal.aborted});
       receipt.usage.settlement = local.pending(auth.scope) ? 'pending_reconciliation' : 'no_pending_record';
@@ -1196,6 +1207,7 @@ function activate(context) {
 
   function localizedMessage(error,includeEffects=true) {
     if(includeEffects && (error?.tvijoAgentEffects || error?.tvijoReceipt))return localizedMessage(error,false)+'\n'+[error.tvijoAgentEffects,error.tvijoReceipt].filter(Boolean).join('\n');
+    if(error?.retryDisposition)return require('./lib/step-retry').retryNotice(error,uiLocale());
     const runtimeNotice=require('./lib/runtime-errors').notice(error?.code,uiLocale());
     if(runtimeNotice)return runtimeNotice;
     const scopeNotice=require('./lib/scope-notices').notice(error?.code,uiLocale());
@@ -1241,6 +1253,7 @@ function activate(context) {
   }
 
   function errorAction(error) {
+    if(error?.retryAllowed===true&&retryAgentStep)return 'retryStep';
     const scopeNotice=require('./lib/scope-notices').notice(error?.code,uiLocale());if(scopeNotice)return scopeNotice.action;
     if (error?.code === 'preview_context_limit' || error?.code?.startsWith('context_budget')) return 'context';
     if (error?.code === 'unauthorized') return 'account';
@@ -1261,12 +1274,18 @@ function activate(context) {
     const usage = L('View usage', 'Открыть расходы');
     const credit = L('Credit', 'Кредит');
     const resolve = L('Resolve task', 'Проверить задачу');
+    const retry=L('Retry step','Повторить шаг');
     const preview = L('Preview context', 'Просмотреть контекст');
     const overflow = error?.code === 'preview_context_limit' || (typeof error?.code === 'string' && error.code.startsWith('context_budget'));
     const unresolved = ['pending_task','charge_pending','usage_unknown','usage_recovery_unavailable','usage_reconciliation_required','model_request_failed'].includes(error?.code);
-    const actions = (error?.serverCode || error?.code) === 'free_preview_exhausted' ? [credit] : error?.code === 'unauthorized' ? [signIn] : error?.code === 'insufficient_credit' ? [usage] : unresolved ? [resolve] : overflow ? [preview] : [];
-    vscode.window.showErrorMessage(`Tvijo: ${message}`, ...actions).then((pick) => { if (pick === credit) vscode.env.openExternal(vscode.Uri.parse('https://dsh.tvijo.com/billing')); if (pick === signIn) vscode.commands.executeCommand('tvijo.signIn'); if (pick === usage) vscode.commands.executeCommand('tvijo.account'); if (pick === resolve) vscode.commands.executeCommand('tvijo.cancelPending'); if (pick === preview) vscode.commands.executeCommand('tvijo.contextPreview'); });
+    const actions = error?.retryAllowed===true&&retryAgentStep ? [retry] : (error?.serverCode || error?.code) === 'free_preview_exhausted' ? [credit] : error?.code === 'unauthorized' ? [signIn] : error?.code === 'insufficient_credit' ? [usage] : unresolved ? [resolve] : overflow ? [preview] : [];
+    vscode.window.showErrorMessage(`Tvijo: ${message}`, ...actions).then((pick) => { if(pick===retry)vscode.commands.executeCommand('tvijo.retryStep');if (pick === credit) vscode.env.openExternal(vscode.Uri.parse('https://dsh.tvijo.com/billing')); if (pick === signIn) vscode.commands.executeCommand('tvijo.signIn'); if (pick === usage) vscode.commands.executeCommand('tvijo.account'); if (pick === resolve) vscode.commands.executeCommand('tvijo.cancelPending'); if (pick === preview) vscode.commands.executeCommand('tvijo.contextPreview'); });
   }
+  command('tvijo.retryStep',async()=>{
+    ensureIdle();const retry=retryAgentStep;const auth=await requireAuth();
+    if(!retry||retry.scope!==currentViewScope(auth.scope)||retry.workspaceEpoch!==workspaceEpoch)throw new core.ServiceError('account_changed','The retry scope changed.');
+    await clearPending(auth);retryAgentStep=null;await runAgentFlow(retry.goal,retry);
+  });
 
   function command(id, fn) {
     handlers.set(id, fn);
@@ -2048,7 +2067,7 @@ function activate(context) {
   command('tvijo.status', async () => {
     const api = client();
     const health = await api.request('/health');
-    await showDocument('json', JSON.stringify({ runtime_version:context.extension?.packageJSON?.version || require('./package.json').version, reload_command:'Tvijo: Reload window', service: api.base, health, image_mode: 'local OCR text, not visual reasoning', sends_on: 'Ask only', max_task_usd: '1' }, null, 2));
+    await showDocument('json', JSON.stringify({ runtime_version:context.extension?.packageJSON?.version || require('./package.json').version, gateway_version:health?.version || 'unknown', build_commit:require('./lib/build-info').buildCommit(), reload_command:'Tvijo: Reload window', service: api.base, health, image_mode: 'local OCR text, not visual reasoning', sends_on: 'Ask only', max_task_usd: '1' }, null, 2));
   });
   command('tvijo.tasks', async () => {
     const auth = await requireAuth();
@@ -2580,7 +2599,10 @@ function activate(context) {
     await review.guard();
     coding.validateArtifact(review.artifact, review.snapshot);
     await mapTask(review.auth, review.artifact.task_id, {...review.artifact, status:review.artifact.financial_status});
-    const summary = coding.evidenceText(review.artifact);
+    // learn:begin preview-summary
+    let learnCurrent=false;try{learnCurrent=learnHost.belongs(review);if(learnCurrent)learnHost.present(review);}catch{}
+    const summary = learnCurrent ? L('Review the candidate in the diff. Run your own checks before deciding.','Просмотрите кандидата в diff. Перед решением запустите свои проверки.') : coding.evidenceText(review.artifact); // learn:edit
+    // learn:end
     await showPrivateDocument('markdown', summary, review.auth);
     await review.guard();
     for (const edit of review.artifact.edits) {
@@ -2591,8 +2613,20 @@ function activate(context) {
     }
     codingReview = review;
     if (review.artifact.workflow && review.artifact.workflow !== 'single' && !coding.canApplyWorkflow(review.artifact)) return;
-    const choice = await codingChecked(review.guard, vscode.window.showInformationMessage('Tvijo coding proposal is ready for review. Tests do not authorize editing your workspace.', 'Apply reviewed coding proposal'));
-    if (choice === 'Apply reviewed coding proposal') await handlers.get('tvijo.applyCoding')();
+    // learn:begin preview-actions
+    if(learnCurrent){
+      while(true){
+        const apply=L('Apply reviewed coding proposal','Применить просмотренное предложение'),trusted=L('Run trusted tests','Запустить доверенные тесты'),mine=L('Run my check','Запустить мою проверку');
+        const actions=learnHost.ready(review)?[trusted,mine,apply]:[apply];
+        const choice=await codingChecked(review.guard,vscode.window.showInformationMessage(L('Review this candidate and choose your next step.','Просмотрите кандидата и выберите следующий шаг.'),...actions));
+        if(choice===trusted||choice===mine){await learnHost.check(review,choice===trusted?'trusted':'case');continue;}
+        if(choice===apply)await handlers.get('tvijo.applyCoding')();break;
+      }
+      return;
+    }
+    // learn:end
+    const choice = await codingChecked(review.guard, vscode.window.showInformationMessage('Tvijo coding proposal is ready for review. Tests do not authorize editing your workspace.', 'Apply reviewed coding proposal')); // learn:edit
+    if (choice === 'Apply reviewed coding proposal') await handlers.get('tvijo.applyCoding')(); // learn:edit
   }
   async function codingChecked(guard, promise) { const value = await promise; await guard(); return value; }
   async function captureCoding(auth) {
@@ -2705,16 +2739,66 @@ function activate(context) {
     if (artifact.task_id !== taskId.trim() || artifact.project_id !== selected.projectId || artifact.thread_id !== selected.threadId) throw new core.ServiceError('coding_refused','The coding task identity does not match.');
     await previewCoding({auth,...captured,artifact});
   });
+  // learn:begin commands
+  const learnPanels=new Set();
+  const learnHost=require('./lib/learn-host').createHost({vscode,storageRoot:context.globalStorageUri?.fsPath,L,enabled:()=>vscode.workspace.getConfiguration('tvijo').get('learn.enabled',false),scope:()=>identity?.scope,folder:()=>permissionFolder()?.uri.fsPath});
+  async function learnAuth(){
+    const saved=await readAuth();
+    if(!identity||!saved||identity.token!==saved.access_token||identity.base!==saved.api_base)throw new core.ServiceError('scope_missing',L('Sign in to Tvijo before opening the learning journal.','Войдите в Tvijo перед открытием учебного журнала.'));
+    return requireAuth();
+  }
+  command('tvijo.learn.startExercise',async(id='day-planner/1')=>{
+    ensureIdle();const auth=await learnAuth(),root=await learnHost.start(id,auth.scope),uri=vscode.Uri.file(root);
+    void vscode.commands.executeCommand('setContext','tvijo.learn.exerciseActive',true);
+    const owner=vscode.workspace.getWorkspaceFolder(uri);
+    if(owner)await activeWorkspace.select(uri);
+    else if(vscode.workspace.updateWorkspaceFolders){pendingScopeUri=uri;vscode.workspace.updateWorkspaceFolders(vscode.workspace.workspaceFolders?.length||0,0,{uri,name:'Tvijo Learn'});}
+    void vscode.window.showInformationMessage(L('Exercise ready. Choose its folder as the Tvijo workspace, then open a candidate.','Упражнение готово. Выберите его папку рабочей папкой Tvijo, затем откройте кандидата.'));
+    return root;
+  });
+  command('tvijo.learn.openProposal',async(task)=>{
+    ensureIdle();const auth=await learnAuth(),active=learnHost.active();
+    if(!task){const picked=await vscode.window.showQuickPick(Object.keys(active?.exercise.manifest.tasks||{}),{title:L('Choose a learning candidate','Выберите учебного кандидата')});task=picked;}
+    if(!task)return;const root=active?.root;if(!root)throw new core.ServiceError('no_exercise',L('Start an exercise first.','Сначала запустите упражнение.'));
+    const review=await learnHost.openProposal(task,codingGuard(auth,root,workspaceEpoch));review.auth=auth;await previewCoding(review);
+  });
+  command('tvijo.learn.runTrustedTests',async()=>learnHost.check(codingReview,'trusted'));
+  command('tvijo.learn.runMyCheck',async()=>learnHost.check(codingReview,'case'));
+  command('tvijo.learn.exportData',async()=>{
+    const auth=await learnAuth(),value=await learnHost.data();if(!await isCurrentAuth(auth))return;
+    const uri=await vscode.window.showSaveDialog({saveLabel:L('Export Learn data','Экспортировать данные Learn'),filters:{JSON:['json']}});if(!uri||!await isCurrentAuth(auth))return;
+    await require('node:fs/promises').writeFile(uri.fsPath,JSON.stringify({schema:'tvijo.learn.export/1',events:value.events,progress:value.progress},null,2),{mode:0o600});
+  });
+  command('tvijo.learn.deleteData',async()=>{
+    const auth=await learnAuth(),yes=L('Delete local Learn data','Удалить локальные данные Learn');
+    if(await vscode.window.showWarningMessage(L('Delete the local learning journal for this account? Export it first if you want to keep a copy.','Удалить локальный учебный журнал этого аккаунта? Сначала экспортируйте его, если нужна копия.'),{modal:true},yes)!==yes||!await isCurrentAuth(auth))return;
+    const wasLearning=learnHost.belongs(codingReview);await learnHost.deleteData();if(wasLearning)codingReview=null;
+    void vscode.commands.executeCommand('setContext','tvijo.learn.exerciseActive',false);for(const panel of learnPanels)panel.dispose();learnPanels.clear();
+    void vscode.window.showInformationMessage(L('Local Learn data deleted. Start a new exercise to continue.','Локальные данные Learn удалены. Для продолжения начните новое упражнение.'));
+  });
+  command('tvijo.learn.progress',async()=>{
+    if(!vscode.workspace.getConfiguration('tvijo').get('learn.enabled',false))throw new core.ServiceError('learn_disabled',L('Enable Tvijo Learn in settings first.','Сначала включите Tvijo Learn в настройках.'));
+    const auth=await learnAuth(),value=await learnHost.data();if(!await isCurrentAuth(auth))return;
+    const view=require('./lib/learn-progress-view'),nonce=require('node:crypto').randomBytes(16).toString('hex'),panel=vscode.window.createWebviewPanel('tvijo.learn.progress',L('My progress','Мой прогресс'),vscode.ViewColumn.Beside,{enableScripts:true,localResourceRoots:[]});
+    reportPanels.add(panel);learnPanels.add(panel);panel.onDidDispose(()=>{reportPanels.delete(panel);learnPanels.delete(panel);});panel.webview.html=view.render(value.progress,nonce,L);
+    panel.webview.onDidReceiveMessage(async message=>{try{if(!view.validMessage(message)||!await isCurrentAuth(auth))return;const commandId=message.type==='export'?'tvijo.learn.exportData':message.type==='delete'?'tvijo.learn.deleteData':'tvijo.learn.startExercise';await handlers.get(commandId)(...(message.type==='open-exercise'?['day-planner/1']:[]));}catch(error){report(error);}});
+  });
+  // learn:end
   command('tvijo.applyCoding', async () => {
     ensureIdle(); const review = codingReview;
     if (!review) throw new core.ServiceError('coding_refused','Open and review a coding proposal first.');
     await review.guard();
     const applyEpoch = authAttempt, applyWorkspaceEpoch = workspaceEpoch, applyScope = currentViewScope(review.auth.scope);
     const guardSync = () => { if (authAttempt !== applyEpoch || workspaceEpoch !== applyWorkspaceEpoch || client().base !== review.auth.api_base || identity?.token !== review.auth.access_token || currentViewScope(review.auth.scope) !== applyScope) throw new core.ServiceError('account_changed','The coding apply scope changed.'); };
-    const applied = await coding.apply({vscode,snapshot:review.snapshot,artifact:review.artifact,guard:review.guard,guardSync,
+    // learn:begin apply
+    let applied,learnIntegrityOk=false; // learn:edit
+    try{
+    applied = await coding.apply({vscode,snapshot:review.snapshot,artifact:review.artifact,guard:review.guard,guardSync,
       beforeWrite:checks => captureRewind({root:review.snapshot.root,runId:randomUUID(),step:1,model:review.artifact.model || '—',title:'Reviewed coding proposal',files:checks.map(entry => ({absolute:entry.target,content:entry.edit.content,document:entry.document}))}),
-      revalidate:() => coding.codingClient(core.createClient({base:review.auth.api_base}),review.auth.access_token).artifact(review.artifact.task_id),
-      confirm:async () => (await vscode.window.showWarningMessage('Apply exactly the reviewed Tvijo edits to the selected workspace? Existing selected files must still match their captured bytes. New files must still be absent.', {modal:true}, 'Apply reviewed edits')) === 'Apply reviewed edits' });
+      revalidate:() => {if(learnHost.belongs(review)){const frozen=learnHost.revalidate(review);learnIntegrityOk=true;return frozen;}return coding.codingClient(core.createClient({base:review.auth.api_base}),review.auth.access_token).artifact(review.artifact.task_id);}, // learn:edit
+      confirm:async () => {const baseConfirm=async()=>(await vscode.window.showWarningMessage('Apply exactly the reviewed Tvijo edits to the selected workspace? Existing selected files must still match their captured bytes. New files must still be absent.',{modal:true},'Apply reviewed edits'))==='Apply reviewed edits';try{return await learnHost.confirm(review,baseConfirm);}catch{return baseConfirm();}} }); // learn:edit
+    }finally{try{learnHost.recordApply(review,learnIntegrityOk);}catch{}}
+    // learn:end
     if (applied) {
       codingReview = null;
       const syntaxRun=syntaxChecks.newRun(),syntaxNotices=[];
@@ -3013,9 +3097,9 @@ function activate(context) {
             const auth = await readAuth();
             const live = auth?.access_token && auth.api_base === client().base && !(auth.expires_at && Date.now() >= Date.parse(auth.expires_at));
             await vscode.commands.executeCommand(live && authState !== 'error' ? 'tvijo.account' : 'tvijo.signIn');
-          } else if (['new', 'cancel', 'commands', 'workspace', 'selection', 'path', 'help', 'bot', 'workflow', 'credit', 'terminal', 'settings', 'clearAttachments', 'usage', 'connections', 'productGuide', 'tasks', 'history', 'contextSelect', 'contextPreview', 'quickEdit'].includes(message?.type)) {
+          } else if (['retryStep', 'new', 'cancel', 'commands', 'workspace', 'selection', 'path', 'help', 'bot', 'workflow', 'credit', 'terminal', 'settings', 'clearAttachments', 'usage', 'connections', 'productGuide', 'tasks', 'history', 'contextSelect', 'contextPreview', 'quickEdit'].includes(message?.type)) {
             if (message.type === 'cancel' && agentRunning) { agentAbort?.abort(); return; }
-            const id = { new: 'tvijo.newConversation', cancel: 'tvijo.cancelPending', commands: 'tvijo.commands', workspace: 'tvijo.attachFile', selection: 'tvijo.attachSelection', path: 'tvijo.attachPath', help: 'tvijo.help', bot: 'tvijo.botGuide', workflow: 'tvijo.chooseWorkflow', credit: 'tvijo.buyCredit', terminal: 'tvijo.terminal', learn: 'tvijo.learn', feedback: 'tvijo.feedback', settings: 'tvijo.settings', clearAttachments: 'tvijo.clearAttachments', usage: 'tvijo.usage', connections: 'tvijo.connections', productGuide: 'tvijo.productGuide', tasks: 'tvijo.tasks', history: 'tvijo.chooseThread', contextSelect: 'tvijo.contextSelect', contextPreview: 'tvijo.contextPreview', quickEdit: 'tvijo.quickEdit' }[message.type];
+            const id = { retryStep: 'tvijo.retryStep', new: 'tvijo.newConversation', cancel: 'tvijo.cancelPending', commands: 'tvijo.commands', workspace: 'tvijo.attachFile', selection: 'tvijo.attachSelection', path: 'tvijo.attachPath', help: 'tvijo.help', bot: 'tvijo.botGuide', workflow: 'tvijo.chooseWorkflow', credit: 'tvijo.buyCredit', terminal: 'tvijo.terminal', learn: 'tvijo.learn', feedback: 'tvijo.feedback', settings: 'tvijo.settings', clearAttachments: 'tvijo.clearAttachments', usage: 'tvijo.usage', connections: 'tvijo.connections', productGuide: 'tvijo.productGuide', tasks: 'tvijo.tasks', history: 'tvijo.chooseThread', contextSelect: 'tvijo.contextSelect', contextPreview: 'tvijo.contextPreview', quickEdit: 'tvijo.quickEdit' }[message.type];
             await handlers.get(id)(); await refreshStatus();
           } else if (message?.type === 'botSetup') {
             await handlers.get('tvijo.configureBot')(); await postChatState();
@@ -3155,6 +3239,7 @@ function activate(context) {
   const bridgeDelivery = createBridgeDelivery({
     inbox: () => bridgeInbox, view: () => chatView, enabled: bridgeEnabled,
     runtimeVersion: () => context.extension?.packageJSON?.version || require('./package.json').version,
+    buildCommit:()=>require('./lib/build-info').buildCommit(),
     health: signal => client().request('/health', {signal, timeoutMs:3000}),
     focus: () => vscode.commands.executeCommand('tvijo.chat.focus')
   });

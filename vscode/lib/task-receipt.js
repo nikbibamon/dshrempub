@@ -14,7 +14,7 @@ function outcomeOf(result) {
 }
 const line = (value, limit = 300) => typeof value === 'string' ? value.replace(/[\r\n\u0000]/g,' ').slice(0,limit) : '';
 function createTaskReceipt({id, projectScope, projectId = null, folder, mode, model, startedAt = Date.now()}) {
-  const taskIds = [], commands = [], edits = [], reviews = [], editorChecks = [], grantedModels = new Set(), reportedModels = new Set();
+  const taskIds = [], commands = [], edits = [], reviews = [], editorChecks = [], attempts=[], grantedModels = new Set(), reportedModels = new Set();
   let knownCost = 0, unknownCost = false, answers = 0, requests = 0, steps = 0, eventCount = 0, truncated = false;
   function task(taskId, servedModel) {
     if (typeof taskId === 'string' && !taskIds.includes(taskId)) {
@@ -24,9 +24,14 @@ function createTaskReceipt({id, projectScope, projectId = null, folder, mode, mo
   }
   function answer(value) {
     answers++; task(value?.taskId);
+    if(value?.stepAttempt)attempts.push({...value.stepAttempt,prompt_cache_hit_tokens:value.cache?.prompt_cache_hit_tokens ?? 'unknown',prompt_cache_miss_tokens:value.cache?.prompt_cache_miss_tokens ?? 'unknown'});
     if (typeof value?.execution?.model === 'string' && reportedModels.size < 40) reportedModels.add(line(value.execution.model,100));
     const cost = measuredCost(value);
     if (cost === null) unknownCost = true; else knownCost += cost;
+  }
+  function attempt(value){
+    task(value.taskId);attempts.push({...value});
+    if(value.status==='failed'){answers++;if(value.spent_usd===null||!Number.isFinite(value.spent_usd)||value.spent_usd<0)unknownCost=true;else knownCost+=value.spent_usd;}
   }
   function event(value) {
     if (Number.isSafeInteger(value?.step)) steps = Math.max(steps,value.step);
@@ -54,18 +59,18 @@ function createTaskReceipt({id, projectScope, projectId = null, folder, mode, mo
     const receipt = {schema:1,id,project:{scope:line(projectScope,64),id:projectId ? line(projectId,256) : null,folder:line(folder,1000)},mode,started_at:startedAt,ended_at:endedAt,
       execution:{outcome,reason:line(error?.code || result?.reason,100),model_claimed_status:line(result?.modelStatus || result?.status,30) || null,steps:result?.steps ?? steps},
       verification:{status:'not_independently_verified',basis:'observed_local_tool_results',commands,edits,editor_checks:editorChecks,reviews,event_count:eventCount,truncated},
-      provider_tasks:taskIds,models:{requested:model || null,granted:[...grantedModels],reported_served:[...reportedModels]},
+      provider_tasks:taskIds,step_attempts:attempts,models:{requested:model || null,granted:[...grantedModels],reported_served:[...reportedModels]},
       usage:{status:pendingCost ? 'unknown' : answers ? 'measured' : 'no_provider_calls',spent_usd:pendingCost ? null : knownCost,known_spent_usd:knownCost},
       remaining_operator_steps:Array.isArray(result?.remainingOperatorSteps) ? result.remainingOperatorSteps.filter(x=>typeof x==='string').slice(0,12).map(x=>line(x,300)) : []};
     // Keep the receipt independently bounded even with maximum-size server IDs.
     while (Buffer.byteLength(JSON.stringify(receipt)) > 60000) {
-      const list = [commands,editorChecks,edits,taskIds].find(rows=>rows.length>1);
+      const list = [commands,editorChecks,edits,taskIds,attempts].find(rows=>rows.length>1);
       if (!list) break;
       list.shift(); receipt.verification.truncated = true;
     }
     return receipt;
   }
-  return {task,answer,event,finish,request:()=>{requests++;},requestedModel:value=>{model=line(value,100);}};
+  return {task,answer,attempt,event,finish,request:()=>{requests++;},requestedModel:value=>{model=line(value,100);}};
 }
 function formatReceipt(receipt, locale = 'en') {
   const ru = locale === 'ru', code = value => '`' + line(String(value),512).replace(/`/g,"'") + '`';

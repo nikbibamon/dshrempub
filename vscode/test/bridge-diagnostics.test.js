@@ -19,6 +19,7 @@ function fixture(options = {}) {
   const delivery = createBridgeDelivery({
     inbox: () => queue, view: () => options.view || null, enabled: () => options.enabled !== false,
     runtimeVersion: () => options.version || '0.10.26',
+    buildCommit: () => options.commit || 'unknown',
     health: signal => { calls.push(['health']); return options.health ? options.health(signal) : Promise.resolve({ status: 'ok', service: 'dshrem', secret: 'must-not-leak', tasks: ['private'] }); },
     focus: () => { calls.push(['focus']); }, timeoutMs: options.timeoutMs || 30
   });
@@ -29,7 +30,7 @@ test('headless status works without credentials and exposes only allowlisted dia
   const f = fixture();
   assert.equal(f.delivery.deliver({ id: 's', text: '/status' }), true);
   await settle();
-  assert.deepEqual(JSON.parse(f.result[0].answer), { runtimeVersion: '0.10.26', bridgeEnabled: true, viewResolved: false, health: { status: 'ok' } });
+  assert.deepEqual(JSON.parse(f.result[0].answer), { runtimeVersion: '0.10.26', bridgeEnabled: true, viewResolved: false, health: { status: 'ok' }, gatewayVersion:'unknown', buildCommit:'unknown' });
   assert.deepEqual(f.calls, [['mark', 'running'], ['health']]);
   assert.deepEqual(f.pending, f.original);
   assert.equal(f.result[0].outcome, 'diagnostic');
@@ -39,7 +40,7 @@ test('headless status works without credentials and exposes only allowlisted dia
 test('unavailable health never leaks raw errors or unexpected runtime strings', async () => {
   const f = fixture({ version: 'token=secret', health: () => { throw Error('Bearer SECRET /private/task'); } });
   f.delivery.deliver({ id: 's', text: '/status' }); await settle();
-  assert.deepEqual(JSON.parse(f.result[0].answer), { runtimeVersion: 'unknown', bridgeEnabled: true, viewResolved: false, health: { status: 'unavailable', reason: 'unavailable' } });
+  assert.deepEqual(JSON.parse(f.result[0].answer), { runtimeVersion: 'unknown', bridgeEnabled: true, viewResolved: false, health: { status: 'unavailable', reason: 'unavailable' }, gatewayVersion:'unknown', buildCommit:'unknown' });
   f.delivery.dispose();
 });
 
