@@ -45,7 +45,10 @@ async function coreFixture(options={}){
 }
 test('frozen revalidate uses no journal or loader; altered instance and thrown integrity check refuse',async()=>{
  let loads=0,io=0;const f=await coreFixture({loadExercise:async id=>{loads++;return exercise.load(id);},openJournal:async()=>({read:async()=>[],append:async()=>{io++;return {};}})});
- await f.h.flush();const before=io;assert.strictEqual(f.h.revalidate(f.review),f.review.artifact);assert.equal(io,before);assert.equal(loads,1);
+ await f.h.flush();const pack=f.h.active().exercise,templateBytes=pack.files[pack.manifest.tasks['task-dp-p1'].proposal],hashes=require('../lib/learn-candidate'),fields={thread_id:f.review.artifact.thread_id,snapshot_hash:f.review.artifact.snapshot_hash},anchor={candidate_id:hashes.candidateId(f.review.artifact),instance_sha256:hashes.artifactSha256(f.review.artifact)};
+ assert.notEqual(hashes.sha256(templateBytes),anchor.instance_sha256);
+ const frozenInput={templateBytes,manifestSha256:hashes.sha256(templateBytes),frozenArtifact:f.review.artifact,fields,anchor};assert.deepEqual(exercise.checkFrozen(frozenInput),[]);assert.ok(exercise.checkFrozen({...frozenInput,templateBytes:templateBytes+' '}).includes('template_hash_mismatch'));assert.ok(exercise.checkFrozen({...frozenInput,anchor:{...anchor,instance_sha256:'0'.repeat(64)}}).includes('anchor_mismatch'));
+ const before=io;assert.strictEqual(f.h.revalidate(f.review),f.review.artifact);assert.equal(io,before);assert.equal(loads,1);
  const honest=f.review.artifact;f.review.artifact={...honest,thread_id:'foreign'};assert.throws(()=>f.h.revalidate(f.review),{code:'learn_integrity'});
  f.review.artifact=null;assert.throws(()=>f.h.revalidate(f.review),{code:'learn_integrity'});f.review.artifact=honest;
  const check=exercise.checkFrozen;exercise.checkFrozen=()=>{throw Error('broken integrity');};try{assert.throws(()=>f.h.revalidate(f.review),{code:'learn_integrity'});}finally{exercise.checkFrozen=check;}

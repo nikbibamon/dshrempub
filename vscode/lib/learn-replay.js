@@ -24,6 +24,8 @@ async function run({prepared,storageRoot,data=null,guard=async()=>{},signal,poli
  await guard();const base=path.join(storageRoot,'learn/sandbox');await fs.mkdir(base,{recursive:true,mode:0o700});const root=await fs.mkdtemp(path.join(base,'run-'));await fs.chmod(root,0o700);
  for(const [name,bytes]of Object.entries(prepared.files)){const f=path.join(root,relative(name));await fs.mkdir(path.dirname(f),{recursive:true,mode:0o700});const h=await fs.open(f,constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW|constants.O_WRONLY,0o400);try{await h.writeFile(bytes);await h.chmod(0o444);}finally{await h.close();}}
  async function lock(dir){for(const e of await fs.readdir(dir,{withFileTypes:true}))if(e.isDirectory()){const p=path.join(dir,e.name);await lock(p);await fs.chmod(p,0o555);}}await lock(root);
+ async function lockDirectories(dir){for(const e of await fs.readdir(dir,{withFileTypes:true}))if(e.isDirectory()){const child=path.join(dir,e.name);await lockDirectories(child);await fs.chmod(child,0o555);}}
+ await lockDirectories(root);
  const controller=new AbortController(),abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
  let timer;try{
   out.tree_sha256=await hashDisk(root);

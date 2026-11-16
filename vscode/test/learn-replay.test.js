@@ -34,4 +34,16 @@ test('argv mismatch, refusal, timeout, missing toolchain and changed tree are co
  assert.equal((await run({prepared:p,storageRoot:f.root,execute:async()=>({error:'ENOENT'})})).result,'unknown');
  assert.equal((await run({prepared:p,storageRoot:f.root,execute:()=>new Promise(()=>{}),timeoutMs:5})).error,'replay_timeout');
 });
-test('D14: before/after hashes do not claim to detect A to B to A inside execution',()=>{assert.equal(sha256('A'),sha256('A'));assert.notEqual(sha256('A'),sha256('B'));});
+test('tree changes lose binding; A to B to A remains outside the D14 guarantee',async()=>{
+ const f=await fixture(),p=prepare({...f,mode:'trusted'});
+ async function change(restore){return async()=>{
+  const parent=path.join(f.root,'learn/sandbox'),roots=await fs.readdir(parent);assert.equal(roots.length,1);
+  const target=path.join(parent,roots[0],'p1/planner.py'),original=await fs.readFile(target);await fs.chmod(target,0o600);await fs.writeFile(target,'VALUE=99\n');if(restore)await fs.writeFile(target,original);
+  return {exitCode:0,stdout:'synthetic execution window',stderr:''};
+ };}
+ const changed=await run({prepared:p,storageRoot:f.root,execute:await change(false)});assert.equal(changed.bound,false);assert.notEqual(changed.tree_sha256,changed.tree_sha256_after);
+ const f2=await fixture(),p2=prepare({...f2,mode:'trusted'});
+ const restored=await run({prepared:p2,storageRoot:f2.root,execute:async()=>{
+  const parent=path.join(f2.root,'learn/sandbox'),roots=await fs.readdir(parent),target=path.join(parent,roots[0],'p1/planner.py'),original=await fs.readFile(target);await fs.chmod(target,0o600);await fs.writeFile(target,'VALUE=99\n');await fs.writeFile(target,original);return {exitCode:0,stdout:'',stderr:''};
+ }});assert.equal(restored.bound,true,'before/after hashes cannot detect the intervening replacement');
+});
