@@ -1,3 +1,7 @@
+## Unreleased
+
+- **Local learning practice (off by default).** Review five authored candidates, run trusted checks, record decisions and inspect or export private progress. Practice points do not change permissions or certify mastery.
+
 ## 0.10.28 — 2026-10-31 (prepared candidate)
 
 - **Readable agent progress.** Resize or collapse the agent log, and expand individual steps. The preferred height and collapsed state survive webview reloads; the visible height and keyboard controls respect the current viewport. Reloading a destroyed view does not restore the prior run's log.

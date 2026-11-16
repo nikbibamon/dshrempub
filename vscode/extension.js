@@ -2730,6 +2730,7 @@ function activate(context) {
   }
   command('tvijo.learn.startExercise',async(id='day-planner/1')=>{
     ensureIdle();const auth=await learnAuth(),root=await learnHost.start(id,auth.scope),uri=vscode.Uri.file(root);
+    void vscode.commands.executeCommand('setContext','tvijo.learn.exerciseActive',true);
     const owner=vscode.workspace.getWorkspaceFolder(uri);
     if(owner)await activeWorkspace.select(uri);
     else if(vscode.workspace.updateWorkspaceFolders){pendingScopeUri=uri;vscode.workspace.updateWorkspaceFolders(vscode.workspace.workspaceFolders?.length||0,0,{uri,name:'Tvijo Learn'});}
@@ -2752,7 +2753,8 @@ function activate(context) {
   command('tvijo.learn.deleteData',async()=>{
     const auth=await learnAuth(),yes=L('Delete local Learn data','Удалить локальные данные Learn');
     if(await vscode.window.showWarningMessage(L('Delete the local learning journal for this account? Export it first if you want to keep a copy.','Удалить локальный учебный журнал этого аккаунта? Сначала экспортируйте его, если нужна копия.'),{modal:true},yes)!==yes||!await isCurrentAuth(auth))return;
-    const wasLearning=learnHost.belongs(codingReview);await learnHost.deleteData();if(wasLearning)codingReview=null;for(const panel of learnPanels)panel.dispose();learnPanels.clear();
+    const wasLearning=learnHost.belongs(codingReview);await learnHost.deleteData();if(wasLearning)codingReview=null;
+    void vscode.commands.executeCommand('setContext','tvijo.learn.exerciseActive',false);for(const panel of learnPanels)panel.dispose();learnPanels.clear();
     void vscode.window.showInformationMessage(L('Local Learn data deleted. Start a new exercise to continue.','Локальные данные Learn удалены. Для продолжения начните новое упражнение.'));
   });
   command('tvijo.learn.progress',async()=>{
