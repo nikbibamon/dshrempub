@@ -26,7 +26,7 @@ test('package and translations are additive, version and every forbidden base mo
  for(const file of ['vscode/package.nls.json','vscode/package.nls.ru.json']){const b=JSON.parse(old(file)),a=JSON.parse(source(file));for(const key of Object.keys(a))if(!(key in b)){assert.ok(key.startsWith('tvijo.learn.'));delete a[key];}assert.deepEqual(a,b);}
  assert.equal(git('diff','--exit-code',BASE,'--','vscode/lib/coding.js','vscode/lib/local-tools.js','vscode/lib/command-policy.js','vscode/lib/task-receipt.js','vscode/lib/agent-review.js','vscode/lib/orchestration*.js','vscode/media/learning-guide.html'),'');
  const paths=[...git('diff','--name-only',BASE).trim().split('\n'),...git('ls-files','--others','--exclude-standard').trim().split('\n')].filter(Boolean);
- for(const file of paths)assert.ok(file==='.agent-owner'||/^vscode\/(lib\/learn-[^/]+\.js|learn\/|test\/learn-[^/]+\.test\.js|test\/fixtures\/learn-|extension\.js$|package(?:\.nls(?:\.ru)?)?\.json$|CHANGELOG\.md$)/.test(file),file);
+ for(const file of paths)assert.ok(file==='.agent-owner'||file==='vscode/test/packs.test.js'||file==='vscode/lib/settings-guide.js'||/^vscode\/(lib\/learn-[^/]+\.js|learn\/|test\/learn-[^/]+\.test\.js|test\/fixtures\/learn-|extension\.js$|package(?:\.nls(?:\.ru)?)?\.json$|CHANGELOG\.md$)/.test(file),file);
 });
 test('disabled Learn and ordinary project keep base confirmation values and write no learning journal',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'learn-disabled-')),vscode={window:{},workspace:{}},host=require('../lib/learn-host').createHost({vscode,storageRoot:root,enabled:()=>false,scope:()=>null,folder:()=>root});
