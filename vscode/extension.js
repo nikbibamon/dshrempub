@@ -199,6 +199,7 @@ function activate(context) {
   let lastActivity = '';
   let lastError = null;
   let lastAgentOutcome = null;
+  let retryAgentStep = null;
   let settingsPanel = null;
   const reportPanels=new Set();
   const settingsWriteQueue = require('./lib/settings-controls').createSettingsWriteQueue();
@@ -757,7 +758,7 @@ function activate(context) {
     } finally {agentAbort=null;agentRunning=false;busy=false;await postActivity('done','');await postChatState();}
   }
 
-  async function runAgentFlow(goal, { planMode = false } = {}) {
+  async function runAgentFlow(goal, { planMode = false, budgetLimit = null, retryOf = null } = {}) {
     ensureIdle();
     if (!goal?.trim()) return;
     await requireWorkspace();
@@ -782,7 +783,7 @@ function activate(context) {
     const config = vscode.workspace.getConfiguration('tvijo');
     if (orchestration.enabled() && !fullGrant?.extra) return runHarnessFlow({goal,modelGoal,auth,folder,agentScope,planMode,guard,fullGrant,config});
     const maxSteps = config.get('agentMaxSteps', 60);
-    let budgetUsd = config.get('agentBudgetUsd', 2);
+    let budgetUsd = budgetLimit===null ? config.get('agentBudgetUsd', 2) : Math.min(config.get('agentBudgetUsd',2),budgetLimit);
     const taskBudget=require('./lib/task-limits').createTaskBudget(budgetUsd);
     const autoRun = !!config.get('agentAutoRun', true);
     const autoApply = !!config.get('agentAutoApply', true);
@@ -790,7 +791,7 @@ function activate(context) {
     const terminalCaptureEpoch = terminalCaptures.epoch;
     const abort = new AbortController();
     let diagnosticsTracker = null;
-    agentAbort = abort; agentRunning = true; busy = true; lastError = null; lastAgentOutcome = null;
+    agentAbort = abort; agentRunning = true; busy = true; lastError = null; lastAgentOutcome = null; retryAgentStep=null;
     const rulesTracker=projectRulesHost.beginTask(folder);
     let taskRefsChanged=false;
     const taskEffectsText=()=>[rulesTracker.scanTruncated && !fullGrant?L('Rules scan truncated; commands require confirmation for this task.','Сканирование правил усечено; команды этой задачи требуют подтверждения.'):'',taskRefsChanged?L('HEAD or Git refs changed during this task through a command or another writer. Auto-commit refused.','HEAD или ссылки Git изменились во время задачи командой или другим процессом. Автокоммит отклонён.'):'',rulesTracker.changed().length?L('Rules changed outside an approved direct edit and were quarantined: ','Правила изменены вне одобренной прямой правки и помещены в карантин: ')+rulesTracker.changed().map(row=>row.file).join(', '):''].filter(Boolean).join('\n');
@@ -831,7 +832,7 @@ function activate(context) {
         }
         const contextBytes = core.previewContextBytes(Math.min(60000, config.get('workspaceContextMaxBytes',200000)),freshAccount);
         if (enabled && contextBytes > 0) {
-          const collected = await projectRulesHost.collect({ folder:permissionFolder(), selectionForFolder:contextSelection.selected, knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: contextBytes });
+          const collected = await projectRulesHost.collect({ agentContext:true, folder:permissionFolder(), selectionForFolder:contextSelection.selected, knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: contextBytes });
           tree = collected.text;agentRules=collected.rulesText;rulesSnapshotTaken=true;
           agentRuleGrants = collected.ruleGrants;
           lastContextSummary = collected.summary;
@@ -1018,14 +1019,10 @@ function activate(context) {
             return choices.includes(picked)?additions[choices.indexOf(picked)]:0;
           },async()=>{await guard();if(signal?.aborted)throw Object.assign(Error('Agent stopped'),{code:'agent_stopped'});});
           if(previousCeiling!==budgetUsd)runJournals.append(recoveryKey,localAgentRunId,{type:'notice',text:'User approved task budget increase: $'+previousCeiling+' -> $'+budgetUsd+'. Spent retained: $'+agentSpent+'.'});
-          messages[0]={...messages[0],content:messages[0].content.replace(/Local session budget: \$[\d.]+\./,'Local session budget: $'+budgetUsd+'.')};
+          messages=messages.map(message=>message.role==='system'&&message.content.startsWith('[TVIJO STEP]')?{...message,content:message.content.replace(/Local session budget: \$[\d.]+\./,'Local session budget: $'+budgetUsd+'.')}:message);
           const remaining = taskBudget.remaining(agentSpent);
           if (!Number.isFinite(remaining) || remaining <= 0) throw Object.assign(new Error('Agent budget exhausted'), { code: 'agent_budget', spent: agentSpent, budget: budgetUsd });
-          const bounded = finalization ? [...messages] : [messages[0], messages[1]];
-          if (!finalization && firstAgentAnswer) bounded.push(firstAgentAnswer);
-          if (!finalization && step > 1) exchanges.push(...messages.slice(-2));
-          while (exchanges.length > 8) exchanges.splice(0, 2);
-          if (!finalization) bounded.push(...exchanges);
+          const bounded = [...messages];
           await guard();
           const stepAccount = auth.kind === 'project' ? accountSnapshot : await api.account(auth.access_token);
           await guard();
@@ -1041,17 +1038,26 @@ function activate(context) {
           }
           if (!shared.selection(auth.scope)) stepMessages = fitContext(stepMessages,stepAccount,{preserveFirstUser:true}).messages;
           core.validateMessages(stepMessages);
+          let finalIdempotencyKey;
+          const answer=await require('./lib/step-retry').askWithRetry({step,signal,
+            lookup:taskId=>api.failedReceipt(auth.access_token,taskId),
+            beforeRetry:async()=>{await guard();const fresh=auth.kind==='project'?accountSnapshot:await api.account(auth.access_token);await guard();if(auth.kind!=='project'&&fresh.tenant_id!==auth.tenant_id)throw new core.ServiceError('account_changed','The account changed.');accountSnapshot=fresh;if(taskBudget.remaining(agentSpent)<=0)throw Object.assign(Error('Agent budget exhausted'),{code:'agent_budget'});},
+            onAttempt:async attempt=>{taskReceipt.attempt(attempt);runJournals.append(recoveryKey,localAgentRunId,{type:'step_attempt',...attempt});if(attempt.spent_usd!==null)agentSpent+=attempt.spent_usd;},
+            invoke:async({attempt,retry_of})=>{
+          await guard();
+          const remaining=taskBudget.remaining(agentSpent);if(remaining<=0)throw Object.assign(Error('Agent budget exhausted'),{code:'agent_budget'});
           const idempotencyKey = randomUUID();
+          finalIdempotencyKey=idempotencyKey;
           await local.savePending(auth.scope, { idempotencyKey, apiBase: auth.api_base, tenantId: auth.tenant_id, createdAt: new Date().toISOString() });
           projectRulesHost.assertCurrent(agentRuleGrants);
           taskReceipt.request();
-          const answer = await api.ask({
+          return await api.ask({
             beforeChat:() => projectRulesHost.assertCurrent(agentRuleGrants),
             token: auth.access_token, messages: stepMessages, maxUsd: Math.min(1, Math.floor(remaining * 1e9) / 1e9), idempotencyKey,
             title: 'VS Code agent step ' + step + ': ' + goal.trim().slice(0, 50),
             // Devstral reasons at length and was cut off at 2048 (empty step); 4096 is the gateway ceiling.
             maxTokens: agentModel === 'devstral' ? 4096 : 2048, model: agentModel, mode: 'single', method: config.get('reasoningMethod', 'evidence-first'), signal,
-            onGrant: async grant => { taskReceipt.task(grant.id,grant.model); if(grant.model)servedModels.add(grant.model);runJournals.task(recoveryKey,localAgentRunId,grant.id); await mapTask(auth, grant.id, {...grant, title:'Agent step ' + step, model:grant.model || agentModel, status:'running', startedAt:Date.now()}); await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); projectRulesHost.assertCurrent(agentRuleGrants); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
+            onGrant: async grant => { taskReceipt.task(grant.id,grant.model); if(grant.model)servedModels.add(grant.model);runJournals.task(recoveryKey,localAgentRunId,grant.id);runJournals.append(recoveryKey,localAgentRunId,{type:'step_attempt_started',step,attempt:attempt+1,taskId:grant.id,retry_of:retry_of || retryOf}); await mapTask(auth, grant.id, {...grant, title:'Agent step ' + step, model:grant.model || agentModel, status:'running', startedAt:Date.now()}); await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); projectRulesHost.assertCurrent(agentRuleGrants); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
           }).catch(async error => {
             const pending = local.pending(auth.scope, idempotencyKey);
             if (error.definitiveGrantRefusal && !pending?.taskId) { await local.savePending(auth.scope, undefined, idempotencyKey); }
@@ -1060,7 +1066,11 @@ function activate(context) {
             }
             throw error;
           });
+            }
+          });
+          const idempotencyKey=finalIdempotencyKey;
           taskReceipt.answer(answer);
+          runJournals.append(recoveryKey,localAgentRunId,{type:'step_attempt',...answer.stepAttempt,prompt_cache_hit_tokens:answer.cache?.prompt_cache_hit_tokens ?? 'unknown',prompt_cache_miss_tokens:answer.cache?.prompt_cache_miss_tokens ?? 'unknown'});
           await mapAnswer(auth, answer);
           await guard();
           const cost = measuredCost(answer);
@@ -1114,6 +1124,7 @@ function activate(context) {
       await postChatState(lastAgentOutcome.text);
       return {outcome,receiptId:localAgentRunId};
     } catch (error) {
+      if(error.retryAllowed===true&&taskBudget.remaining(agentSpent)>0)retryAgentStep={goal,planMode,budgetLimit:taskBudget.remaining(agentSpent),retryOf:error.taskId,scope:currentViewScope(auth.scope),workspaceEpoch};
       if(taskEffectsText())error.tvijoAgentEffects=taskEffectsText();
       const receipt=taskReceipt.finish({error,cancelled:abort.signal.aborted});
       receipt.usage.settlement = local.pending(auth.scope) ? 'pending_reconciliation' : 'no_pending_record';
@@ -1196,6 +1207,7 @@ function activate(context) {
 
   function localizedMessage(error,includeEffects=true) {
     if(includeEffects && (error?.tvijoAgentEffects || error?.tvijoReceipt))return localizedMessage(error,false)+'\n'+[error.tvijoAgentEffects,error.tvijoReceipt].filter(Boolean).join('\n');
+    if(error?.retryDisposition)return require('./lib/step-retry').retryNotice(error,uiLocale());
     const runtimeNotice=require('./lib/runtime-errors').notice(error?.code,uiLocale());
     if(runtimeNotice)return runtimeNotice;
     const scopeNotice=require('./lib/scope-notices').notice(error?.code,uiLocale());
@@ -1212,6 +1224,14 @@ function activate(context) {
         const budget = error.budget === undefined ? '?' : error.budget;
         return L('Agent budget exhausted ($' + spent + ' of $' + budget + '). Raise tvijo.agentBudgetUsd or finish the goal in fewer steps.', 'Бюджет агента исчерпан ($' + spent + ' из $' + budget + '). Увеличьте tvijo.agentBudgetUsd или сократите задачу.');
       }
+      // A bare fallback hid the real reason (and blamed the selected file for
+      // permission, path and transport failures). Report what actually failed.
+      if (code === 'ENOENT') return L('The selected path does not exist on this host. Pick the file again.', 'Выбранного пути нет на этом сервере. Выберите файл заново.');
+      if (code === 'EACCES' || code === 'EPERM') return L('The selected file cannot be read (permission denied). Choose a file this host can read.', 'Нет доступа к выбранному файлу. Выберите файл, который сервер может прочитать.');
+      if (code === 'EISDIR') return L('That path is a folder, not a file. Choose a file.', 'Это папка, а не файл. Выберите файл.');
+      if (code === 'ELOOP') return L('That path is a symbolic link loop and cannot be read.', 'Путь образует петлю символических ссылок, прочитать нельзя.');
+      const detail = typeof error?.message === 'string' ? error.message.trim() : '';
+      if (detail) return L('Action failed: ' + detail, 'Не удалось выполнить действие: ' + detail);
       return L('Action failed. Check the selected workspace file and try again.', 'Не удалось выполнить действие. Проверьте выбранный файл проекта и повторите.');
     }
     if (code.startsWith('context_budget')) {
@@ -1233,7 +1253,24 @@ function activate(context) {
         project_required: 'Сначала выберите общий проект: Команды → Choose shared project. Затем откройте подключения.',
         account_changed: 'Аккаунт, проект или ветка изменились. Повторите действие в текущем аккаунте.',
         unreachable: 'Сервис недоступен. Проверьте соединение и повторите запрос; платная задача не создана.',
-        timeout: 'Сервис не ответил вовремя. Повторите запрос; неизвестный расход не считается нулевым.'
+        timeout: 'Сервис не ответил вовремя. Повторите запрос; неизвестный расход не считается нулевым.',
+        attachment_size: 'Файл не помещается во вложение. Текст — до 64 КиБ, изображение — до 2 МиБ. Приложите меньший файл или фрагмент.',
+        attachment_name: 'Слишком длинное имя файла или в нём управляющие символы. Переименуйте файл.',
+        attachment_count: 'К одному вопросу можно приложить не более 4 файлов.',
+        attachment_total: 'Вложения вместе ограничены 4 МиБ.',
+        attachment_context: 'Текст вложений ограничен 80 КиБ. Приложите меньший файл или фрагмент.',
+        attachment_path: 'Приложите обычный файл рабочей области: без символических ссылок и путей вне её.',
+        outside_workspace: 'Файл вне открытой рабочей области. Откройте папку проекта или используйте «Прикрепить» для файла на своём компьютере.',
+        no_workspace: 'Сначала откройте рабочую область: файл вне проекта приложить нельзя.',
+        rules_context: 'Файлы правил прикладываются через «Просмотр контекста проекта» или список в настройках.',
+        image_format: 'Поддерживаются только PNG и JPG.',
+        image_no_text: 'В изображении не найден читаемый текст. Обрежьте скриншот и приложите снова.',
+        image_dimensions: 'Изображение больше 8 мегапикселей или 8192 точек по стороне. Обрежьте его.',
+        ocr_unavailable: 'Для распознавания текста на этом хосте нужен Tesseract с настроенными языками.',
+        ocr_timeout: 'Распознавание текста заняло больше 20 секунд. Обрежьте скриншот и приложите снова.',
+        ocr_too_large: 'На изображении слишком много текста. Обрежьте его или приложите меньшее изображение.',
+        ocr_failed: 'Не удалось распознать текст. Используйте корректный PNG/JPG или проверьте tvijo.ocrLanguages.',
+        ocr_languages: 'Некорректные языки OCR в настройках. Используйте eng или eng+rus.'
       };
       if (map[code]) return map[code];
     }
@@ -1241,6 +1278,7 @@ function activate(context) {
   }
 
   function errorAction(error) {
+    if(error?.retryAllowed===true&&retryAgentStep)return 'retryStep';
     const scopeNotice=require('./lib/scope-notices').notice(error?.code,uiLocale());if(scopeNotice)return scopeNotice.action;
     if (error?.code === 'preview_context_limit' || error?.code?.startsWith('context_budget')) return 'context';
     if (error?.code === 'unauthorized') return 'account';
@@ -1261,12 +1299,18 @@ function activate(context) {
     const usage = L('View usage', 'Открыть расходы');
     const credit = L('Credit', 'Кредит');
     const resolve = L('Resolve task', 'Проверить задачу');
+    const retry=L('Retry step','Повторить шаг');
     const preview = L('Preview context', 'Просмотреть контекст');
     const overflow = error?.code === 'preview_context_limit' || (typeof error?.code === 'string' && error.code.startsWith('context_budget'));
     const unresolved = ['pending_task','charge_pending','usage_unknown','usage_recovery_unavailable','usage_reconciliation_required','model_request_failed'].includes(error?.code);
-    const actions = (error?.serverCode || error?.code) === 'free_preview_exhausted' ? [credit] : error?.code === 'unauthorized' ? [signIn] : error?.code === 'insufficient_credit' ? [usage] : unresolved ? [resolve] : overflow ? [preview] : [];
-    vscode.window.showErrorMessage(`Tvijo: ${message}`, ...actions).then((pick) => { if (pick === credit) vscode.env.openExternal(vscode.Uri.parse('https://dsh.tvijo.com/billing')); if (pick === signIn) vscode.commands.executeCommand('tvijo.signIn'); if (pick === usage) vscode.commands.executeCommand('tvijo.account'); if (pick === resolve) vscode.commands.executeCommand('tvijo.cancelPending'); if (pick === preview) vscode.commands.executeCommand('tvijo.contextPreview'); });
+    const actions = error?.retryAllowed===true&&retryAgentStep ? [retry] : (error?.serverCode || error?.code) === 'free_preview_exhausted' ? [credit] : error?.code === 'unauthorized' ? [signIn] : error?.code === 'insufficient_credit' ? [usage] : unresolved ? [resolve] : overflow ? [preview] : [];
+    vscode.window.showErrorMessage(`Tvijo: ${message}`, ...actions).then((pick) => { if(pick===retry)vscode.commands.executeCommand('tvijo.retryStep');if (pick === credit) vscode.env.openExternal(vscode.Uri.parse('https://dsh.tvijo.com/billing')); if (pick === signIn) vscode.commands.executeCommand('tvijo.signIn'); if (pick === usage) vscode.commands.executeCommand('tvijo.account'); if (pick === resolve) vscode.commands.executeCommand('tvijo.cancelPending'); if (pick === preview) vscode.commands.executeCommand('tvijo.contextPreview'); });
   }
+  command('tvijo.retryStep',async()=>{
+    ensureIdle();const retry=retryAgentStep;const auth=await requireAuth();
+    if(!retry||retry.scope!==currentViewScope(auth.scope)||retry.workspaceEpoch!==workspaceEpoch)throw new core.ServiceError('account_changed','The retry scope changed.');
+    await clearPending(auth);retryAgentStep=null;await runAgentFlow(retry.goal,retry);
+  });
 
   function command(id, fn) {
     handlers.set(id, fn);
@@ -2048,7 +2092,7 @@ function activate(context) {
   command('tvijo.status', async () => {
     const api = client();
     const health = await api.request('/health');
-    await showDocument('json', JSON.stringify({ runtime_version:context.extension?.packageJSON?.version || require('./package.json').version, reload_command:'Tvijo: Reload window', service: api.base, health, image_mode: 'local OCR text, not visual reasoning', sends_on: 'Ask only', max_task_usd: '1' }, null, 2));
+    await showDocument('json', JSON.stringify({ runtime_version:context.extension?.packageJSON?.version || require('./package.json').version, gateway_version:health?.version || 'unknown', build_commit:require('./lib/build-info').buildCommit(), reload_command:'Tvijo: Reload window', service: api.base, health, image_mode: 'local OCR text, not visual reasoning', sends_on: 'Ask only', max_task_usd: '1' }, null, 2));
   });
   command('tvijo.tasks', async () => {
     const auth = await requireAuth();
@@ -3013,9 +3057,9 @@ function activate(context) {
             const auth = await readAuth();
             const live = auth?.access_token && auth.api_base === client().base && !(auth.expires_at && Date.now() >= Date.parse(auth.expires_at));
             await vscode.commands.executeCommand(live && authState !== 'error' ? 'tvijo.account' : 'tvijo.signIn');
-          } else if (['new', 'cancel', 'commands', 'workspace', 'selection', 'path', 'help', 'bot', 'workflow', 'credit', 'terminal', 'settings', 'clearAttachments', 'usage', 'connections', 'productGuide', 'tasks', 'history', 'contextSelect', 'contextPreview', 'quickEdit'].includes(message?.type)) {
+          } else if (['retryStep', 'new', 'cancel', 'commands', 'workspace', 'selection', 'path', 'help', 'bot', 'workflow', 'credit', 'terminal', 'settings', 'clearAttachments', 'usage', 'connections', 'productGuide', 'tasks', 'history', 'contextSelect', 'contextPreview', 'quickEdit'].includes(message?.type)) {
             if (message.type === 'cancel' && agentRunning) { agentAbort?.abort(); return; }
-            const id = { new: 'tvijo.newConversation', cancel: 'tvijo.cancelPending', commands: 'tvijo.commands', workspace: 'tvijo.attachFile', selection: 'tvijo.attachSelection', path: 'tvijo.attachPath', help: 'tvijo.help', bot: 'tvijo.botGuide', workflow: 'tvijo.chooseWorkflow', credit: 'tvijo.buyCredit', terminal: 'tvijo.terminal', learn: 'tvijo.learn', feedback: 'tvijo.feedback', settings: 'tvijo.settings', clearAttachments: 'tvijo.clearAttachments', usage: 'tvijo.usage', connections: 'tvijo.connections', productGuide: 'tvijo.productGuide', tasks: 'tvijo.tasks', history: 'tvijo.chooseThread', contextSelect: 'tvijo.contextSelect', contextPreview: 'tvijo.contextPreview', quickEdit: 'tvijo.quickEdit' }[message.type];
+            const id = { retryStep: 'tvijo.retryStep', new: 'tvijo.newConversation', cancel: 'tvijo.cancelPending', commands: 'tvijo.commands', workspace: 'tvijo.attachFile', selection: 'tvijo.attachSelection', path: 'tvijo.attachPath', help: 'tvijo.help', bot: 'tvijo.botGuide', workflow: 'tvijo.chooseWorkflow', credit: 'tvijo.buyCredit', terminal: 'tvijo.terminal', learn: 'tvijo.learn', feedback: 'tvijo.feedback', settings: 'tvijo.settings', clearAttachments: 'tvijo.clearAttachments', usage: 'tvijo.usage', connections: 'tvijo.connections', productGuide: 'tvijo.productGuide', tasks: 'tvijo.tasks', history: 'tvijo.chooseThread', contextSelect: 'tvijo.contextSelect', contextPreview: 'tvijo.contextPreview', quickEdit: 'tvijo.quickEdit' }[message.type];
             await handlers.get(id)(); await refreshStatus();
           } else if (message?.type === 'botSetup') {
             await handlers.get('tvijo.configureBot')(); await postChatState();
@@ -3155,6 +3199,7 @@ function activate(context) {
   const bridgeDelivery = createBridgeDelivery({
     inbox: () => bridgeInbox, view: () => chatView, enabled: bridgeEnabled,
     runtimeVersion: () => context.extension?.packageJSON?.version || require('./package.json').version,
+    buildCommit:()=>require('./lib/build-info').buildCommit(),
     health: signal => client().request('/health', {signal, timeoutMs:3000}),
     focus: () => vscode.commands.executeCommand('tvijo.chat.focus')
   });
