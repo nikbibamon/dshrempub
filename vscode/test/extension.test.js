@@ -72,6 +72,7 @@ function host(options = {}) {
     deleteFile(uri) { this.operations.push({kind:'delete',uri}); }
   }
   const context = {
+    extensionPath: options.extensionPath,
     subscriptions: [], globalStorageUri: Uri.file(storage), globalState: options.globalState || memory(), workspaceState: options.workspaceState || memory(),
     secrets: options.secrets || memory({ 'tvijo.auth': JSON.stringify({ access_token: 'test-token', api_base: base }) })
   };
@@ -190,6 +191,41 @@ function host(options = {}) {
 
 // Deliberately meaningless catalogue: no product pack content belongs in tests.
 const syntheticPacks = { schema: 'tvijo.skill_packs/v1', packs: [{ id: 'engineer', title: { en: 'TEST PACK', ru: 'ТЕСТ ПАКЕТ' }, summary: { en: 'Synthetic summary', ru: 'Тестовое описание' }, model: 'synthetic-model', markers: [], instructions: 'SYNTHETIC_PACK_SENTINEL', checklist: { en: [], ru: [] } }] };
+
+test('Remote SSH shows the running package offline and offers a reload only for its own retired directory', async () => {
+  const root = await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(), 'tvijo-remote-status-'));
+  const version = require('../package.json').version;
+  const directory = 'tvijo.tvijo-dshrem-' + version;
+  const marker = path.join(root, '.obsolete');
+  await fs.mkdir(path.join(root, directory));
+  let accept = false;
+  const app = host({ extensionPath: path.join(root, directory),
+    onInfo: (_message, action) => accept ? action : undefined });
+  app.vscode.env.remoteName = 'ssh-remote';
+  const check = async () => {
+    await app.commands.get('tvijo.status')();
+    return JSON.parse(app.docs.at(-1).content);
+  };
+  try {
+    assert.equal((await check()).running_package_marked_obsolete, false);
+    await fs.writeFile(marker, JSON.stringify({ 'tvijo.tvijo-dshrem-0.0.1': true }));
+    assert.equal((await check()).running_package_marked_obsolete, false);
+    await fs.writeFile(marker, '{broken');
+    assert.equal((await check()).running_package_marked_obsolete, null);
+    await fs.writeFile(marker, JSON.stringify({ [directory]: true }));
+    const report = await check(); // This fixture deliberately has no gateway health route.
+    assert.equal(report.running_package_marked_obsolete, true);
+    assert.equal(report.remote_connection, 'ssh-remote');
+    assert.equal(report.runtime_version, version);
+    assert.equal(report.extension_host_platform, process.platform);
+    assert.equal(report.health.status, 'unavailable');
+    assert.ok(app.infos.some(args => args.includes('Reload this window')));
+    assert.ok(!app.executed.some(cmd => cmd.id === 'workbench.action.reloadWindow'));
+    accept = true;
+    await check();
+    assert.equal(app.executed.filter(cmd => cmd.id === 'workbench.action.reloadWindow').length, 1);
+  } finally { app.close(); }
+});
 
 test('Markdown host actions validate URLs, code bounds and exact account scope', async () => {
   const app = host();
@@ -1999,7 +2035,8 @@ test('each agent result is durable before the next dispatch and recovery data ne
   app=host({root,chatSequence:['{"tool":"read_file","path":"evidence.txt"}','{"tool":"finish","answer":"done"}'],onRequest:req=>{
     if (!req.url.endsWith('/chat')) return;
     const run=journalFor(app).list(recoveryKeyFor(app)).runs[0];
-    assert.equal(run.events.at(-1).type,'step');
+    assert.ok(run.events.some(e=>e.type==='step'));
+    assert.equal(run.events.at(-1).type,'step_attempt_started');
     if (++chats===2) {
       assert.equal(run.events.filter(e=>e.type==='result').length,1);
       assert.equal(run.events.find(e=>e.type==='result').result.content,'synthetic tool evidence');
@@ -3429,4 +3466,46 @@ test('root Extra remains disabled after upgrade and refuses before any paid gran
   await app.receive({type:'ask',question:'Try old root Extra',agent:true});assert.equal(app.requests.filter(r=>r.method==='POST'&&r.url.endsWith('/tasks')).length,0);assert.match(app.feedback.at(-1),/privileged root/);assert.equal(app.context.globalState.get(key).level,'extra');
   await enableFullAccess(app);await app.receive({type:'ask',question:'Use supported Full',agent:true});assert.ok(app.requests.some(r=>r.url.endsWith('/chat')));
  }finally{app.close();}
+});
+
+
+test('chat retryStep reaches the host command and refuses a missing failed-step scope without a paid task',async()=>{
+ const app=host();
+ try{
+  await app.receive({type:'ready'});const scopeKey=app.posts.filter(x=>x.type==='state').at(-1).scopeKey;
+  const before=app.feedback.length;await app.receive({type:'retryStep',scopeKey});
+  assert.ok(app.feedback.length>before,'host must report the missing retry scope');
+  assert.ok(!app.requests.some(x=>x.method==='POST'&&x.url.endsWith('/tasks')));
+ }finally{app.close();}
+});
+
+test('attachment refusals explain the real reason instead of blaming the selected file', async () => {
+  const root = path.join(process.env.TVIJO_TEST_ARTIFACTS, 'attachment-reason-workspace');
+  await fs.mkdir(root, { recursive: true });
+  const big = path.join(root, 'notes.txt'); await fs.writeFile(big, 'A'.repeat(70 * 1024));
+  const archive = path.join(root, 'tvijo-dshrem-0.10.30.vsix'); await fs.writeFile(archive, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x01]));
+  const app = host({ root });
+  try {
+    await app.receive({ type: 'ready' });
+    await app.commands.get('tvijo.attachFile')(app.Uri.file(big));
+    assert.match(app.feedback.at(-1), /64 KiB/);
+    assert.doesNotMatch(app.feedback.at(-1), /Check the selected workspace file/);
+    await app.commands.get('tvijo.attachFile')(app.Uri.file(archive));
+    assert.match(app.feedback.at(-1), /Archives and binary files cannot be attached/);
+    assert.doesNotMatch(app.feedback.at(-1), /Check the selected workspace file/);
+    assert.equal(app.posts.filter(item => item.type === 'state').at(-1).attachments.length, 0);
+  } finally { app.close(); }
+});
+
+test('an unrecognised host failure reports its own reason instead of the generic file hint', async () => {
+  const root = path.join(process.env.TVIJO_TEST_ARTIFACTS, 'attachment-enoent-workspace');
+  await fs.mkdir(root, { recursive: true });
+  const file = path.join(root, 'gone.txt'); await fs.writeFile(file, 'text');
+  const app = host({ root, prepareAttachment: async () => { throw Object.assign(new Error('ENOENT: no such file or directory, open /tmp/gone'), { code: 'ENOENT' }); } });
+  try {
+    await app.receive({ type: 'ready' });
+    await app.commands.get('tvijo.attachFile')(app.Uri.file(file));
+    assert.match(app.feedback.at(-1), /does not exist on this host/);
+    assert.doesNotMatch(app.feedback.at(-1), /Check the selected workspace file/);
+  } finally { app.close(); }
 });

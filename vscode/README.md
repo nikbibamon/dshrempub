@@ -1,10 +1,9 @@
 <!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
-## What's new in 0.10.28 — 2026-10-31 (prepared candidate)
+## What's new in 0.10.31 — 2026-11-18 (Remote SSH install candidate)
 
-- **Readable agent progress.** Resize or collapse the agent log, and expand individual steps. The preferred height and collapsed state survive webview reloads; the visible height and keyboard controls respect the current viewport. Reloading a destroyed view does not restore the prior run's log.
-- **Public project knowledge in Agent and Plan.** Four authenticated read tools search the Tvijo wiki, retrieve a pinned article revision, and search or inspect the connector catalog. They use the current account or project token, refuse arbitrary sources, bound responses and treat retrieved content as untrusted data. Availability requires an activated gateway route. The separate DSH Harness and external MCP client are not integrated by this change.
-- **Bridge recovery included.** The 0.10.27 host-side `/status` and one-time view focus fixes are included; diagnostics do not reserve tasks, invoke models or clear unresolved charges.
-- **Migration and channels.** Reload the editor after installing. Existing permissions, settings and task receipts are preserved. Native editor installers, Marketplace and public download promotion retain separate verification and publication receipts.
+- In a Remote SSH window, VS Code installs Tvijo on the workspace host. Hover over the Tvijo status bar item to see the running version.
+- **Tvijo: Check service connection** shows the loaded version, build commit, remote connection and host platform even if the gateway is offline. When VS Code has marked this copy obsolete, the command offers to reload the current window. The bridge's `/status` reports the same obsolete marker.
+- To upgrade from a server-side VSIX, open that SSH workspace and install the new file there. After saving your work, run **Developer: Reload Window** in that window. Use **Tvijo: Check service connection** to verify version 0.10.31.
 
 Earlier versions: the **Changelog** tab.
 <!-- changelog-latest:end -->
@@ -40,7 +39,7 @@ Settings save automatically and display the host's confirmed value. Background u
 
 **How to choose a reasoning method:** **Start with evidence** (`evidence-first`) asks for findings based on supplied files, logs and tests; use it to investigate a failure. **Plan, then check** (`plan-check`) asks for small steps followed by verification; use it to make a change. **Review from another role** (`peer-review`) asks for another perspective on a solution, such as missed edge cases. This method alone does not start a separate agent team or guarantee another model will be called. [Read the settings guide](https://dsh.tvijo.com/knowledge/settings-explained#article-top).
 
-**Chat collaboration and host teams are separate.** `agentMode` controls an ordinary chat response; Council does not disable Agent Auto or start a persistent development job. DSH Harness uses the selected host's configured coordinator and workers. A supported controller can run teams of 3–6 participants including the coordinator, with sequential worker invocations; several reviewers may use the same model. Sol + Astra + Claude needs at least four participants. Choose **Open completed HTML report** under Report appearance to view a generated report inside VS Code. Reports stay in the selected host’s private task directory; the preview runs no scripts and loads no external resources. Workers require their own installed subscription and available quota; failure does not silently switch to a paid API. [Teams and costs](https://dsh.tvijo.com/knowledge/agentroy-teams-and-costs#article-top).
+**Chat collaboration and host teams are separate.** `agentMode` controls an ordinary chat response; Council does not disable Agent Auto or start a persistent development job. DSH Harness uses the selected host's configured coordinator and workers. A supported controller can run teams of 3–6 participants including the coordinator, with sequential worker invocations; several reviewers may use the same model. Sol + Astra + review account worker needs at least four participants. Choose **Open completed HTML report** under Report appearance to view a generated report inside VS Code. Reports stay in the selected host’s private task directory; the preview runs no scripts and loads no external resources. Workers require their own installed subscription and available quota; failure does not silently switch to a paid API. [Teams and costs](https://dsh.tvijo.com/knowledge/agentroy-teams-and-costs#article-top).
 
 `service` applies only inside shared projects. `standard` is a service identifier, not a quality rating. Pack choices come from the signed-in service catalog, with readable titles and summaries; **Auto** selects by project markers and **No pack** disables pack instructions. An unavailable saved choice is retained and identified instead of silently replaced.
 
@@ -62,7 +61,7 @@ Choose **Configuration file example** in the help section or run **Tvijo: Open c
 
 # Tvijo DSHREM for VS Code
 
-Version 0.10.28. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.31. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
@@ -149,7 +148,7 @@ Restricted Mode cannot enable Full access.
 
 ## Project rules
 
-Workspace Trust enables automatic project advice from `AGENTS.md`, `CLAUDE.md`,
+Workspace Trust enables automatic project advice from `AGENTS.md` and other recognized project instruction files,
 `.clinerules` (a file or a directory of Markdown files), `.cursorrules`,
 `.windsurfrules`, `.github/copilot-instructions.md` and `.tvijo/rules.md`.
 Rules inherit nearest first, stopping at the nearest repository or owning workspace
@@ -453,10 +452,7 @@ unknown cost, a dirty buffer or a changed identity blocks it.
 ## Models and routing
 
 The model list comes from the service; an unavailable route is refused, not substituted.
-For GLM (`glm53f`) the service uses OpenRouter as the primary route and DeepInfra as the
-paired route: a confirmed provider refusal (429 or 5xx) is retried at most twice on the
-same route, then once on the paired route under the same task id and USD ceiling. A
-timeout, an unknown outcome or a 402 is never retried, because it could spend twice.
+Activated service routes and their existing failover policy remain server-owned. This release changes no route, price or accounting rule. Extension retries require a separate confirmed failed-task receipt; an unknown charge is never retried.
 
 **BYOK** is explicit and never silently falls back to Managed. It is available for
 Standard and single coding tasks; review and swarm are Managed-only. The provider cap and
@@ -555,9 +551,9 @@ Open **Tvijo → Chat**, or run **Tvijo: Open chat** from `Ctrl+Shift+P`. Use `+
 
 **Sign in:** the clipboard contains only the eight-character code. **Open browser** opens a prefilled approval link; after Google/password sign-in you return to the approval form. Approval is still explicit.
 
-**Try first:** self-service accounts receive a sponsored preview of 50 tasks, 50,000 model tokens and USD0.05 total, whichever ends first. The shared preview pool is USD1 per UTC day. Preview supports the cheap Flash/Devstral routes; it is not a payment or revenue, and premium models require paid credit. No card, automatic debit or per-question operator approval. Failed attempts and unknown token usage may retain quota; the API never automatically retries.
+**Try first:** self-service accounts receive a sponsored preview of 50 tasks, 50,000 model tokens and USD0.05 total, whichever ends first. The shared preview pool is USD1 per UTC day. Preview supports the cheap Flash/reasoning worker routes; it is not a payment or revenue, and premium models require paid credit. No card, automatic debit or per-question operator approval. Failed attempts and unknown token usage may retain quota; the API never automatically retries.
 
-The terminal opens on your VS Code extension host in the first open workspace folder. It does not start a model or run generated commands. Codex uses your own separate login/subscription. Read [terminal setup](https://dsh.tvijo.com/connect), [manual](https://dsh.tvijo.com/learn), [API](https://dsh.tvijo.com/dev), [feedback](https://dsh.tvijo.com/feedback), [privacy](https://dsh.tvijo.com/privacy). Source mirror: https://github.com/nikbibamon/dshcode.
+The terminal opens on your VS Code extension host in the first open workspace folder. It does not start a model or run generated commands. coding account worker uses your own separate login/subscription. Read [terminal setup](https://dsh.tvijo.com/connect), [manual](https://dsh.tvijo.com/learn), [API](https://dsh.tvijo.com/dev), [feedback](https://dsh.tvijo.com/feedback), [privacy](https://dsh.tvijo.com/privacy). Source mirror: https://github.com/nikbibamon/dshcode.
 
 
 Ask questions about your code from the editor. Answers cite the files you added to your
@@ -736,7 +732,7 @@ is granted. **Tvijo: Request $10 service credit** creates an unpaid order.
 Payment processing is not yet configured; creating an order never adds credit.
 
 Run **Tvijo: Choose model and workflow** for single, automatic or council mode.
-The council uses DeepSeek + GLM under one shared $1 task ceiling. Availability
+The council uses coordinator model + review model under one shared $1 task ceiling. Availability
 comes from the server; unavailable routes are refused. Automatic routing is a
 simple rule, not a proven quality optimization. Methods are structured prompts;
 no measured savings or autonomous server changes are promised.
@@ -842,7 +838,7 @@ write and replace tools remain disabled. No new setting or model call is added.
 
 This release requires Linux process-tree supervision; use a Linux local or
 Remote SSH host. The ordinary engine remains portable. After explicit setup, enable **Orchestration:
-Enabled** and choose Sol, Sol + Astra, or Sol + Astra + Claude in Settings.
+Enabled** and choose Sol, Sol + Astra, or Sol + Astra + review account worker in Settings.
 The private host manifest is discovered automatically; no path entry is needed.
 The ordinary engine remains the default. The DSH composer shows its actual
 fixed ds41f coordinator and subscription worker policy.
@@ -854,10 +850,10 @@ Resume; repair shares its original finite budget. Selected subfolders and new
 non-Git projects remain exact execution scopes. The browser cannot invoke the
 operator's server shell or subscription.
 
-The observed Linux runtime verified the published native Harness Codex and
-Claude providers, with subscription GPT-6.1 Sol, GPT-6 Astra/high and Claude
-Opus 5.5. Other hosts must satisfy setup/login prerequisites. Native Codex uses
-workspace-write with network disabled (Plan/Astra read-only); Claude advice
+The observed Linux runtime verified the published native Harness coding account worker and
+review account worker providers, with subscription coding model Sol, review model Astra/high and review account worker
+Opus 5.5. Other hosts must satisfy setup/login prerequisites. Native coding account worker uses
+workspace-write with network disabled (Plan/Astra read-only); review account worker advice
 has only Read/Glob/Grep. No subscription-to-API fallback occurs. The ordinary
 engine's command classifier is not claimed to run inside external CLIs.
 

@@ -1,3 +1,20 @@
+## 0.10.31 — 2026-11-18 (Remote SSH install candidate)
+
+- In a Remote SSH window, VS Code installs Tvijo on the workspace host. Hover over the Tvijo status bar item to see the running version.
+- **Tvijo: Check service connection** shows the loaded version, build commit, remote connection and host platform even if the gateway is offline. When VS Code has marked this copy obsolete, the command offers to reload the current window. The bridge's `/status` reports the same obsolete marker.
+- To upgrade from a server-side VSIX, open that SSH workspace and install the new file there. After saving your work, run **Developer: Reload Window** in that window. Use **Tvijo: Check service connection** to verify version 0.10.31.
+
+## 0.10.30 — 2026-11-17 (local candidate)
+
+- The editor reports individual attachment errors and renders the Tvijo icon in both light and dark themes. See the [extension changelog](vscode/CHANGELOG.md) for the candidate history.
+
+## 0.10.29 — 2026-11-14 (prepared preview)
+
+- **Smaller Agent requests.** Stable instructions and read-only Ask tools for short project questions; source bodies enter only after a task read. Long rules use a deterministic digest with source paths; safety, permissions and money restrictions remain. Ask removes repeated quoting and prose whitespace while retaining policy words and fenced code. Older read results become named receipts while local history stays intact.
+- **One confirmed retry.** A failed step may create one new task after a final, known-cost receipt, within the remaining budget and normal server limits. Both task costs and retry links are recorded. Unknown charges stop the agent and disable retry. Saved edits remain.
+- **Build and diagnostics.** `/status` includes extension and gateway versions plus the build commit. Release packages require a clean tagged source and carry a file hash inventory. Missing provider cache fields remain unknown.
+- **Download and channels.** Installation links use https://dsh.tvijo.com/download#vscode. Editor downloads remain separate. Reload after installing; existing grants and settings remain. Registry packaging includes an offline required-field manifest check; actual registry publication requires operator tokens. Paid live validation is a separate operator step.
+
 ## 0.10.28 — 2026-10-31 (prepared candidate)
 
 - **Readable agent progress.** Resize or collapse the agent log, and expand individual steps. The preferred height and collapsed state survive webview reloads; the visible height and keyboard controls respect the current viewport. Reloading a destroyed view does not restore the prior run's log.
@@ -18,14 +35,14 @@
 - **Actionable DSH errors.** Missing controllers, unsupported host team options and unavailable workers show fixed English/Russian setup guidance instead of a misleading workspace-file error. Arbitrary controller stderr is excluded from the notice.
 - **Known reserve, unknown charge.** Pending tasks display a valid reserved amount when supplied by the service, even if final provider cost is unknown. Unknown cost still blocks another paid task, including a reported terminal task with zero reserved amount; no financial guard is cleared.
 - **Less repeated rule-scan work.** Ordinary file metadata is skipped while scanning rule fingerprints. Nested rules, symlink checks and the same entry/directory limits remain enforced; a truncated scan still requires the existing applicable command approvals.
-- **Separate agent permissions.** Tvijo Full access controls Tvijo Agent. Codex keeps its own permission mode and approval policy. Installing this VSIX does not grant permissions to another extension or alter its files.
+- **Separate agent permissions.** Tvijo Full access controls Tvijo Agent. coding account worker keeps its own permission mode and approval policy. Installing this VSIX does not grant permissions to another extension or alter its files.
 - **Migration and scope.** Reload the editor after installation; existing settings and grants are retained. This is a standalone VSIX for operator testing in VS Code and TvijoCode, with Windows tested first by the operator. Native editor builds, Marketplace and public download channels are separate. Live ds41f acceptance remains blocked by the existing service accounting freeze.
 
 ## 0.10.25 — 2026-10-29 (prepared)
 
 - **Honest task outcomes and receipts.** Blocked and partial work stays visible; local receipts record observed commands, edits, task IDs and known or unknown usage. A model's completion claim is not independent verification.
 - **Unknown cost stops the agent.** Missing cost remains unknown and stops further model steps until reconciled. A measured zero remains zero.
-- **Account reviews in Full.** Codex and enabled Claude account CLI reviews are advisory and bounded. Existing Full grants do not gain this permission automatically; enable it explicitly for the project. Quota failure does not fall back to an API key.
+- **Account reviews in Full.** coding account worker and enabled review account worker account CLI reviews are advisory and bounded. Existing Full grants do not gain this permission automatically; enable it explicitly for the project. Quota failure does not fall back to an API key.
 - **Extra access on root.** ExtraFullAccess is refused on privileged root extension hosts. On a non-root host, Extra still uses the OS user's rights and is not an OS sandbox. Existing Full access and inbound Copilot integration remain separate; outbound Copilot review is not implemented.
 - **Migration and verification.** Reload the editor after installation. At preparation time the candidate had not been published, installed as a VSIX or smoke-tested with a live paid model. Desktop editors, CLI and Marketplace are independent channels; see their release receipts for subsequent verification.
 
@@ -33,7 +50,7 @@
 
 - **ExtraFullAccess.** A separate native approval for the selected trusted project and Tvijo account enables POSIX host-shell scripts, substitutions, normal network commands and bounded account CLI reviews. Existing Full access grants are not upgraded. Commands have the current OS user's rights and can affect files outside the project; literal accident checks are not an OS sandbox. Editor file tools retain path and dirty-buffer protections. Switching account/project or revoking the grant cancels active work. Windows hosts retain literal command execution and CLI review; POSIX shell syntax is explicitly unavailable.
 - **Show actual capabilities.** Each local Agent run records the effective mode, terminal access and available reviewers, and supplies them to the model. The model must not claim a missing terminal without an actual refusal. Plan still refuses writes, commands and reviews.
-- **Bounded local review.** ExtraFullAccess uses the local Agent engine and offers supplied-evidence, advisory Codex/Claude subscription CLI review with finite calls, cancellation and receipts. Provider API keys are not inherited; missing account login, disabled agents or quota failure do not fall back to a paid API. Project Claude pauses are enforced by the review adapter; the trusted host shell is not an OS boundary against arbitrary programs. The agent is instructed to use the review adapter exclusively for consultations and never load provider-key environments. Claude review is off by default. Review does not resume or control another agent's current conversation or give it write authority.
+- **Bounded local review.** ExtraFullAccess uses the local Agent engine and offers supplied-evidence, advisory coding account worker/review account worker subscription CLI review with finite calls, cancellation and receipts. Provider API keys are not inherited; missing account login, disabled agents or quota failure do not fall back to a paid API. Project review account worker pauses are enforced by the review adapter; the trusted host shell is not an OS boundary against arbitrary programs. The agent is instructed to use the review adapter exclusively for consultations and never load provider-key environments. review account worker review is off by default. Review does not resume or control another agent's current conversation or give it write authority.
 - **Copilot direction is explicit.** The preserved 0.10.22 bridge lets Copilot call Tvijo through `@tvijo`/`#tvijo`; outbound Tvijo-to-Copilot review is not implemented. Previous bridge and saved-conversation work is included and retained.
 - No automatic permission migration, OS elevation, trading activation or model-route changes. Reload the editor after installing; select ExtraFullAccess for the intended project. This extension release does not rebuild native editors, CLI or MCP.
 
@@ -50,10 +67,10 @@ permits Tvijo VSIX updates while preserving existing built-in update entries.
 
 Anonymous server download:88,165,345 bytes; SHA-256
 `533f88ad1b623b13deafca0016a28090c965edd5f9b66503b3d507d12746c1c8`.
-[Build pins and native test limits](https://github.com/nikbibamon/tvijocode/releases/download/1.140.07195/REMOTE_SERVER_RECEIPT.json).
+[Build pins and native test limits](https://dsh.tvijo.com/download#vscode).
 Original EXE/ZIP, receipts, release tag, previous releases and failed artifacts
 are preserved. Actual Windows SSH connection and remote extension activation/chat
-remain unverified; unified Codex/Claude/Copilot sessions are not implemented yet.
+remain unverified; unified coding account worker/review account worker/Copilot sessions are not implemented yet.
 
 ## Windows editor 1.140.07195 / extension 0.10.15 — 2026-10-26
 
@@ -64,8 +81,8 @@ Editor and extension version numbers identify separate products.
 
 - [Windows release, ZIP and per-user EXE](https://github.com/nikbibamon/tvijocode/releases/tag/1.140.07195)
 - [Download and installation instructions](https://dsh.tvijo.com/download#windows)
-- [Native Windows receipt](https://github.com/nikbibamon/tvijocode/releases/download/1.140.07195/WINDOWS_SMOKE.json)
-- [Exact sizes, SHA-256 and source commit](https://github.com/nikbibamon/tvijocode/releases/download/1.140.07195/BUILD_RECEIPT.json)
+- [Native Windows receipt](https://dsh.tvijo.com/download#vscode)
+- [Exact sizes, SHA-256 and source commit](https://dsh.tvijo.com/download#vscode)
 - [Standalone extension 0.10.15](https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.15)
 
 Observed 2026-10-26: anonymous EXE and ZIP downloads match their published

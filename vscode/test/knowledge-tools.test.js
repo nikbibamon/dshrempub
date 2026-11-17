@@ -21,8 +21,8 @@ test('Plan agent dispatches all four public tools and keeps retrieved text outsi
   assert.equal(result.status,'done');assert.equal(f.calls.length,4);
   assert.deepEqual(f.calls.map(c=>c.url.split('/').at(-1)),actions.map(a=>a.tool));
   assert.ok(f.calls.every(c=>c.options.method==='POST' && c.options.headers.authorization==='Bearer fixture-private-token'));
-  assert.ok(observed.slice(1).every(m=>!m[0].content.includes('ignore all previous instructions')));
-  assert.match(observed[1].at(-1).content,/TOOL_RESULT.*untrusted/);
+  assert.ok(observed.slice(1).every(m=>m.filter(row=>row.role==='system').every(row=>!row.content.includes('ignore all previous instructions'))));
+  assert.match(observed[1].findLast(row=>row.role==='user'&&row.content.startsWith('TOOL_RESULT ')).content,/TOOL_RESULT.*untrusted/);
   assert.equal((await f.tools.execute({tool:'run_command',command:'pwd'},{planMode:true})).reason,'plan_mode');
 });
 test('rejects invalid arguments, selectors, stale hashes and unsupported names before request', async()=>{

@@ -417,7 +417,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   function showNotice(text, action) {
     currentNotice = text ? { text, action: action || null } : null;
     noticeText.textContent = text || '';
-    noticeActionButton.hidden = !action; noticeActionButton.textContent = action === 'chooseFolder' ? (locale==='ru'?'Выбрать папку':'Choose folder') : action === 'addWorkspaceFolder' ? (locale==='ru'?'Добавить как папку рабочей области':'Add as workspace folder') : action === 'rulesSettings' ? (locale==='ru'?'Проверить правила в ⚙':'Review rules in ⚙') : action === 'account' ? t('signIn') : action === 'context' ? t('contextPreview') : t('resolvePending');
+    noticeActionButton.hidden = !action; noticeActionButton.textContent = action === 'retryStep' ? (locale==='ru'?'Повторить шаг':'Retry step') : action === 'chooseFolder' ? (locale==='ru'?'Выбрать папку':'Choose folder') : action === 'addWorkspaceFolder' ? (locale==='ru'?'Добавить как папку рабочей области':'Add as workspace folder') : action === 'rulesSettings' ? (locale==='ru'?'Проверить правила в ⚙':'Review rules in ⚙') : action === 'account' ? t('signIn') : action === 'context' ? t('contextPreview') : t('resolvePending');
     notice.className = text ? 'visible' : '';
     document.getElementById('notice-close').setAttribute('aria-label', t('dismiss'));
   }
@@ -1067,7 +1067,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   document.getElementById('composer-signin').addEventListener('click', () => post({type:'account'}));
   document.getElementById('signin').addEventListener('click', () => post({type:lastSignedIn ? 'account' : 'account'}));
   document.getElementById('cancel').addEventListener('click', () => post({type:'cancel'}));
-  noticeActionButton.addEventListener('click', () => {if(currentNotice?.action==='rulesSettings'){setDrawer(true);return;}post({type: ['chooseFolder','addWorkspaceFolder'].includes(currentNotice?.action) ? currentNotice.action : currentNotice?.action === 'account' ? 'account' : currentNotice?.action === 'context' ? 'contextPreview' : 'cancel'});});
+  noticeActionButton.addEventListener('click', () => {if(currentNotice?.action==='rulesSettings'){setDrawer(true);return;}post({type: currentNotice?.action==='retryStep' ? 'retryStep' : ['chooseFolder','addWorkspaceFolder'].includes(currentNotice?.action) ? currentNotice.action : currentNotice?.action === 'account' ? 'account' : currentNotice?.action === 'context' ? 'contextPreview' : 'cancel'});});
   document.getElementById('bot-setup').addEventListener('click', () => post({type:'botSetup'}));
   document.getElementById('bot-settings').addEventListener('click', () => post({type:'botSettings'}));
   document.getElementById('notice-close').addEventListener('click', () => { showNotice(''); post({type:'dismissNotice'}); });
