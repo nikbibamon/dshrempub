@@ -1,10 +1,9 @@
 <!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
-## What's new in 0.10.30 — 2026-11-17 (local defect fix)
+## What's new in 0.10.31 — 2026-11-18 (Remote SSH install candidate)
 
-- **Truthful action errors.** A failure without a known code no longer claims that the selected workspace file is wrong: the editor shows the underlying reason, and missing path, permission denied, folder-instead-of-file and symlink-loop failures get their own guidance. Attachment refusals (size, count, path, OCR languages, workspace scope) are explained instead of falling back to the generic text.
-- **Archive attachments explained.** A VSIX, ZIP, database or other binary selected as workspace context is refused with an extract-the-text instruction instead of a 64 KiB text limit or "invalid UTF-8". No file is read, uploaded or executed by this check.
-- **Brand icon.** The extension icon is the 256 px Tvijo mark, and the activity bar glyph follows the editor theme instead of a hardcoded white fill that disappeared on light themes.
-- **No behaviour change.** Task, budget, permission and money paths are untouched; existing grants, settings and conversation history are preserved.
+- In a Remote SSH window, VS Code installs Tvijo on the workspace host. Hover over the Tvijo status bar item to see the running version.
+- **Tvijo: Check service connection** shows the loaded version, build commit, remote connection and host platform even if the gateway is offline. When VS Code has marked this copy obsolete, the command offers to reload the current window. The bridge's `/status` reports the same obsolete marker.
+- To upgrade from a server-side VSIX, open that SSH workspace and install the new file there. After saving your work, run **Developer: Reload Window** in that window. Use **Tvijo: Check service connection** to verify version 0.10.31.
 
 Earlier versions: the **Changelog** tab.
 <!-- changelog-latest:end -->
@@ -62,7 +61,7 @@ Choose **Configuration file example** in the help section or run **Tvijo: Open c
 
 # Tvijo DSHREM for VS Code
 
-Version 0.10.30. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.31. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 

@@ -1,3 +1,13 @@
+## 0.10.31 — 2026-11-18 (Remote SSH install candidate)
+
+- In a Remote SSH window, VS Code installs Tvijo on the workspace host. Hover over the Tvijo status bar item to see the running version.
+- **Tvijo: Check service connection** shows the loaded version, build commit, remote connection and host platform even if the gateway is offline. When VS Code has marked this copy obsolete, the command offers to reload the current window. The bridge's `/status` reports the same obsolete marker.
+- To upgrade from a server-side VSIX, open that SSH workspace and install the new file there. After saving your work, run **Developer: Reload Window** in that window. Use **Tvijo: Check service connection** to verify version 0.10.31.
+
+## 0.10.30 — 2026-11-17 (local candidate)
+
+- The editor reports individual attachment errors and renders the Tvijo icon in both light and dark themes. See the [extension changelog](vscode/CHANGELOG.md) for the candidate history.
+
 ## 0.10.29 — 2026-11-14 (prepared preview)
 
 - **Smaller Agent requests.** Stable instructions and read-only Ask tools for short project questions; source bodies enter only after a task read. Long rules use a deterministic digest with source paths; safety, permissions and money restrictions remain. Ask removes repeated quoting and prose whitespace while retaining policy words and fenced code. Older read results become named receipts while local history stays intact.

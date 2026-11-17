@@ -1,3 +1,9 @@
+## 0.10.31 — 2026-11-18 (Remote SSH install candidate)
+
+- In a Remote SSH window, VS Code installs Tvijo on the workspace host. Hover over the Tvijo status bar item to see the running version.
+- **Tvijo: Check service connection** shows the loaded version, build commit, remote connection and host platform even if the gateway is offline. When VS Code has marked this copy obsolete, the command offers to reload the current window. The bridge's `/status` reports the same obsolete marker.
+- To upgrade from a server-side VSIX, open that SSH workspace and install the new file there. After saving your work, run **Developer: Reload Window** in that window. Use **Tvijo: Check service connection** to verify version 0.10.31.
+
 ## 0.10.30 — 2026-11-17 (local defect fix)
 
 - **Truthful action errors.** A failure without a known code no longer claims that the selected workspace file is wrong: the editor shows the underlying reason, and missing path, permission denied, folder-instead-of-file and symlink-loop failures get their own guidance. Attachment refusals (size, count, path, OCR languages, workspace scope) are explained instead of falling back to the generic text.

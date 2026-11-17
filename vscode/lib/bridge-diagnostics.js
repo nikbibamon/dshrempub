@@ -2,7 +2,7 @@
 
 // Diagnostics never enter the chat/task pipeline. Durable inbox statuses still
 // own replay and reload recovery; a failed status write cannot start any work.
-function createBridgeDelivery({ inbox, view, enabled, runtimeVersion, health, focus, buildCommit = ()=>'unknown', timeoutMs = 3000 }) {
+function createBridgeDelivery({ inbox, view, enabled, runtimeVersion, health, focus, buildCommit = ()=>'unknown', packageObsolete, timeoutMs = 3000 }) {
   const completions = new Map();
   const controllers = new Set();
   let focusFlight = null;
@@ -40,12 +40,14 @@ function createBridgeDelivery({ inbox, view, enabled, runtimeVersion, health, fo
       clearTimeout(timer);
       controllers.delete(controller);
     }
+    const obsolete = packageObsolete ? await Promise.resolve().then(packageObsolete).catch(() => null) : null;
     if (disposed) return;
     const version = runtimeVersion();
     const answer = JSON.stringify({
       runtimeVersion: typeof version === 'string' && version.length <= 64 && /^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version) ? version : 'unknown',
       bridgeEnabled: enabled() === true,
       viewResolved: !!view(),
+      runningPackageMarkedObsolete: typeof obsolete === 'boolean' ? obsolete : null,
       health: healthState
       ,gatewayVersion,buildCommit:/^[a-f0-9]{40}$/.test(buildCommit())?buildCommit():'unknown'
     });

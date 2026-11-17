@@ -72,6 +72,7 @@ function host(options = {}) {
     deleteFile(uri) { this.operations.push({kind:'delete',uri}); }
   }
   const context = {
+    extensionPath: options.extensionPath,
     subscriptions: [], globalStorageUri: Uri.file(storage), globalState: options.globalState || memory(), workspaceState: options.workspaceState || memory(),
     secrets: options.secrets || memory({ 'tvijo.auth': JSON.stringify({ access_token: 'test-token', api_base: base }) })
   };
@@ -190,6 +191,41 @@ function host(options = {}) {
 
 // Deliberately meaningless catalogue: no product pack content belongs in tests.
 const syntheticPacks = { schema: 'tvijo.skill_packs/v1', packs: [{ id: 'engineer', title: { en: 'TEST PACK', ru: 'ТЕСТ ПАКЕТ' }, summary: { en: 'Synthetic summary', ru: 'Тестовое описание' }, model: 'synthetic-model', markers: [], instructions: 'SYNTHETIC_PACK_SENTINEL', checklist: { en: [], ru: [] } }] };
+
+test('Remote SSH shows the running package offline and offers a reload only for its own retired directory', async () => {
+  const root = await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(), 'tvijo-remote-status-'));
+  const version = require('../package.json').version;
+  const directory = 'tvijo.tvijo-dshrem-' + version;
+  const marker = path.join(root, '.obsolete');
+  await fs.mkdir(path.join(root, directory));
+  let accept = false;
+  const app = host({ extensionPath: path.join(root, directory),
+    onInfo: (_message, action) => accept ? action : undefined });
+  app.vscode.env.remoteName = 'ssh-remote';
+  const check = async () => {
+    await app.commands.get('tvijo.status')();
+    return JSON.parse(app.docs.at(-1).content);
+  };
+  try {
+    assert.equal((await check()).running_package_marked_obsolete, false);
+    await fs.writeFile(marker, JSON.stringify({ 'tvijo.tvijo-dshrem-0.0.1': true }));
+    assert.equal((await check()).running_package_marked_obsolete, false);
+    await fs.writeFile(marker, '{broken');
+    assert.equal((await check()).running_package_marked_obsolete, null);
+    await fs.writeFile(marker, JSON.stringify({ [directory]: true }));
+    const report = await check(); // This fixture deliberately has no gateway health route.
+    assert.equal(report.running_package_marked_obsolete, true);
+    assert.equal(report.remote_connection, 'ssh-remote');
+    assert.equal(report.runtime_version, version);
+    assert.equal(report.extension_host_platform, process.platform);
+    assert.equal(report.health.status, 'unavailable');
+    assert.ok(app.infos.some(args => args.includes('Reload this window')));
+    assert.ok(!app.executed.some(cmd => cmd.id === 'workbench.action.reloadWindow'));
+    accept = true;
+    await check();
+    assert.equal(app.executed.filter(cmd => cmd.id === 'workbench.action.reloadWindow').length, 1);
+  } finally { app.close(); }
+});
 
 test('Markdown host actions validate URLs, code bounds and exact account scope', async () => {
   const app = host();

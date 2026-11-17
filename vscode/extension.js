@@ -49,10 +49,13 @@ const {fitContext} = require('./lib/context-budget');
 const {listFolders,folderUri} = require('./lib/folder-browser');
 const {createInbox} = require('./lib/inbox');
 const {createBridgeDelivery} = require('./lib/bridge-diagnostics');
+const { buildCommit, runningPackageMarkedObsolete } = require('./lib/build-info');
 const AUTH_KEY = 'tvijo.auth';
 const CONTEXT_CONSENT = 'tvijo.contextConsent';
 
 function activate(context) {
+  const runtimeVersion = context.extension?.packageJSON?.version || require('./package.json').version;
+  const packageObsolete = () => runningPackageMarkedObsolete(context.extensionPath || __dirname);
   let deviceLoginActive = false;
   let chatView = null;
   const runJournals = createRunJournal(context.globalStorageUri?.fsPath);
@@ -427,6 +430,7 @@ function activate(context) {
     }
     status.text = available ? packs.statusText(selection, accountSnapshot, uiLocale()) : auth ? '$(sparkle) Tvijo' : '$(account) Tvijo: sign in';
     status.tooltip = available ? L('Choose skill pack · remaining allowance today (USD)', 'Выбрать пакет навыков · остаток на сегодня (USD)') : auth ? L('Tvijo: account and credit', 'Tvijo: аккаунт и баланс') : L('Tvijo: sign in', 'Tvijo: войти');
+    status.tooltip += '\nTvijo ' + runtimeVersion + (vscode.env.remoteName === 'ssh-remote' ? ' · Remote SSH' : '');
     status.command = available ? 'tvijo.choosePack' : auth ? 'tvijo.account' : 'tvijo.signIn';
     status.accessibilityInformation = { label: status.text + '. ' + status.tooltip };
     status.show();
@@ -2090,9 +2094,28 @@ function activate(context) {
     await vscode.window.showTextDocument(doc, { preview: false, ...options });
   }
   command('tvijo.status', async () => {
-    const api = client();
-    const health = await api.request('/health');
-    await showDocument('json', JSON.stringify({ runtime_version:context.extension?.packageJSON?.version || require('./package.json').version, gateway_version:health?.version || 'unknown', build_commit:require('./lib/build-info').buildCommit(), reload_command:'Tvijo: Reload window', service: api.base, health, image_mode: 'local OCR text, not visual reasoning', sends_on: 'Ask only', max_task_usd: '1' }, null, 2));
+    const obsolete = await packageObsolete();
+    let service = null;
+    let health = { status: 'unavailable' };
+    try {
+      const api = client();
+      service = api.base;
+      const response = await api.request('/health', { timeoutMs: 3000 });
+      if (response && typeof response.status === 'string') health = response;
+    } catch { /* The running package identity remains available offline. */ }
+    await showDocument('json', JSON.stringify({
+      runtime_version: runtimeVersion, build_commit: buildCommit(),
+      remote_connection: vscode.env.remoteName || null, extension_host_platform: process.platform,
+      running_package_marked_obsolete: obsolete, reload_command: 'Tvijo: Reload window',
+      gateway_version: health.version || 'unknown', service, health,
+      image_mode: 'local OCR text, not visual reasoning', sends_on: 'Ask only', max_task_usd: '1'
+    }, null, 2));
+    if (obsolete === true) {
+      const reload = L('Reload this window', 'Перезагрузить это окно');
+      const choice = await vscode.window.showInformationMessage(
+        L('VS Code has retired the Tvijo version running in this window.', 'VS Code пометил работающую в этом окне версию Tvijo устаревшей.'), reload);
+      if (choice === reload) await vscode.commands.executeCommand('tvijo.reloadWindow');
+    }
   });
   command('tvijo.tasks', async () => {
     const auth = await requireAuth();
@@ -3198,8 +3221,9 @@ function activate(context) {
   const storage = context.globalStorageUri?.fsPath;
   const bridgeDelivery = createBridgeDelivery({
     inbox: () => bridgeInbox, view: () => chatView, enabled: bridgeEnabled,
-    runtimeVersion: () => context.extension?.packageJSON?.version || require('./package.json').version,
-    buildCommit:()=>require('./lib/build-info').buildCommit(),
+    runtimeVersion: () => runtimeVersion,
+    packageObsolete,
+    buildCommit,
     health: signal => client().request('/health', {signal, timeoutMs:3000}),
     focus: () => vscode.commands.executeCommand('tvijo.chat.focus')
   });
