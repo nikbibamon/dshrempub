@@ -3442,3 +3442,34 @@ test('chat retryStep reaches the host command and refuses a missing failed-step 
   assert.ok(!app.requests.some(x=>x.method==='POST'&&x.url.endsWith('/tasks')));
  }finally{app.close();}
 });
+
+test('attachment refusals explain the real reason instead of blaming the selected file', async () => {
+  const root = path.join(process.env.TVIJO_TEST_ARTIFACTS, 'attachment-reason-workspace');
+  await fs.mkdir(root, { recursive: true });
+  const big = path.join(root, 'notes.txt'); await fs.writeFile(big, 'A'.repeat(70 * 1024));
+  const archive = path.join(root, 'tvijo-dshrem-0.10.30.vsix'); await fs.writeFile(archive, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x01]));
+  const app = host({ root });
+  try {
+    await app.receive({ type: 'ready' });
+    await app.commands.get('tvijo.attachFile')(app.Uri.file(big));
+    assert.match(app.feedback.at(-1), /64 KiB/);
+    assert.doesNotMatch(app.feedback.at(-1), /Check the selected workspace file/);
+    await app.commands.get('tvijo.attachFile')(app.Uri.file(archive));
+    assert.match(app.feedback.at(-1), /Archives and binary files cannot be attached/);
+    assert.doesNotMatch(app.feedback.at(-1), /Check the selected workspace file/);
+    assert.equal(app.posts.filter(item => item.type === 'state').at(-1).attachments.length, 0);
+  } finally { app.close(); }
+});
+
+test('an unrecognised host failure reports its own reason instead of the generic file hint', async () => {
+  const root = path.join(process.env.TVIJO_TEST_ARTIFACTS, 'attachment-enoent-workspace');
+  await fs.mkdir(root, { recursive: true });
+  const file = path.join(root, 'gone.txt'); await fs.writeFile(file, 'text');
+  const app = host({ root, prepareAttachment: async () => { throw Object.assign(new Error('ENOENT: no such file or directory, open /tmp/gone'), { code: 'ENOENT' }); } });
+  try {
+    await app.receive({ type: 'ready' });
+    await app.commands.get('tvijo.attachFile')(app.Uri.file(file));
+    assert.match(app.feedback.at(-1), /does not exist on this host/);
+    assert.doesNotMatch(app.feedback.at(-1), /Check the selected workspace file/);
+  } finally { app.close(); }
+});

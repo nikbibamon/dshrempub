@@ -1224,6 +1224,14 @@ function activate(context) {
         const budget = error.budget === undefined ? '?' : error.budget;
         return L('Agent budget exhausted ($' + spent + ' of $' + budget + '). Raise tvijo.agentBudgetUsd or finish the goal in fewer steps.', 'Бюджет агента исчерпан ($' + spent + ' из $' + budget + '). Увеличьте tvijo.agentBudgetUsd или сократите задачу.');
       }
+      // A bare fallback hid the real reason (and blamed the selected file for
+      // permission, path and transport failures). Report what actually failed.
+      if (code === 'ENOENT') return L('The selected path does not exist on this host. Pick the file again.', 'Выбранного пути нет на этом сервере. Выберите файл заново.');
+      if (code === 'EACCES' || code === 'EPERM') return L('The selected file cannot be read (permission denied). Choose a file this host can read.', 'Нет доступа к выбранному файлу. Выберите файл, который сервер может прочитать.');
+      if (code === 'EISDIR') return L('That path is a folder, not a file. Choose a file.', 'Это папка, а не файл. Выберите файл.');
+      if (code === 'ELOOP') return L('That path is a symbolic link loop and cannot be read.', 'Путь образует петлю символических ссылок, прочитать нельзя.');
+      const detail = typeof error?.message === 'string' ? error.message.trim() : '';
+      if (detail) return L('Action failed: ' + detail, 'Не удалось выполнить действие: ' + detail);
       return L('Action failed. Check the selected workspace file and try again.', 'Не удалось выполнить действие. Проверьте выбранный файл проекта и повторите.');
     }
     if (code.startsWith('context_budget')) {
@@ -1245,7 +1253,24 @@ function activate(context) {
         project_required: 'Сначала выберите общий проект: Команды → Choose shared project. Затем откройте подключения.',
         account_changed: 'Аккаунт, проект или ветка изменились. Повторите действие в текущем аккаунте.',
         unreachable: 'Сервис недоступен. Проверьте соединение и повторите запрос; платная задача не создана.',
-        timeout: 'Сервис не ответил вовремя. Повторите запрос; неизвестный расход не считается нулевым.'
+        timeout: 'Сервис не ответил вовремя. Повторите запрос; неизвестный расход не считается нулевым.',
+        attachment_size: 'Файл не помещается во вложение. Текст — до 64 КиБ, изображение — до 2 МиБ. Приложите меньший файл или фрагмент.',
+        attachment_name: 'Слишком длинное имя файла или в нём управляющие символы. Переименуйте файл.',
+        attachment_count: 'К одному вопросу можно приложить не более 4 файлов.',
+        attachment_total: 'Вложения вместе ограничены 4 МиБ.',
+        attachment_context: 'Текст вложений ограничен 80 КиБ. Приложите меньший файл или фрагмент.',
+        attachment_path: 'Приложите обычный файл рабочей области: без символических ссылок и путей вне её.',
+        outside_workspace: 'Файл вне открытой рабочей области. Откройте папку проекта или используйте «Прикрепить» для файла на своём компьютере.',
+        no_workspace: 'Сначала откройте рабочую область: файл вне проекта приложить нельзя.',
+        rules_context: 'Файлы правил прикладываются через «Просмотр контекста проекта» или список в настройках.',
+        image_format: 'Поддерживаются только PNG и JPG.',
+        image_no_text: 'В изображении не найден читаемый текст. Обрежьте скриншот и приложите снова.',
+        image_dimensions: 'Изображение больше 8 мегапикселей или 8192 точек по стороне. Обрежьте его.',
+        ocr_unavailable: 'Для распознавания текста на этом хосте нужен Tesseract с настроенными языками.',
+        ocr_timeout: 'Распознавание текста заняло больше 20 секунд. Обрежьте скриншот и приложите снова.',
+        ocr_too_large: 'На изображении слишком много текста. Обрежьте его или приложите меньшее изображение.',
+        ocr_failed: 'Не удалось распознать текст. Используйте корректный PNG/JPG или проверьте tvijo.ocrLanguages.',
+        ocr_languages: 'Некорректные языки OCR в настройках. Используйте eng или eng+rus.'
       };
       if (map[code]) return map[code];
     }

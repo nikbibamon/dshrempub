@@ -1,3 +1,10 @@
+## 0.10.30 — 2026-11-17 (local defect fix)
+
+- **Truthful action errors.** A failure without a known code no longer claims that the selected workspace file is wrong: the editor shows the underlying reason, and missing path, permission denied, folder-instead-of-file and symlink-loop failures get their own guidance. Attachment refusals (size, count, path, OCR languages, workspace scope) are explained instead of falling back to the generic text.
+- **Archive attachments explained.** A VSIX, ZIP, database or other binary selected as workspace context is refused with an extract-the-text instruction instead of a 64 KiB text limit or "invalid UTF-8". No file is read, uploaded or executed by this check.
+- **Brand icon.** The extension icon is the 256 px Tvijo mark, and the activity bar glyph follows the editor theme instead of a hardcoded white fill that disappeared on light themes.
+- **No behaviour change.** Task, budget, permission and money paths are untouched; existing grants, settings and conversation history are preserved.
+
 ## 0.10.29 — 2026-11-14 (prepared preview)
 
 - **Smaller Agent requests.** Stable instructions and read-only Ask tools for short project questions; source bodies enter only after a task read. Long rules use a deterministic digest with source paths; safety, permissions and money restrictions remain. Ask removes repeated quoting and prose whitespace while retaining policy words and fenced code. Older read results become named receipts while local history stays intact.

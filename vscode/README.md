@@ -1,10 +1,10 @@
 <!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
-## What's new in 0.10.29 — 2026-11-14 (prepared preview)
+## What's new in 0.10.30 — 2026-11-17 (local defect fix)
 
-- **Smaller Agent requests.** Stable instructions and read-only Ask tools for short project questions; source bodies enter only after a task read. Long rules use a deterministic digest with source paths; safety, permissions and money restrictions remain. Ask removes repeated quoting and prose whitespace while retaining policy words and fenced code. Older read results become named receipts while local history stays intact.
-- **One confirmed retry.** A failed step may create one new task after a final, known-cost receipt, within the remaining budget and normal server limits. Both task costs and retry links are recorded. Unknown charges stop the agent and disable retry. Saved edits remain.
-- **Build and diagnostics.** `/status` includes extension and gateway versions plus the build commit. Release packages require a clean tagged source and carry a file hash inventory. Missing provider cache fields remain unknown.
-- **Download and channels.** Installation links use https://dsh.tvijo.com/download#vscode. Editor downloads remain separate. Reload after installing; existing grants and settings remain. Registry packaging includes an offline required-field manifest check; actual registry publication requires operator tokens. Paid live validation is a separate operator step.
+- **Truthful action errors.** A failure without a known code no longer claims that the selected workspace file is wrong: the editor shows the underlying reason, and missing path, permission denied, folder-instead-of-file and symlink-loop failures get their own guidance. Attachment refusals (size, count, path, OCR languages, workspace scope) are explained instead of falling back to the generic text.
+- **Archive attachments explained.** A VSIX, ZIP, database or other binary selected as workspace context is refused with an extract-the-text instruction instead of a 64 KiB text limit or "invalid UTF-8". No file is read, uploaded or executed by this check.
+- **Brand icon.** The extension icon is the 256 px Tvijo mark, and the activity bar glyph follows the editor theme instead of a hardcoded white fill that disappeared on light themes.
+- **No behaviour change.** Task, budget, permission and money paths are untouched; existing grants, settings and conversation history are preserved.
 
 Earlier versions: the **Changelog** tab.
 <!-- changelog-latest:end -->
@@ -62,7 +62,7 @@ Choose **Configuration file example** in the help section or run **Tvijo: Open c
 
 # Tvijo DSHREM for VS Code
 
-Version 0.10.29. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.30. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
