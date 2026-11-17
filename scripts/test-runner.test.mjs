@@ -87,7 +87,7 @@ test('only the exact extension aggregate gets 180 seconds, with every discovered
   assert.deepEqual(testBatches('vscode', lookalikes), [{ files: lookalikes, testTimeoutMs: 60000 }]);
 });
 
-test('all 263 aggregate registrations keep an individual 60-second ceiling and existing options', () => {
+test('all aggregate registrations keep an individual 60-second ceiling and existing options', () => {
   const filename = fileURLToPath(new URL('../vscode/test/extension.test.js', import.meta.url));
   const source = readFileSync(filename, 'utf8');
   const registered = [];
@@ -96,15 +96,17 @@ test('all 263 aggregate registrations keep an individual 60-second ceiling and e
   // Only registrations run; test callbacks are recorded, never replaced by a
   // claimed aggregate pass. The full aggregate is verified by the suite runner.
   vm.runInNewContext(source, context, { filename });
-  assert.equal(registered.length, 263);
+  const caseCount = registered.length;
+  assert.ok(caseCount >= 265, 'lost aggregate test cases from the 0.10.30 inventory');
   assert(registered.every(([name, options, callback]) => typeof name === 'string' && options.timeout === 60000 && typeof callback === 'function'));
   const existing = registered.find(([name]) => name.startsWith('approved Python syntax checks'));
   assert.equal(existing[1].skip, process.platform !== 'linux' || !existsSync('/usr/bin/python3'));
   vm.runInNewContext("test('registration options', {skip:true, concurrency:1, timeout:20}, () => {}); test('capped options', {timeout:90000}, () => {});", context);
-  assert.equal(registered[263][1].skip, true);
-  assert.equal(registered[263][1].concurrency, 1);
-  assert.equal(registered[263][1].timeout, 20);
-  assert.equal(registered[264][1].timeout, 60000);
+  const [shorter, capped] = registered.slice(caseCount);
+  assert.equal(shorter[1].skip, true);
+  assert.equal(shorter[1].concurrency, 1);
+  assert.equal(shorter[1].timeout, 20);
+  assert.equal(capped[1].timeout, 60000);
 });
 
 test('three real child batches receive their exact budgets, concurrency one and unfiltered inventory', async () => {

@@ -95,7 +95,8 @@ class ReleaseCheckTests(unittest.TestCase):
         subprocess.run(['git','init','-q',str(root)],check=True)
         subprocess.run(['git','-C',str(root),'add','--',*names],check=True)
         self.fixture_commit(root)
-        subprocess.run(['git','-C',str(root),'tag','tvijo-v'+self.version],check=True)
+        version = json.loads((root / 'vscode/package.json').read_bytes())['version']
+        subprocess.run(['git', '-C', str(root), 'tag', 'tvijo-v' + version], check=True)
         return root
 
     def fixture_commit(self, root):
@@ -107,9 +108,19 @@ class ReleaseCheckTests(unittest.TestCase):
         packager = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(packager)
         self.vsix = self.directory / 'real-packager.vsix'
-        packager.build(self.tagged_source(), self.vsix)
+        source = self.tagged_source()
+        package = json.loads((source / 'vscode/package.json').read_bytes())
+        version = package['version']
+        packager.build(source, self.vsix)
+        # A candidate can be ahead of the published catalog. Prepare a private
+        # catalog for its real archive while retaining the public release history.
+        if version != self.version:
+            self.data['releases'].insert(0, {'version': version})
+        self.data['latest_version'] = version
+        self.data['package'].update(filename=f'tvijo-dshrem-{version}.vsix',
+                                    editor_requirement=package['engines']['vscode'])
         self.write_catalog()
-        self.assertEqual(check(self.catalog, self.vsix)['version'], self.version)
+        self.assertEqual(check(self.catalog, self.vsix)['version'], version)
         with zipfile.ZipFile(self.vsix) as archive:
             guide = archive.read('extension/media/learning-guide.html')
             self.assertEqual(guide, (CATALOG.parents[1] / 'vscode/media/learning-guide.html').read_bytes())
