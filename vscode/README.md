@@ -1,11 +1,9 @@
 <!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
-## What's new in 0.10.33 — 2026-11-18 (settings navigation and help candidate)
+## What's new in 0.10.34 — 2026-11-18 (menu help and reply language candidate)
 
-- **Settings keep their navigation.** Chat, Context, Usage and Terminal share a fixed header. The arrow returns to the settings overview. Close or Escape returns to the conversation and preserves the draft and attachments. A late usage response updates the stored measurements after the panel closes.
-- **Help before granting access.** Hover over controls or focus them with the keyboard for detailed English/Russian explanations. Permission-disabled modes stay focusable so their prerequisites can be read. Escape dismisses the help first.
-- **Account reviews explained.** The permission menu describes the installed Codex/Claude login, separate subscriptions, review limits and the Tvijo coordinator's service credits before opening the project approval.
-- **ExtraFullAccess prerequisites.** Help explains Workspace Trust, a non-root extension host account, explicit project approval and Remote SSH host permissions. The access and billing entry opens connection guidance.
-- **Includes 0.10.32.** The visible work log, collapsed receipts, reply language and bounded tool history from the preceding candidate are included.
+- **Help no longer covers the menu.** Help for a menu choice opens above the open menu, so every choice stays visible while you read it. On a short panel long help scrolls in the free space above the menu. Help for other controls keeps its position next to the control.
+- **Russian requests get Russian progress notes and answers.** When a request is written in Russian, the agent is told to write its step notes and its final answer in Russian. Code, paths and commands stay as they are.
+- **Includes 0.10.33.** Settings navigation, help in both languages and the access explanations from the preceding candidate are included.
 
 Earlier versions: the **Changelog** tab.
 <!-- changelog-latest:end -->
@@ -63,7 +61,7 @@ Choose **Configuration file example** in the help section or run **Tvijo: Open c
 
 # Tvijo DSHREM for VS Code
 
-Version 0.10.33. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.34. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 

@@ -104,4 +104,21 @@ const OPTION_HELP = {
   'autoApply:true': ['Apply eligible coding edits automatically. Check the editor diff and saved files. Agent presets have their own edit and command settings.', 'Автоматически применяет допустимые правки. Проверяйте diff редактора и сохранённые файлы. У режимов агента отдельные настройки правок и команд.']
 };
 
-module.exports = { MODE_HELP, CONTROL_HELP, OPTION_HELP };
+// Help for a menu item is placed outside the open menu: reading one choice must not hide the
+// neighbouring ones. 0.10.33 put it above the hovered item, which covered the items above it.
+// Pure, so the webview and the tests place help the same way.
+function helpPlacement(anchor, menu, box, viewport, gap = 8) {
+  const area = menu || anchor;
+  const roomAbove = area.top - 2 * gap, roomBelow = viewport.height - area.bottom - 2 * gap;
+  const left = Math.max(gap, Math.min(anchor.left, viewport.width - box.width - gap));
+  if (box.height <= roomAbove) return {top: area.top - box.height - gap, left, maxHeight: null};
+  if (box.height <= roomBelow) return {top: area.bottom + gap, left, maxHeight: null};
+  const room = Math.max(roomAbove, roomBelow);
+  // A long explanation scrolls in the free space instead of covering the menu.
+  if (menu && room >= 96) return {top: roomAbove >= roomBelow ? gap : area.bottom + gap, left, maxHeight: room};
+  const above = anchor.top - box.height - gap;
+  const top = above >= gap ? above : anchor.bottom + gap;
+  return {top: Math.max(gap, Math.min(top, viewport.height - box.height - gap)), left, maxHeight: null};
+}
+
+module.exports = { MODE_HELP, CONTROL_HELP, OPTION_HELP, helpPlacement };
