@@ -1,11 +1,11 @@
 <!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
-## What's new in 0.10.32 — 2026-11-18 (visible agent progress)
+## What's new in 0.10.33 — 2026-11-18 (settings navigation and help candidate)
 
-- **Work log in the chat.** While the agent runs, the transcript shows each step as it happens: a short note from the model about what the last result showed and why it takes the next step, then the action in plain words (read a file with its line range, search, run a command, edit a file) and its result (exit code, lines, matches). Command and search output opens on click. The log is shown in both chat views and stays above the answer, collapsed, after the run.
-- **Replies in the language of the request.** Step descriptions, receipts and error notices follow the language you write in, unless you chose the panel language explicitly. A Russian request on an English remote editor no longer gets an English receipt.
-- **Receipt collapsed under the answer.** Task ids, cost and observed commands stay in the full record (Open answer, export) and appear in a collapsed **Task receipt** block, not in the answer text or in the error notice.
-- **Large tool output no longer stops the agent.** Tool results are bounded by UTF-8 bytes and remain valid JSON. When a request would exceed the service limit, older tool outputs are shortened first; the newest keeps its head and tail. Project rules, the goal and the protocol are never shortened. In 0.10.31 a few reads of long-line files ended the task with a request-size error.
-- **Unchanged:** permissions, budgets, money paths, auto-commit and the history format. Older conversation entries render as before.
+- **Settings keep their navigation.** Chat, Context, Usage and Terminal share a fixed header. The arrow returns to the settings overview. Close or Escape returns to the conversation and preserves the draft and attachments. A late usage response updates the stored measurements after the panel closes.
+- **Help before granting access.** Hover over controls or focus them with the keyboard for detailed English/Russian explanations. Permission-disabled modes stay focusable so their prerequisites can be read. Escape dismisses the help first.
+- **Account reviews explained.** The permission menu describes the installed Codex/Claude login, separate subscriptions, review limits and the Tvijo coordinator's service credits before opening the project approval.
+- **ExtraFullAccess prerequisites.** Help explains Workspace Trust, a non-root extension host account, explicit project approval and Remote SSH host permissions. The access and billing entry opens connection guidance.
+- **Includes 0.10.32.** The visible work log, collapsed receipts, reply language and bounded tool history from the preceding candidate are included.
 
 Earlier versions: the **Changelog** tab.
 <!-- changelog-latest:end -->
@@ -63,7 +63,7 @@ Choose **Configuration file example** in the help section or run **Tvijo: Open c
 
 # Tvijo DSHREM for VS Code
 
-Version 0.10.32. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.33. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 

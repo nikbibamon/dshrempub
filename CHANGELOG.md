@@ -1,3 +1,11 @@
+## 0.10.33 — 2026-11-18 (settings navigation and help candidate)
+
+- **Settings keep their navigation.** Chat, Context, Usage and Terminal share a fixed header. The arrow returns to the settings overview. Close or Escape returns to the conversation and preserves the draft and attachments. A late usage response updates the stored measurements after the panel closes.
+- **Help before granting access.** Hover over controls or focus them with the keyboard for detailed English/Russian explanations. Permission-disabled modes stay focusable so their prerequisites can be read. Escape dismisses the help first.
+- **Account reviews explained.** The permission menu describes the installed Codex/Claude login, separate subscriptions, review limits and the Tvijo coordinator's service credits before opening the project approval.
+- **ExtraFullAccess prerequisites.** Help explains Workspace Trust, a non-root extension host account, explicit project approval and Remote SSH host permissions. The access and billing entry opens connection guidance.
+- **Includes 0.10.32.** The visible work log, collapsed receipts, reply language and bounded tool history from the preceding candidate are included.
+
 ## 0.10.32 — 2026-11-18 (visible agent progress)
 
 - **Work log in the chat.** While the agent runs, the transcript shows each step as it happens: a short note from the model about what the last result showed and why it takes the next step, then the action in plain words (read a file with its line range, search, run a command, edit a file) and its result (exit code, lines, matches). Command and search output opens on click. The log is shown in both chat views and stays above the answer, collapsed, after the run.

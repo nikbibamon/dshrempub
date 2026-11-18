@@ -2017,6 +2017,7 @@ function activate(context) {
   }
   command('tvijo.usage', async () => {
     const auth = await requireAuth();
+    if (chatView) await chatView.webview.postMessage({type:'openUsage',scopeKey:auth.viewScope});
     const selected = shared.selection(auth.scope);
     const usage = selected ? await workspaceClient(client(), auth.access_token).usage(selected.projectId) : await client().request('/workspace/usage', { token: auth.access_token });
     if (!await isCurrentAuth(auth)) return;
