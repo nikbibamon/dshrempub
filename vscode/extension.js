@@ -37,7 +37,7 @@ const captures = require('./lib/context-captures');
 const terminalContext = require('./lib/terminal-context');
 const conversationExport = require('./lib/export-conversation');
 const conversationBranch = require('./lib/conversation-branch');
-const { createTools, safePath, autoCommand, analyzeCommand, assertWriteSnapshot } = require('./lib/local-tools');
+const { createTools, findRipgrep, safePath, autoCommand, analyzeCommand, assertWriteSnapshot } = require('./lib/local-tools');
 const diagnosticsFeedback = require('./lib/diagnostics-feedback');
 const { createMetrics } = require('./lib/metrics');
 const dataPrivacy = require('./lib/data-privacy');
@@ -899,7 +899,7 @@ function activate(context) {
       const commandSession = mapSession(auth);
       const reviewer = createAgentReview({root:folder.uri.fsPath,guard,signal:abort.signal,enabled:!!fullGrant?.reviews,claudeEnabled:config.get('agentReview.claudeEnabled',false),maxCalls:2});
       const tools = createTools({
-        root: folder.uri.fsPath, allowShell: !!fullGrant, extraAccess: !!fullGrant?.extra, agentReview:reviewer, reviewEnabled:!!fullGrant?.reviews,
+        root: folder.uri.fsPath, rgPath: findRipgrep(vscode.env.appRoot), allowShell: !!fullGrant, extraAccess: !!fullGrant?.extra, agentReview:reviewer, reviewEnabled:!!fullGrant?.reviews,
         knowledge:require('./lib/knowledge-client').createKnowledgeTool({api,token:auth.access_token,guard}),
         codeIntelligence:(action,{signal}) => codeIntelligence.inspect({vscode,root:folder.uri.fsPath,action,guard,signal}),
         planInspect:(operation,{signal}) => planInspection.inspect({vscode,root:folder.uri.fsPath,operation,guard,signal}), guard, signal:abort.signal,

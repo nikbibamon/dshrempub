@@ -108,7 +108,7 @@ async function readFile(root, relative, start, end) {
     bytes: stat.size, truncated, ...(truncated ? { note: 'File truncated, ' + stat.size + ' bytes; use start/end to read another line range.' } : {}) };
 }
 
-async function search(root, query, relative, max) {
+async function search(root, query, relative, max, rgPath = null) {
   if (typeof query !== 'string' || !query.trim()) throw new Error('A search query is required.');
   const cwd = safePath(root, relative || '.');
   const limit = Math.min(Math.max(Number(max) || 20, 1), MAX_MATCHES);
@@ -125,7 +125,7 @@ async function search(root, query, relative, max) {
   if ((await fs.lstat(cwd)).isDirectory()) await collect(cwd); else files.push(cwd);
   if (!files.length) return { code: 1, output: '', error: '' };
   return await new Promise((resolve) => {
-    const child = spawn('rg', ['--no-config', '--no-ignore', '-n', '--no-heading', '--color', 'never', '-m', String(limit), '-e', query, '--', ...files], { cwd: root, env: cleanEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(rgPath || 'rg', ['--no-config', '--no-ignore', '-n', '--no-heading', '--color', 'never', '-m', String(limit), '-e', query, '--', ...files], { cwd: root, env: cleanEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
     const timer = setTimeout(() => child.kill('SIGKILL'), 10000);
     let out = ''; let err = '';
     child.stdout.on('data', (chunk) => { if (out.length < MAX_READ) out += chunk.toString('utf8'); });
@@ -135,10 +135,17 @@ async function search(root, query, relative, max) {
   }) || await fallbackSearch(root, cwd, query, limit);
 }
 
+// Without ripgrep the scan is literal. The result says so, because a regex query such as
+// "max.*size|limit" would otherwise look like proof that the code has no match.
 async function fallbackSearch(root, cwd, query, limit) {
   const matches = [];
+  function scan(target, text) {
+    text.split(/\r?\n/).forEach((line, index) => {
+      if (matches.length < limit && line.includes(query)) matches.push(path.relative(root, target) + ':' + (index + 1) + ':' + line.slice(0, 300));
+    });
+  }
   async function walk(dir, depth) {
-    if (depth > 4 || matches.length >= limit) return;
+    if (depth > 8 || matches.length >= limit) return;
     let entries = [];
     try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
     for (const entry of entries) {
@@ -150,13 +157,29 @@ async function fallbackSearch(root, cwd, query, limit) {
       let stat; try { stat = await fs.stat(target); } catch { continue; }
       if (stat.size > 256 * 1024) continue;
       let text; try { text = await fs.readFile(target, 'utf8'); } catch { continue; }
-      text.split(/\r?\n/).forEach((line, index) => {
-        if (matches.length < limit && line.includes(query)) matches.push(path.relative(root, target) + ':' + (index + 1) + ':' + line.slice(0, 300));
-      });
+      scan(target, text);
     }
   }
-  await walk(cwd, 0);
-  return { code: 0, output: matches.join('\n'), error: '' };
+  // A search inside one file used to read it as a directory and report no matches.
+  const stat = await fs.lstat(cwd);
+  if (stat.isDirectory()) await walk(cwd, 0);
+  else if (stat.isFile() && stat.size <= 256 * 1024 && !SECRET_FILE.test(path.basename(cwd))) scan(cwd, await fs.readFile(cwd, 'utf8'));
+  return { code: matches.length ? 0 : 1, output: matches.join('\n'), error: '', mode: 'literal',
+    note: 'ripgrep is unavailable on this host: the query was matched as literal text, not as a regular expression. Search one exact identifier or string.' };
+}
+
+// VS Code ships ripgrep for its own search. A host without rg on PATH (the Remote SSH server
+// where this was found) otherwise falls back to the literal scan above for every query.
+function findRipgrep(appRoot, {platform = process.platform, arch = process.arch, exists = fssync.existsSync} = {}) {
+  if (typeof appRoot !== 'string' || !appRoot) return null;
+  const exe = platform === 'win32' ? 'rg.exe' : 'rg';
+  for (const modules of ['node_modules', 'node_modules.asar.unpacked']) {
+    for (const parts of [['@vscode', 'ripgrep-universal', 'bin', platform + '-' + arch, exe], ['@vscode', 'ripgrep', 'bin', exe]]) {
+      const candidate = path.join(appRoot, modules, ...parts);
+      if (exists(candidate)) return candidate;
+    }
+  }
+  return null;
 }
 
 function autoCommand(command) {
@@ -415,7 +438,7 @@ async function replaceInFile(root, action, confirm, applyWrite, beforeWrite) {
   return { ok: true, path: action.path, bytes: Buffer.byteLength(content, 'utf8') };
 }
 
-function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {}, planInspect = null, codeIntelligence = null, allowShell = false, extraAccess = false, agentReview = null, reviewEnabled = false, knowledge = null, isPrivileged = isRootHost }) {
+function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite = () => {}, guard = async () => {}, signal, onCommandLifecycle = () => {}, rgPath = null, planInspect = null, codeIntelligence = null, allowShell = false, extraAccess = false, agentReview = null, reviewEnabled = false, knowledge = null, isPrivileged = isRootHost }) {
   return {
     root,
     async execute(action, context = {}) {
@@ -446,7 +469,7 @@ function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite =
         case 'read_file': return { ok: true, ...(await readFile(root, action.path, action.start, action.end)) };
         case 'search': return { ok: true, ...(context.planMode
           ? await planSearch.search({root,query:action.query,relative:action.path || '.',max:action.max,guard,signal:context.signal || signal,safePath,secretFile:SECRET_FILE,excludedDirs:EXCLUDED_DIRS})
-          : await search(root, action.query, action.path, action.max)) };
+          : await search(root, action.query, action.path, action.max, rgPath)) };
         case 'plan_inspect': {
           if(Object.keys(action).some(key=>!['tool','operation'].includes(key)) || !['pwd','buffer_status','buffer_diff_stat'].includes(action.operation))throw new Error('Unknown Plan inspection operation or parameters.');
           if(typeof planInspect!=='function')return {ok:false,refused:true,reason:'plan_inspection_unavailable'};
@@ -466,4 +489,4 @@ function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite =
   };
 }
 
-module.exports = { createTools, inside, safePath, cleanEnv, autoCommand, analyzeCommand, writeSnapshot, assertWriteSnapshot, BLOCKED_COMMAND, SECRET_FILE, EXCLUDED_DIRS };
+module.exports = { createTools, findRipgrep, inside, safePath, cleanEnv, autoCommand, analyzeCommand, writeSnapshot, assertWriteSnapshot, BLOCKED_COMMAND, SECRET_FILE, EXCLUDED_DIRS };
