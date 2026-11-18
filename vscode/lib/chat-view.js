@@ -6,6 +6,7 @@ const { THEME_CSS, COPY } = require('./product-theme');
 const { renderMarkdown, safeExternalUrl } = require('./markdown');
 const { renderAgentMap, buildAgentMap } = require('./agent-map');
 const { CHAT_CSS } = require('./chat-presentation');
+const { renderTrace, TRACE_CSS } = require('./agent-trace');
 const { renderRewind, REWIND_CSS } = require('./rewind-view');
 const { FULL_ACCESS_LIMITS } = require('./full-access');
 
@@ -18,6 +19,7 @@ function chatHtml(webview) {
 <style nonce="${nonce}">
 ${THEME_CSS}
 ${CHAT_CSS}
+${TRACE_CSS}
 ${REWIND_CSS}
 ${PALETTE_CSS}
 #recovery{flex-shrink:0;max-height:260px;overflow:auto;padding:8px 12px;border-top:1px solid var(--border)}#recovery summary{font-size:12px;cursor:pointer;padding:4px 0}.recovery-card{padding:8px;margin:6px 0;border:1px solid var(--border);border-radius:6px}.recovery-card p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 6px}.recovery-actions{display:flex;flex-wrap:wrap;gap:6px}.recovery-actions button{font-size:11px}#recovery-notes{font-size:11px;overflow-wrap:anywhere}
@@ -45,6 +47,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   Object.assign(COPY.ru,{modeExtra:'ExtraFullAccess',modeExtraHint:'Shell хоста и ограниченное CLI-ревью через подписку. Команды могут менять файлы вне проекта. Правила проекта и бюджет сохраняются. Использует локальный Agent.',modeFull:'Полный доступ',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.ru)},agentSavedHelp:'Правки агента сохраняются до проверок на диске. Пользовательские несохранённые буферы защищены.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
   const safeExternalUrl = ${safeExternalUrl.toString()};
   const renderMarkdown = ${renderMarkdown.toString()};
+  const renderTrace = ${renderTrace.toString()};
   const renderAgentMap = ${renderAgentMap.toString()};
   const renderRewind = ${renderRewind.toString()};
   const buildAgentMap = ${buildAgentMap.toString()};
@@ -110,6 +113,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   let locale = 'en';
   let submitting = false;
   let running = false;
+  let liveRun = null, renderedNodes = [];
   let preparing = false;
   let uploading = false;
   let attachmentCount = 0;
@@ -486,6 +490,41 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     post({type:'agentPreset',preset,requestId:pendingModeRequestId});
   }
   let agentSteps = new Map(), currentAgentStep = null;
+  // Live work log inside the transcript, so progress is visible in every view.
+  function runCopy(lang) { return lang === 'ru'
+    ? {title:'Tvijo · работает', trace:'Ход работы', steps:'шагов', receipt:'Квитанция задачи', waiting:'Думаю', step:'шаг'}
+    : {title:'Tvijo · working', trace:'Work log', steps:'steps', receipt:'Task receipt', waiting:'Thinking', step:'step'}; }
+  function liveRunNode() {
+    if (!liveRun) return null;
+    const c = runCopy(liveRun.locale), block = document.createElement('article');
+    block.className = 'message assistant live-run';
+    const role = document.createElement('div'); role.className = 'role'; role.textContent = c.title + (liveRun.step ? ' · ' + c.step + ' ' + liveRun.step + (liveRun.maxSteps ? '/' + liveRun.maxSteps : '') : '');
+    const body = document.createElement('div'); body.className = 'run-trace-body';
+    const waiting = liveRun.done ? '' : liveRun.waiting ? c.waiting + '…' : '';
+    const key = row => row.step + '|' + row.title + '|' + row.target;
+    renderTrace(document, body, liveRun.rows, {waiting}, {live:!liveRun.done, isOpen:row => liveRun.open.has(key(row)), onToggle:(row, open) => { if (open) liveRun.open.add(key(row)); else liveRun.open.delete(key(row)); }});
+    block.append(role, body); return block;
+  }
+  function paintLiveRun() {
+    const node = liveRunNode();
+    const nearBottom = !(messages.scrollHeight - messages.scrollTop - messages.clientHeight > 120);
+    messages.replaceChildren(...renderedNodes, ...(node ? [node] : []));
+    if (nearBottom) messages.scrollTop = messages.scrollHeight;
+  }
+  function liveRunEvent(event) {
+    if (event.type === 'start') { liveRun = {locale:event.locale === 'ru' ? 'ru' : event.locale === 'en' ? 'en' : locale, rows:[], open:new Set(), step:0, maxSteps:event.maxSteps || 0, waiting:true, done:false}; paintLiveRun(); return; }
+    if (!liveRun) return;
+    if (event.type === 'reset') { liveRun = null; paintLiveRun(); return; }
+    if (event.type === 'step') { liveRun.step = event.step; liveRun.waiting = true; }
+    else if ((event.type === 'action' || event.type === 'result' || event.type === 'notice') && event.view && typeof event.view === 'object') {
+      const index = event.type === 'result' ? liveRun.rows.findIndex(row => row.step === event.view.step && row.status === 'running') : -1;
+      if (index >= 0) liveRun.rows[index] = {...event.view, thought:liveRun.rows[index].thought}; else liveRun.rows.push(event.view);
+      if (liveRun.rows.length > 120) liveRun.rows.shift();
+      liveRun.waiting = event.type !== 'action';
+    } else if (event.type === 'final') { liveRun.done = true; liveRun.waiting = false; }
+    else return;
+    paintLiveRun();
+  }
   function clearAgentLog() { agentLog.replaceChildren(); agentLog.className = ''; agentPanel.hidden = true; agentStatus = ''; agentSteps = new Map(); currentAgentStep = null; updateAgentPanel(); }
   function agentLine(tag, detail, kind, target = agentLog) {
     const line = document.createElement('div'); line.className = 'line ' + (kind || '');
@@ -496,6 +535,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   }
   function renderAgentEvent(event) {
     if (!event || typeof event !== 'object') return;
+    liveRunEvent(event);
     if (event.type === 'capabilities') { agentLine(locale === 'ru' ? 'Доступ' : 'Access', (event.capabilities?.mode || 'unknown') + ' · ' + (event.capabilities?.run_command ? (locale === 'ru' ? 'терминал доступен' : 'terminal available') : (locale === 'ru' ? 'без команд' : 'no commands'))); return; }
     if (event.type === 'reset') { clearAgentLog(); return; }
     if (event.type === 'start') {
@@ -774,9 +814,25 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       block.className = 'message ' + (item.role === 'assistant' ? 'assistant' : 'user') + (item.live ? ' live' : '');
       const role = document.createElement('div'); role.className = 'role'; role.textContent = item.role === 'assistant' ? t('assistant') : item.from ? item.from : t('user');
       const content = document.createElement('div');
+      let traceNode = null;
+      if (item.role === 'assistant' && Array.isArray(item.trace) && item.trace.length) {
+        const c = runCopy(locale), steps = new Set(item.trace.map(row => row.step).filter(Number.isFinite)).size;
+        traceNode = document.createElement('details'); traceNode.className = 'run-trace';
+        const plural = n => locale !== 'ru' ? (n === 1 ? 'step' : 'steps') : n % 10 === 1 && n % 100 !== 11 ? 'шаг' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'шага' : 'шагов';
+        const summary = document.createElement('summary'); summary.textContent = c.trace + ' · ' + steps + ' ' + plural(steps);
+        const body = document.createElement('div'); body.className = 'run-trace-body';
+        renderTrace(document, body, item.trace, {}, {live:false});
+        traceNode.append(summary, body);
+      }
       if (item.role === 'assistant') renderMarkdown(document, content, item.content, { post, copyLabel:t('copy'), plainLabel:locale === 'ru' ? 'текст' : 'text', truncatedLabel:locale === 'ru' ? 'Ответ сокращён; полный текст доступен в редакторе.' : 'Answer truncated; full text is available in the editor.' });
       else content.textContent = item.content || '';
-      block.append(role, content); messages.append(block);
+      block.append(role, ...(traceNode ? [traceNode] : []), content); messages.append(block);
+      if (item.role === 'assistant' && typeof item.receipt === 'string' && item.receipt) {
+        const receipt = document.createElement('details'); receipt.className = 'task-receipt';
+        const summary = document.createElement('summary'); summary.textContent = runCopy(locale).receipt;
+        const text = document.createElement('pre'); text.textContent = item.receipt.slice(0, 20000);
+        receipt.append(summary, text); block.append(receipt);
+      }
       // Only real history rows can be a point to return to: not the live question, not host notes,
       // and not a shared server thread (it is append-only on the service).
       const branch = conversationEditable && !item.live && !item.note ? document.createElement('div') : null;
@@ -801,6 +857,8 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       }
       if (branch) block.append(branch);
     }
+    renderedNodes = Array.from(messages.children || []);
+    if (liveRun) { const node = liveRunNode(); if (node) messages.append(node); }
     messages.scrollTop = messages.scrollHeight;
   }
   function renderAttachments(items) {
@@ -889,6 +947,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       return;
     }
     if (data.type === 'state') {
+      if (!data.busy && liveRun) { liveRun = null; lastMessages = null; }
       orchestrationState = data.orchestration || {enabled:false};
       lastQuote = null;
       const nextScope = typeof data.scopeKey === 'string' ? data.scopeKey : null;
@@ -897,7 +956,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
         const legacyTime = draftTimes[nextScope];
         const legacyScopedDraft = scopeKey === null && saved?.composerScope === undefined && nextScope && typeof drafts[nextScope] === 'string' && (!Number.isFinite(legacyTime) || Date.now() - legacyTime < draftTtl) ? drafts[nextScope] : undefined;
         const leavingScope = scopeKey !== null;
-        if (scopeKey !== nextScope && leavingScope) clearAgentLog();
+        if (scopeKey !== nextScope && leavingScope) { clearAgentLog(); liveRun = null; }
         if (scopeKey) drafts[composerScope || scopeKey] = question.value;
         scopeKey = nextScope;
         composerScope = nextComposerScope;

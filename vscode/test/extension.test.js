@@ -3509,3 +3509,20 @@ test('an unrecognised host failure reports its own reason instead of the generic
     assert.doesNotMatch(app.feedback.at(-1), /Check the selected workspace file/);
   } finally { app.close(); }
 });
+
+test('0.10.32 a Russian request gets a Russian receipt, kept out of the answer body and shown with the work log',async()=>{
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'trace-host-'));
+ const app=host({root,chatSequence:[JSON.stringify({tool:'run_command',command:'printf TRACE_OBSERVED',thought:'Проверяю, что команда выполняется.'}),JSON.stringify({tool:'finish',status:'done',answer:'Проверка выполнена.'})]});
+ try{
+  app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',3);await enableFullAccess(app);
+  await app.receive({type:'ask',question:'Проверь, что команда работает',agent:true});
+  const history=app.local.history(app.scope('tenant-a')),answer=history.at(-1);
+  assert.match(answer.receiptText,/^Квитанция задачи /);assert.match(answer.display,/Квитанция задачи /,'Open answer keeps the full record');
+  assert.equal(answer.trace[0].thought,'Проверяю, что команда выполняется.');assert.equal(answer.trace[0].title,'Выполняю');assert.match(answer.trace[0].result,/код 0/);
+  const state=app.posts.filter(p=>p.type==='state').at(-1),shown=state.messages.at(-1);
+  assert.match(shown.content,/^Проверка выполнена\./);assert.doesNotMatch(shown.content,/Квитанция|Task receipt|Service tasks/);
+  assert.equal(shown.receipt,answer.receiptText);assert.equal(shown.trace.length,1);
+  const live=app.posts.filter(p=>p.type==='agent'&&p.event?.type==='action').at(-1);assert.equal(live.event.view.title,'Выполняю');
+  assert.equal(app.posts.find(p=>p.type==='agent'&&p.event?.type==='start').event.locale,'ru');
+ }finally{app.close();}
+});

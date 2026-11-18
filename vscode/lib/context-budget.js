@@ -1,6 +1,31 @@
 'use strict';
 const {previewFits,ServiceError,gatewayMessageBytes} = require('./client');
+const {shrinkJson} = require('./agent-trace');
 const wireBytes = gatewayMessageBytes;
+const isToolOutput = m => m?.role==='user' && typeof m.content==='string' && (m.content.startsWith('TOOL_RESULT ') || m.content.startsWith('[EARLIER STEP RECEIPTS'));
+function shrinkToolMessage(content,cap){
+  const at=content.startsWith('TOOL_RESULT ') ? 12 : content.indexOf('\n')+1;
+  if(at>0){try{return content.slice(0,at)+shrinkJson(JSON.parse(content.slice(at)),cap);}catch{/* Not JSON: keep head and tail below. */}}
+  const chars=Array.from(content),keep=Math.max(64,Math.floor(cap/2));
+  return chars.length<=keep*2 ? content : chars.slice(0,keep).join('')+'\n…[tool output shortened to fit the request]…\n'+chars.slice(-keep).join('');
+}
+// Tool outputs are the only request part that may be shortened. Rules, the goal,
+// the protocol and the model's own actions stay byte-exact. Older outputs shrink
+// first; the newest one shrinks last and keeps its head and tail.
+function shrinkToolOutputs(messages,fits){
+  const result=messages.map(m=>({...m})),targets=result.map((m,i)=>isToolOutput(m)?i:-1).filter(i=>i>=0);
+  let shortened=0;
+  for(const cap of [12000,6000,3000,1500,600,200]){
+    for(const i of targets){
+      if(Buffer.byteLength(result[i].content,'utf8')<=cap+256)continue;
+      const next=shrinkToolMessage(result[i].content,cap);
+      if(next.length>=result[i].content.length)continue;
+      result[i]={...result[i],content:next};shortened++;
+      if(fits(result))return {messages:result,shortened};
+    }
+  }
+  return {messages:result,shortened};
+}
 // A deterministic excerpt summary is request-only. Durable conversation,
 // attachments, drafts and run journals are never rewritten by compaction.
 function fitContext(messages,account,{preserveFirstUser=false,maxBytes=90000}={}) {
@@ -18,7 +43,8 @@ function fitContext(messages,account,{preserveFirstUser=false,maxBytes=90000}={}
     removed.push(retained.splice(index,1)[0].message);
   }
   let result = retained.map(row=>row.message);
-  let rulesOmitted=false;
+  let rulesOmitted=false, toolOutputsShortened=0;
+  if (!fits(result)) { const shrunk=shrinkToolOutputs(result,fits); if (shrunk.shortened) { result=shrunk.messages; toolOutputsShortened=shrunk.shortened; } }
   // Project safety/permission rules are never removed to make a request fit.
   if (!fits(result)) {
     const preview = account?.preview;
@@ -31,6 +57,6 @@ function fitContext(messages,account,{preserveFirstUser=false,maxBytes=90000}={}
     const candidate=[...result.slice(0,at),summary,...result.slice(at)];
     if (fits(candidate)) result=candidate;
   }
-  return {messages:result,removed:removed.length,rulesOmitted};
+  return {messages:result,removed:removed.length,rulesOmitted,toolOutputsShortened};
 }
-module.exports = {fitContext,wireBytes};
+module.exports = {fitContext,wireBytes,shrinkToolOutputs};

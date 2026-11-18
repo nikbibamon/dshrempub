@@ -29,6 +29,7 @@ const quickEdit = require('./lib/quick-edit');
 const { runAgent } = require('./lib/agent');
 const {createAgentReview} = require('./lib/agent-review');
 const {createTaskReceipt,formatReceipt,outcomeOf,measuredCost} = require('./lib/task-receipt');
+const agentTrace = require('./lib/agent-trace');
 const { createOrchestrator } = require('./lib/orchestration');
 const modePresets = require('./lib/modes');
 const agentSave = require('./lib/agent-save');
@@ -248,6 +249,12 @@ function activate(context) {
   const UI_LOCALE = 'tvijo.uiLocale';
   const uiLocale = () => (context.globalState.get(UI_LOCALE) || vscode.env.language || 'en').toLowerCase().startsWith('ru') ? 'ru' : 'en';
   const L = (en, ru) => uiLocale() === 'ru' ? ru : en;
+  // Run output (trace, receipts, errors) follows the language the user writes in
+  // unless the panel language was chosen explicitly. Remote hosts often report an
+  // English editor while the user writes Russian (0.10.31 printed English receipts).
+  const REPLY_LOCALE = 'tvijo.replyLocale';
+  const replyLocale = () => { const explicit = context.globalState.get(UI_LOCALE); if (['en','ru'].includes(explicit)) return explicit; const stored = context.globalState.get(REPLY_LOCALE); return ['en','ru'].includes(stored) ? stored : uiLocale(); };
+  const noteReplyLocale = text => { const found = agentTrace.textLocale(text); if (found && found !== context.globalState.get(REPLY_LOCALE)) { try { void Promise.resolve(context.globalState.update(REPLY_LOCALE, found)).catch(() => {}); } catch { /* Locale memory is a convenience. */ } } return replyLocale(); };
   const localPreviewDocuments = new WeakSet();
   let pendingScopeUri = null;
   let rulesPreviewSecrets = [];
@@ -649,9 +656,16 @@ function activate(context) {
     const legacy = scope ? local.legacyPending(scope) : null;
     const recovery = !!(pending || (legacy && (!legacy.apiBase || legacy.apiBase === client().base)));
     const messages = history.map(item => {
-      const content = item.display || item.content;
-      const boundary = item.role === 'assistant' && typeof content === 'string' ? content.lastIndexOf('\n---\nTask ') : -1;
-      return boundary < 0 ? {role:item.role, content,agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined} : {role:item.role, content:content.slice(0,boundary), footer:content.slice(boundary + 5),agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined};
+      let content = item.display || item.content;
+      // Agent receipts stay in history (Open answer, export) but render as a
+      // collapsed block under the answer, with the work log above it.
+      const run = item.role === 'assistant' ? {
+        ...(Array.isArray(item.trace) && item.trace.length ? {trace:agentTrace.boundTrace(item.trace)} : {}),
+        ...(typeof item.receiptText === 'string' && typeof content === 'string' && content.endsWith(item.receiptText) ? {receipt:item.receiptText} : {})
+      } : {};
+      if (run.receipt) content = content.slice(0, -run.receipt.length).replace(/\s+$/, '');
+      const boundary = item.role === 'assistant' && !run.receipt && typeof content === 'string' ? content.lastIndexOf('\n---\nTask ') : -1;
+      return boundary < 0 ? {role:item.role, content,...run,agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined} : {role:item.role, content:content.slice(0,boundary), footer:content.slice(boundary + 5),...run,agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined};
     });
     messages.push(...rewindNotes.filter(note => note.root === permissionFolder()?.uri.fsPath).map(note => ({role:'assistant', content:note.text, note:true})));
     let options = null;
@@ -697,6 +711,22 @@ function activate(context) {
     }
     if (!chatView) return;
     await chatView.webview.postMessage({ type: 'agent', scopeKey: auth?.viewScope || null, event });
+  }
+  // Display rows for the transcript. Built from observed events only.
+  function traceEvent(rows, event, locale) {
+    if (!event || typeof event !== 'object') return event;
+    if (event.type === 'action' || event.type === 'result') {
+      const row = agentTrace.eventRow(event, locale);
+      const index = rows.findIndex(item => item.step === row.step && item.status === 'running');
+      if (event.type === 'result' && index >= 0) rows[index] = {...row, thought:rows[index].thought}; else rows.push(row);
+      if (rows.length > 120) rows.shift();
+      return {...event, view:row};
+    }
+    if (event.type === 'notice' && typeof event.text === 'string') {
+      const row = {kind:'notice', step:null, text:event.text.slice(0, 300)}; rows.push(row);
+      return {...event, view:row};
+    }
+    return event;
   }
 
   async function showProposedWrite(relative, previous, content) {
@@ -765,6 +795,7 @@ function activate(context) {
   async function runAgentFlow(goal, { planMode = false, budgetLimit = null, retryOf = null } = {}) {
     ensureIdle();
     if (!goal?.trim()) return;
+    const runLocale = noteReplyLocale(goal), traceRows = [];
     await requireWorkspace();
     const auth = await requireAuth();
     const attachmentScope = currentViewScope(auth.scope);
@@ -846,7 +877,7 @@ function activate(context) {
         }
       } else {lastContextSummary = null;projectRulesHost.snapshot({folder,contextMode:'off'});}
       if(contextMode !== 'off' && !rulesSnapshotTaken){const r=projectRulesHost.snapshot({folder,knownSecrets:[auth.access_token,auth.refresh_token].filter(Boolean)});agentRules=r.text;agentRuleGrants=agentRules?[{}]:[];}
-      await postAgentEvent(auth, { type: 'start', goal: goal.trim(), planMode, maxSteps, budgetUsd });
+      await postAgentEvent(auth, { type: 'start', goal: goal.trim(), planMode, maxSteps, budgetUsd, locale: runLocale });
       await guard();
       let agentSpent = 0;
       let firstAgentAnswer = null;
@@ -1097,34 +1128,36 @@ function activate(context) {
           if (terminalCaptureEpoch === terminalCaptures.epoch && event.type === 'result' && event.action?.tool === 'run_command' && event.result?.cwd) {
             void guard().then(() => terminalCaptures.recordDirect({ root: folder.uri.fsPath, cwd: event.result.cwd, output: [event.result.stdout, event.result.stderr].filter(Boolean).join('\n[stderr]\n'), source: 'Extension run_command output' })).catch(() => {});
           }
-          return postAgentEvent(auth, event);
+          return postAgentEvent(auth, traceEvent(traceRows, event, runLocale));
         }
       });
       await guard();
       await rulesTracker.check();if(await autoCommit.refsChanged(commitStart))taskRefsChanged=true;
       const committed=await autoCommit.commitTask({refChanged:taskRefsChanged,excludedPaths:projectRulesHost.quarantinedPaths(),start:commitStart,writes:savedWrites,result,signal:abort.signal,events:commitEvents,models:[...servedModels],taskId:localAgentRunId,guard,enabled:config.get('autoCommit','afterTask')==='afterTask'});
+      const RL=(en,ru)=>runLocale==='ru'?ru:en;
       let commitText='';const hasCommandEffects=commitEvents.some(e=>e.action?.tool==='run_command' && e.result?.ok);
       if(committed.ok){await context.globalState.update('tvijo.committedRun.'+rewindRunId,committed.hash);const key='tvijo.firstAutoCommit.'+createHash('sha256').update(committed.root).digest('hex'),first=!context.globalState.get(key);await context.globalState.update(key,true);
-        commitText=L('Tvijo committed ','Tvijo закоммитил ')+committed.hash.slice(0,12)+(first?L(' · turn off in ⚙',' · выключить в ⚙'):'');
-      }else if((savedWrites.size || hasCommandEffects) && committed.reason!=='off')commitText=L('No auto-commit: ','Без автокоммита: ')+autoCommit.describe(committed.reason,uiLocale());
-      if(committed.identityWarning)commitText=autoCommit.describe('commit_identity_unproven',uiLocale())+'\n'+L('Hashes: ','Хеши: ')+committed.observedHashes.join(', ');
-      if(committed.skipped.length)commitText+='\n'+committed.skipped.map(f=>f.path+': '+autoCommit.describe(f.reason,uiLocale())).join('\n');
-      if(savedWrites.size || hasCommandEffects)commitText+='\n'+L('Command side effects (rm/mv and other tool writes) are not tracked or committed.','Побочные эффекты команд (rm/mv и другие записи инструментов) не отслеживаются и не коммитятся.');
+        commitText=RL('Tvijo committed ','Tvijo закоммитил ')+committed.hash.slice(0,12)+(first?RL(' · turn off in ⚙',' · выключить в ⚙'):'');
+      }else if((savedWrites.size || hasCommandEffects) && committed.reason!=='off')commitText=RL('No auto-commit: ','Без автокоммита: ')+autoCommit.describe(committed.reason,runLocale);
+      if(committed.identityWarning)commitText=autoCommit.describe('commit_identity_unproven',runLocale)+'\n'+RL('Hashes: ','Хеши: ')+committed.observedHashes.join(', ');
+      if(committed.skipped.length)commitText+='\n'+committed.skipped.map(f=>f.path+': '+autoCommit.describe(f.reason,runLocale)).join('\n');
+      if(savedWrites.size || hasCommandEffects)commitText+='\n'+RL('Command side effects (rm/mv and other tool writes) are not tracked or committed.','Побочные эффекты команд (rm/mv и другие записи инструментов) не отслеживаются и не коммитятся.');
       if(taskEffectsText())commitText+='\n'+taskEffectsText();
-      if(committed.hookAddedPaths?.length)commitText+='\n'+(committed.withdrawn?L('Hook added files ','Хук добавил файлы ')+committed.hookAddedPaths.join(', ')+L(' — commit withdrawn; edits remain on disk. User index untouched.',' — коммит отозван, изменения остались на диске. Индекс пользователя не изменён.'):L('Hook added files; withdrawal could not safely complete. Review commit ','Хук добавил файлы; безопасный отзыв не выполнен. Проверьте коммит ')+committed.hash+': '+committed.hookAddedPaths.join(', '));
-      if(committed.ok && committed.cancelledAfterCommit)commitText+='\n'+L('Cancel arrived after the commit was created. The commit is shown above; use Undo commit to undo it.','Отмена пришла после создания коммита. Коммит показан выше; используйте «Отменить коммит».');
-      if(committed.unverifiedHead)commitText+='\n'+L('Git HEAD changed during cancellation; review commit ','HEAD Git изменился при отмене; проверьте коммит ')+committed.unverifiedHead;
-      if(committed.indexWarning)commitText+='\n'+L('Commit created; check the Git index before continuing.','Коммит создан; проверьте индекс Git перед продолжением.');
+      if(committed.hookAddedPaths?.length)commitText+='\n'+(committed.withdrawn?RL('Hook added files ','Хук добавил файлы ')+committed.hookAddedPaths.join(', ')+RL(' — commit withdrawn; edits remain on disk. User index untouched.',' — коммит отозван, изменения остались на диске. Индекс пользователя не изменён.'):RL('Hook added files; withdrawal could not safely complete. Review commit ','Хук добавил файлы; безопасный отзыв не выполнен. Проверьте коммит ')+committed.hash+': '+committed.hookAddedPaths.join(', '));
+      if(committed.ok && committed.cancelledAfterCommit)commitText+='\n'+RL('Cancel arrived after the commit was created. The commit is shown above; use Undo commit to undo it.','Отмена пришла после создания коммита. Коммит показан выше; используйте «Отменить коммит».');
+      if(committed.unverifiedHead)commitText+='\n'+RL('Git HEAD changed during cancellation; review commit ','HEAD Git изменился при отмене; проверьте коммит ')+committed.unverifiedHead;
+      if(committed.indexWarning)commitText+='\n'+RL('Commit created; check the Git index before continuing.','Коммит создан; проверьте индекс Git перед продолжением.');
       const outcome=outcomeOf(result), receipt=taskReceipt.finish({result});
       receipt.usage.settlement = local.pending(auth.scope) ? 'pending_reconciliation' : 'terminal_receipts_observed';
       runJournals.receipt(recoveryKey,localAgentRunId,receipt);
-      const finalText=result.text+(commitText?'\n\n'+commitText:'')+'\n\n'+formatReceipt(receipt,uiLocale());
+      const receiptText=formatReceipt(receipt,runLocale);
+      const finalText=result.text+(commitText?'\n\n'+commitText:'')+'\n\n'+receiptText;
       await finishMap(auth, outcome === 'done' ? 'completed' : outcome);
       const history = local.history(agentScope);
-      await local.saveHistory(agentScope, [...history, { role: 'user', content: goal.trim(), display: goal.trim(), recoveryRunId:localAgentRunId }, { role: 'assistant', content: result.text, display: finalText, outcome, receiptId:localAgentRunId, autoCommit:committed.ok?{hash:committed.hash,root:committed.root,workspaceRoot:committed.workspaceRoot,identity:committed.identity}:undefined, recoveryRunId:localAgentRunId, taskIds:receipt.provider_tasks }].slice(-40));
+      await local.saveHistory(agentScope, [...history, { role: 'user', content: goal.trim(), display: goal.trim(), recoveryRunId:localAgentRunId }, { role: 'assistant', content: result.text, display: finalText, receiptText, trace:agentTrace.boundTrace(traceRows), outcome, receiptId:localAgentRunId, autoCommit:committed.ok?{hash:committed.hash,root:committed.root,workspaceRoot:committed.workspaceRoot,identity:committed.identity}:undefined, recoveryRunId:localAgentRunId, taskIds:receipt.provider_tasks }].slice(-40));
       runJournals.finish(recoveryKey,localAgentRunId,outcome);
       await metrics.record({ event: 'agent', outcome: outcome === 'done' ? 'completed' : outcome, mode: planMode ? 'plan' : 'agent', model: agentModel, steps: result.steps, cost_usd: result.spent, duration_ms: Date.now() - startedAt });
-      lastAgentOutcome = { scope: currentViewScope(auth.scope), outcome, text: outcome === 'done' ? L('Agent execution finished in ' + result.steps + ' steps. See the task receipt for observed checks.', 'Агент завершил выполнение за ' + result.steps + ' шагов. Наблюдаемые проверки указаны в квитанции.') : outcome === 'partial' ? (result.reason === 'step_limit' ? L('Step limit reached ('+result.steps+'). Partial result: review the task receipt before continuing.','Лимит шагов достигнут ('+result.steps+'). Частичный результат: перед продолжением проверьте квитанцию.') : L('Partial result. Review the task receipt before continuing.', 'Частичный результат. Перед продолжением проверьте квитанцию задачи.')) : L('Agent blocked. Completed local work and remaining requirements are in the task receipt.', 'Агент заблокирован. Выполненная локальная работа и оставшиеся требования указаны в квитанции.') };
+      lastAgentOutcome = { scope: currentViewScope(auth.scope), outcome, text: outcome === 'done' ? RL('Agent execution finished in ' + result.steps + ' steps. See the task receipt for observed checks.', 'Агент завершил выполнение за ' + result.steps + ' шагов. Наблюдаемые проверки указаны в квитанции.') : outcome === 'partial' ? (result.reason === 'step_limit' ? RL('Step limit reached ('+result.steps+'). Partial result: review the task receipt before continuing.','Лимит шагов достигнут ('+result.steps+'). Частичный результат: перед продолжением проверьте квитанцию.') : RL('Partial result. Review the task receipt before continuing.', 'Частичный результат. Перед продолжением проверьте квитанцию задачи.')) : RL('Agent blocked. Completed local work and remaining requirements are in the task receipt.', 'Агент заблокирован. Выполненная локальная работа и оставшиеся требования указаны в квитанции.') };
       await postChatState(lastAgentOutcome.text);
       return {outcome,receiptId:localAgentRunId};
     } catch (error) {
@@ -1132,13 +1165,13 @@ function activate(context) {
       if(taskEffectsText())error.tvijoAgentEffects=taskEffectsText();
       const receipt=taskReceipt.finish({error,cancelled:abort.signal.aborted});
       receipt.usage.settlement = local.pending(auth.scope) ? 'pending_reconciliation' : 'no_pending_record';
-      try {runJournals.receipt(recoveryKey,localAgentRunId,receipt);error.tvijoReceipt=formatReceipt(receipt,uiLocale());} catch { /* Original failure and pending financial record must survive receipt I/O errors. */ }
+      try {runJournals.receipt(recoveryKey,localAgentRunId,receipt);error.tvijoReceipt=formatReceipt(receipt,runLocale);} catch { /* Original failure and pending financial record must survive receipt I/O errors. */ }
       try {
         if (error.tvijoReceipt && await isCurrentAuth(auth)) {
           const history=local.history(agentScope);
           if (!history.some(item=>item.recoveryRunId===localAgentRunId)) {
-            const text=abort.signal.aborted ? L('Agent stopped.','Агент остановлен.') : localizedMessage(error,false);
-            await local.saveHistory(agentScope,[...history,{role:'user',content:goal.trim(),recoveryRunId:localAgentRunId},{role:'assistant',content:text,display:text+'\n\n'+error.tvijoReceipt,outcome:receipt.execution.outcome,receiptId:localAgentRunId,recoveryRunId:localAgentRunId,taskIds:receipt.provider_tasks}].slice(-40));
+            const text=abort.signal.aborted ? (runLocale==='ru'?'Агент остановлен.':'Agent stopped.') : localizedMessage(error,false,runLocale);
+            await local.saveHistory(agentScope,[...history,{role:'user',content:goal.trim(),recoveryRunId:localAgentRunId},{role:'assistant',content:text,display:text+'\n\n'+error.tvijoReceipt,receiptText:error.tvijoReceipt,trace:agentTrace.boundTrace(traceRows),outcome:receipt.execution.outcome,receiptId:localAgentRunId,recoveryRunId:localAgentRunId,taskIds:receipt.provider_tasks}].slice(-40));
           }
         }
       } catch { /* Preserve the original failure if local history cannot be saved. */ }
@@ -1151,7 +1184,7 @@ function activate(context) {
         return {outcome:'cancelled',receiptId:localAgentRunId};
       }
       await metrics.record({ event: 'agent', outcome: 'error', mode: planMode ? 'plan' : 'agent', model: vscode.workspace.getConfiguration('tvijo').get('agentModel', 'ds41f'), error_code: error?.code || 'unknown', duration_ms: Date.now() - startedAt });
-      lastError = { text: localizedMessage(error), action: typeof error?.code === 'string' && error.code.startsWith('context_budget') ? 'context' : null };
+      lastError = { text: localizedMessage(error,true,runLocale), action: typeof error?.code === 'string' && error.code.startsWith('context_budget') ? 'context' : null };
       throw error;
     } finally {
       diagnosticsTracker?.dispose();
@@ -1209,12 +1242,15 @@ function activate(context) {
     } finally { if (activeAbort === abort) activeAbort = null; busy = false; await postActivity('done', ''); await postChatState(); }
   }
 
-  function localizedMessage(error,includeEffects=true) {
-    if(includeEffects && (error?.tvijoAgentEffects || error?.tvijoReceipt))return localizedMessage(error,false)+'\n'+[error.tvijoAgentEffects,error.tvijoReceipt].filter(Boolean).join('\n');
-    if(error?.retryDisposition)return require('./lib/step-retry').retryNotice(error,uiLocale());
-    const runtimeNotice=require('./lib/runtime-errors').notice(error?.code,uiLocale());
+  function localizedMessage(error,includeEffects=true,locale=replyLocale()) {
+    // The full receipt is already in the transcript (collapsed); repeating it in
+    // the notice bar printed task ids and journal lines twice (0.10.31).
+    const L=(en,ru)=>locale==='ru'?ru:en;
+    if(includeEffects && error?.tvijoAgentEffects)return localizedMessage(error,false,locale)+'\n'+error.tvijoAgentEffects;
+    if(error?.retryDisposition)return require('./lib/step-retry').retryNotice(error,locale);
+    const runtimeNotice=require('./lib/runtime-errors').notice(error?.code,locale);
     if(runtimeNotice)return runtimeNotice;
-    const scopeNotice=require('./lib/scope-notices').notice(error?.code,uiLocale());
+    const scopeNotice=require('./lib/scope-notices').notice(error?.code,locale);
     if(scopeNotice){if(error.scopeUri)pendingScopeUri=error.scopeUri;return scopeNotice.text;}
     const code = error?.serverCode || (typeof error?.code === 'string' ? error.code : '');
     if (error?.code === 'command_policy') return L('Command refused. Use one executable with literal arguments; unsafe commands and shell syntax are blocked.', 'Команда отклонена. Используйте одну программу с буквальными аргументами; опасные команды и синтаксис оболочки заблокированы.');
@@ -1241,7 +1277,7 @@ function activate(context) {
     if (code.startsWith('context_budget')) {
       return L('The project context is too large for this model. Preview the context and turn it off, or start a new conversation.', 'Контекст проекта слишком велик для этой модели. Просмотрите контекст и отключите его либо начните новый диалог.');
     }
-    if (uiLocale() === 'ru') {
+    if (locale === 'ru') {
       const map = {
         preview_context_limit: 'Оставшейся квоты токенов аккаунта недостаточно для запроса и ответа после удаления автоконтекста. Проверьте расходы. Черновик и полная история сохранены.',
         context_limit: 'Задание и обязательные результаты инструментов превышают предел размера запроса сервиса. Автоконтекст и старые сообщения уже сокращены. Разделите задание или терминальный лог; черновик и полная история сохранены.',
@@ -2461,6 +2497,7 @@ function activate(context) {
   async function askQuestion(question, { showEditor = false, includeSelection = false } = {}) {
     ensureIdle();
     if (!question?.trim()) return;
+    noteReplyLocale(question);
     if (vscode.workspace.workspaceFolders?.length) await requireWorkspace();
     const startedAt = Date.now();
     busy = true;
