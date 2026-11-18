@@ -1,3 +1,11 @@
+## 0.10.32 — 2026-11-18 (visible agent progress)
+
+- **Work log in the chat.** While the agent runs, the transcript shows each step as it happens: a short note from the model about what the last result showed and why it takes the next step, then the action in plain words (read a file with its line range, search, run a command, edit a file) and its result (exit code, lines, matches). Command and search output opens on click. The log is shown in both chat views and stays above the answer, collapsed, after the run.
+- **Replies in the language of the request.** Step descriptions, receipts and error notices follow the language you write in, unless you chose the panel language explicitly. A Russian request on an English remote editor no longer gets an English receipt.
+- **Receipt collapsed under the answer.** Task ids, cost and observed commands stay in the full record (Open answer, export) and appear in a collapsed **Task receipt** block, not in the answer text or in the error notice.
+- **Large tool output no longer stops the agent.** Tool results are bounded by UTF-8 bytes and remain valid JSON. When a request would exceed the service limit, older tool outputs are shortened first; the newest keeps its head and tail. Project rules, the goal and the protocol are never shortened. In 0.10.31 a few reads of long-line files ended the task with a request-size error.
+- **Unchanged:** permissions, budgets, money paths, auto-commit and the history format. Older conversation entries render as before.
+
 ## 0.10.31 — 2026-11-18 (Remote SSH install candidate)
 
 - In a Remote SSH window, VS Code installs Tvijo on the workspace host. Hover over the Tvijo status bar item to see the running version.
