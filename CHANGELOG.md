@@ -1,8 +1,16 @@
+## 0.10.34 — 2026-11-18 (menu help and reply language candidate)
+
+- **Help no longer covers the menu.** Help for a menu choice opens above the open menu, so every choice stays visible while you read it. On a short panel long help scrolls in the free space above the menu. Help for other controls keeps its position next to the control.
+- **Russian requests get Russian progress notes and answers.** When a request is written in Russian, the agent is told to write its step notes and its final answer in Russian, the protocol example is in Russian, and every step repeats the rule. Code, paths and commands stay as they are.
+- **Search works where ripgrep is not installed.** The agent search uses the ripgrep that ships with VS Code when `rg` is missing on the host, so regular-expression queries find their matches on such a Remote SSH server. Without any ripgrep, a search inside one file now finds its matches, and the result tells the agent that the query was matched as literal text.
+- **Answers are no longer lost.** An answer with line breaks inside the action JSON, or a turn with two actions, is read instead of being sent back to the model; the first action runs and every tool keeps its permission checks. At the step limit a final answer sent as a finish action is shown instead of the step-limit notice. An answer that explains how tool results are handled is no longer refused as an echoed tool result.
+- **Includes 0.10.33.** Settings navigation, help in both languages and the access explanations from the preceding candidate are included.
+
 ## 0.10.33 — 2026-11-18 (settings navigation and help candidate)
 
 - **Settings keep their navigation.** Chat, Context, Usage and Terminal share a fixed header. The arrow returns to the settings overview. Close or Escape returns to the conversation and preserves the draft and attachments. A late usage response updates the stored measurements after the panel closes.
 - **Help before granting access.** Hover over controls or focus them with the keyboard for detailed English/Russian explanations. Permission-disabled modes stay focusable so their prerequisites can be read. Escape dismisses the help first.
-- **Account reviews explained.** The permission menu describes the installed Codex/Claude login, separate subscriptions, review limits and the Tvijo coordinator's service credits before opening the project approval.
+- **Account reviews explained.** The permission menu describes the installed coding-assistant CLI login, separate subscriptions, review limits and the Tvijo coordinator's service credits before opening the project approval.
 - **ExtraFullAccess prerequisites.** Help explains Workspace Trust, a non-root extension host account, explicit project approval and Remote SSH host permissions. The access and billing entry opens connection guidance.
 - **Includes 0.10.32.** The visible work log, collapsed receipts, reply language and bounded tool history from the preceding candidate are included.
 

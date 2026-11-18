@@ -9,7 +9,7 @@ const { CHAT_CSS } = require('./chat-presentation');
 const { renderTrace, TRACE_CSS } = require('./agent-trace');
 const { renderRewind, REWIND_CSS } = require('./rewind-view');
 const { FULL_ACCESS_LIMITS } = require('./full-access');
-const { MODE_HELP, CONTROL_HELP, OPTION_HELP } = require('./menu-help');
+const { MODE_HELP, CONTROL_HELP, OPTION_HELP, helpPlacement } = require('./menu-help');
 
 function chatHtml(webview) {
   const nonce = randomBytes(16).toString('base64');
@@ -54,6 +54,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   const safeExternalUrl = ${safeExternalUrl.toString()};
   const renderMarkdown = ${renderMarkdown.toString()};
   const renderTrace = ${renderTrace.toString()};
+  const helpPlacement = ${helpPlacement.toString()};
   const renderAgentMap = ${renderAgentMap.toString()};
   const renderRewind = ${renderRewind.toString()};
   const buildAgentMap = ${buildAgentMap.toString()};
@@ -113,13 +114,13 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   }
   function positionHelp() {
     if (!helpAnchor || helpTip.hidden) return;
-    const gap = 8;
-    const anchor = helpAnchor.getBoundingClientRect();
-    const box = helpTip.getBoundingClientRect();
-    const above = anchor.top - box.height - gap;
-    const top = above >= gap ? above : anchor.bottom + gap;
-    helpTip.style.left = Math.max(gap, Math.min(anchor.left, innerWidth - box.width - gap)) + 'px';
-    helpTip.style.top = Math.max(gap, Math.min(top, innerHeight - box.height - gap)) + 'px';
+    const menu = helpAnchor.closest?.('#mode-menu,#options-menu,#plus-menu');
+    helpTip.style.maxHeight = '';
+    const place = helpPlacement(helpAnchor.getBoundingClientRect(), menu && !menu.hidden ? menu.getBoundingClientRect() : null,
+      helpTip.getBoundingClientRect(), {width: innerWidth, height: innerHeight});
+    helpTip.style.maxHeight = place.maxHeight === null ? '' : place.maxHeight + 'px';
+    helpTip.style.left = place.left + 'px';
+    helpTip.style.top = place.top + 'px';
   }
   function showHelp(anchor) {
     if (helpDismissed) return;
