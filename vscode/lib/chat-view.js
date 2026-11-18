@@ -6,8 +6,10 @@ const { THEME_CSS, COPY } = require('./product-theme');
 const { renderMarkdown, safeExternalUrl } = require('./markdown');
 const { renderAgentMap, buildAgentMap } = require('./agent-map');
 const { CHAT_CSS } = require('./chat-presentation');
+const { renderTrace, TRACE_CSS } = require('./agent-trace');
 const { renderRewind, REWIND_CSS } = require('./rewind-view');
 const { FULL_ACCESS_LIMITS } = require('./full-access');
+const { MODE_HELP, CONTROL_HELP, OPTION_HELP } = require('./menu-help');
 
 function chatHtml(webview) {
   const nonce = randomBytes(16).toString('base64');
@@ -18,33 +20,40 @@ function chatHtml(webview) {
 <style nonce="${nonce}">
 ${THEME_CSS}
 ${CHAT_CSS}
+${TRACE_CSS}
 ${REWIND_CSS}
 ${PALETTE_CSS}
 #recovery{flex-shrink:0;max-height:260px;overflow:auto;padding:8px 12px;border-top:1px solid var(--border)}#recovery summary{font-size:12px;cursor:pointer;padding:4px 0}.recovery-card{padding:8px;margin:6px 0;border:1px solid var(--border);border-radius:6px}.recovery-card p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 6px}.recovery-actions{display:flex;flex-wrap:wrap;gap:6px}.recovery-actions button{font-size:11px}#recovery-notes{font-size:11px;overflow-wrap:anywhere}
 nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(--vscode-contrastBorder,var(--border));border-radius:999px;background:var(--surface);color:var(--text)}#elapsed-chip{white-space:nowrap}#agent-map-button{white-space:nowrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
 </style></head><body>
 <section id="folder-browser" aria-labelledby="folder-title" hidden><div class="drawer-heading"><strong id="folder-title"></strong><button id="folder-close" type="button">×</button></div><div class="drawer-tools"><button id="folder-active" type="button"></button><button id="folder-recent" type="button"></button></div><p id="folder-hint"></p><div id="folder-rows"></div></section>
-<aside id="settings-drawer" aria-label="Chat settings" hidden><div class="drawer-heading"><strong id="drawer-title">Chat settings</strong><button id="drawer-close" class="icon" type="button" aria-label="Close settings">×</button></div><p id="mode-help" role="note"></p>
-<nav aria-label="Workspace"><button id="tab-chat" type="button" aria-selected="true">Chat</button><button id="tab-context" type="button" aria-selected="false">Context</button><button id="tab-usage" type="button" aria-selected="false">Usage</button><button id="tab-terminal" type="button" aria-selected="false">Terminal</button></nav>
+<aside id="settings-drawer" aria-label="Chat settings" hidden><div id="drawer-header"><div class="drawer-heading"><button id="drawer-back" class="icon" type="button" aria-label="Back to settings" hidden>←</button><strong id="drawer-title">Chat settings</strong><button id="drawer-close" class="icon" type="button" aria-label="Back to conversation">×</button></div>
+<nav id="settings-tabs" role="tablist" aria-label="Workspace"><button id="tab-chat" role="tab" type="button" aria-controls="settings-home" aria-selected="true">Chat</button><button id="tab-context" role="tab" type="button" aria-controls="context-items" aria-selected="false">Context</button><button id="tab-usage" role="tab" type="button" aria-controls="usage-items" aria-selected="false">Usage</button><button id="tab-terminal" role="tab" type="button" aria-controls="terminal-info" aria-selected="false">Terminal</button></nav>
+</div><div id="settings-home"><p id="mode-help" role="note"></p>
 <div class="drawer-tools"><button id="signin" type="button">Sign in</button><button id="lang" class="mini-select" type="button" title="Switch language">EN / RU</button><button id="theme" class="icon" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">◐</button><button id="engineering" type="button" aria-pressed="false">Engineering view</button><button id="extension-settings" type="button">Extension settings…</button><button id="commands" class="icon" type="button" title="Commands" aria-label="Commands">···</button></div>
 <div class="drawer-tools"><span id="elapsed-chip" class="run-chip" aria-label="Elapsed time">Elapsed —</span><button id="agent-map-button" class="run-chip" type="button" title="Observed running agents; opens Agent Map" aria-expanded="false" aria-controls="agent-map">Agents —</button><button id="pack-picker" type="button" hidden aria-haspopup="dialog"></button></div>
 <details id="recovery" hidden><summary id="recovery-title">Interrupted runs</summary><p id="recovery-notes" role="status"></p><div id="recovery-list"></div></details>
 <div class="product-links"><button id="product-guide" type="button">Tvijo AI guide</button><button id="connections" type="button">Connections</button><button id="tasks" type="button">Server task history</button><button id="context-select" type="button">Select project context…</button><button id="context-preview" type="button">Preview context</button><button id="quick-edit" type="button">Quick edit</button></div>
 <p id="shared-thread-note" hidden><a id="shared-thread-link" href="#"></a></p><p id="history-note" class="mini-select"></p>
-<div class="drawer-tools"><span id="account-identity"></span><span id="account-verification"></span><button id="runtime-version" type="button"></button></div><div class="drawer-tools"><button id="auto-commit" type="button"></button><button id="signout" type="button"></button></div><p id="bridge-note" hidden></p><p id="bot-setup-note" hidden><span id="bot-setup-text"></span> <button id="bot-setup" type="button"></button> <button id="bot-settings" type="button"></button></p><p id="rules-scan-note" hidden></p><section id="loaded-rules"></section><div id="account-status" role="status"><span class="dot">●</span><span id="connection-label">Connecting…</span><span id="budget"></span></div></aside>
-<section id="rewind" aria-labelledby="rewind-title" hidden><div id="rewind-heading"><h2 id="rewind-title">Rewind</h2><button id="rewind-close" type="button">Back to chat</button></div><p id="rewind-hint"></p><p id="rewind-status" role="status"></p><div id="rewind-list"></div></section><main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section><div id="state" role="status">Connecting…</div>
+<div class="drawer-tools"><span id="account-identity"></span><span id="account-verification"></span><button id="runtime-version" type="button"></button></div><div class="drawer-tools"><button id="auto-commit" type="button"></button><button id="signout" type="button"></button></div><p id="bridge-note" hidden></p><p id="bot-setup-note" hidden><span id="bot-setup-text"></span> <button id="bot-setup" type="button"></button> <button id="bot-settings" type="button"></button></p><p id="rules-scan-note" hidden></p><section id="loaded-rules"></section><div id="account-status" role="status"><span class="dot">●</span><span id="connection-label">Connecting…</span><span id="budget"></span></div></div><section id="context-panel" aria-label="Context"><p id="context-help"></p><div id="context-items"></div><div id="context-summary"></div><div id="usage-items" hidden></div><div id="terminal-info" hidden></div><button id="clear-context" type="button">Clear context</button></section></aside>
+<section id="rewind" aria-labelledby="rewind-title" hidden><div id="rewind-heading"><h2 id="rewind-title">Rewind</h2><button id="rewind-close" type="button">Back to chat</button></div><p id="rewind-hint"></p><p id="rewind-status" role="status"></p><div id="rewind-list"></div></section><main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><div id="state" role="status">Connecting…</div>
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
 <section id="agent-details" hidden aria-label="Agent details"><div id="agent-resize" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Resize agent details" aria-controls="agent-log"></div><div id="agent-heading"><strong id="agent-heading-title">Agent details</strong><span id="agent-status" role="status"></span><button id="agent-toggle" type="button" aria-controls="agent-log" aria-expanded="true">Collapse</button></div><div id="agent-log" role="log" aria-live="polite"></div></section>
 <form id="form"><button id="composer-signin" type="button">Sign in</button><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><div id="followups" hidden></div><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="workspace-choice" type="button">Choose project…</button><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode" aria-haspopup="menu" aria-controls="mode-menu" aria-expanded="false">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="settings-drawer">⚙</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
 <div id="plus-menu" role="menu" aria-label="Actions"><button id="attach" data-action-id="tvijo.attachFile" type="button" role="menuitem">Attach file…</button><button id="mention-file" data-action-id="tvijo.mentionFile" type="button" role="menuitem">Mention file…</button><button id="attach-problems" data-action-id="tvijo.attachProblems" type="button" role="menuitem">@problems</button><button id="attach-terminal" data-action-id="tvijo.attachTerminal" type="button" role="menuitem">@terminal</button><button id="workspace" type="button" role="menuitem">Choose workspace file…</button><button id="selection" type="button" role="menuitem">Use editor selection</button><button id="path" type="button" role="menuitem">Paste workspace path…</button><button id="clear-conversation" data-action-id="tvijo.newConversation" type="button" role="menuitem">Clear conversation</button><button id="rewind-action" data-action-id="tvijo.rewind" type="button" role="menuitem">Rewind…</button><button id="export-conversation" data-action-id="tvijo.export" type="button" role="menuitem">Export conversation as Markdown</button><button id="switch-model" data-action-id="tvijo.chooseWorkflow" type="button" role="menuitem">Switch model</button><button id="all-actions" type="button" role="menuitem">All commands…</button></div>
 <div id="mode-menu" role="menu" aria-label="Mode" hidden></div><div id="options-menu" role="menu" aria-label="Model and method"></div>
 <div id="notice" role="alert"><p id="notice-text"></p><button id="notice-action" type="button">Resolve task</button><button id="notice-close" class="icon" type="button" aria-label="Dismiss">×</button></div>
+<div id="menu-tooltip" role="tooltip" hidden></div>
 <script nonce="${nonce}">
   const COPY = ${JSON.stringify(COPY)};
-  Object.assign(COPY.en,{modeExtra:'ExtraFullAccess',modeExtraHint:'Host shell and bounded account CLI reviews. Commands can affect files outside the project. Project policy and budgets remain. Uses the local Agent engine.',modeFull:'Full access',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.en)},agentSavedHelp:'Agent edits are saved before disk checks. Dirty user buffers are protected.',fullAccessWarning:'Full access is active',fullAccessRevert:'Revert'});
-  Object.assign(COPY.ru,{modeExtra:'ExtraFullAccess',modeExtraHint:'Shell хоста и ограниченное CLI-ревью через подписку. Команды могут менять файлы вне проекта. Правила проекта и бюджет сохраняются. Использует локальный Agent.',modeFull:'Полный доступ',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.ru)},agentSavedHelp:'Правки агента сохраняются до проверок на диске. Пользовательские несохранённые буферы защищены.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
+  const MODE_HELP = ${JSON.stringify(MODE_HELP)};
+  const CONTROL_HELP = ${JSON.stringify(CONTROL_HELP)};
+  const OPTION_HELP = ${JSON.stringify(OPTION_HELP)};
+  Object.assign(COPY.en,{modeExtra:'ExtraFullAccess',modeExtraHint:'Host shell and account reviews. Requires explicit approval on a non-root host.',modeExtraRoot:'Requires a non-root user on the extension host.',modeFullShort:'Project edits and commands under one explicit grant.',backSettings:'Back to settings',backConversation:'Back to conversation',modeFull:'Full access',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.en)},agentSavedHelp:'Agent edits are saved before disk checks. Dirty user buffers are protected.',fullAccessWarning:'Full access is active',fullAccessRevert:'Revert'});
+  Object.assign(COPY.ru,{modeExtra:'ExtraFullAccess',modeExtraHint:'Shell хоста и ревью через аккаунты. Нужны подтверждение и обычный пользователь ОС.',modeExtraRoot:'Нужен обычный пользователь ОС хоста расширения.',modeFullShort:'Правки и команды проекта по явному разрешению.',backSettings:'К настройкам',backConversation:'Вернуться к диалогу',modeFull:'Полный доступ',modeFullHint:${JSON.stringify(FULL_ACCESS_LIMITS.ru)},agentSavedHelp:'Правки агента сохраняются до проверок на диске. Пользовательские несохранённые буферы защищены.',fullAccessWarning:'Полный доступ включён',fullAccessRevert:'Отменить'});
   const safeExternalUrl = ${safeExternalUrl.toString()};
   const renderMarkdown = ${renderMarkdown.toString()};
+  const renderTrace = ${renderTrace.toString()};
   const renderAgentMap = ${renderAgentMap.toString()};
   const renderRewind = ${renderRewind.toString()};
   const buildAgentMap = ${buildAgentMap.toString()};
@@ -75,7 +84,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     if (open) { positionPlus(); document.getElementById('attach').focus(); }
   }
   window.addEventListener('resize', positionPlus);
-  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(positionPlus).observe(document.getElementById('form'));
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => { positionPlus(); positionDrawer(); }).observe(document.getElementById('form'));
   document.body.addEventListener('pointerdown', event => {
     if (!plusMenu.contains(event.target) && !event.target.closest('#plus,#commands')) closePlus();
   });
@@ -85,9 +94,84 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   const optionsMenu = document.getElementById('options-menu');
   const modeMenu = document.getElementById('mode-menu');
   const modeButton = document.getElementById('mode');
+  const helpTip = document.getElementById('menu-tooltip');
+  let helpAnchor = null;
+  let helpDismissed = false;
+  let helpDismissTimer = null;
+
+  function setHelp(element, text) {
+    element.setAttribute('data-help', text);
+    // Native title tooltips would cover the richer, keyboard-accessible help.
+    element.removeAttribute?.('title');
+  }
+  function closeHelp() {
+    if (helpDismissTimer !== null) clearTimeout(helpDismissTimer);
+    helpDismissTimer = null;
+    helpAnchor?.removeAttribute?.('aria-describedby');
+    helpAnchor = null;
+    helpTip.hidden = true;
+  }
+  function positionHelp() {
+    if (!helpAnchor || helpTip.hidden) return;
+    const gap = 8;
+    const anchor = helpAnchor.getBoundingClientRect();
+    const box = helpTip.getBoundingClientRect();
+    const above = anchor.top - box.height - gap;
+    const top = above >= gap ? above : anchor.bottom + gap;
+    helpTip.style.left = Math.max(gap, Math.min(anchor.left, innerWidth - box.width - gap)) + 'px';
+    helpTip.style.top = Math.max(gap, Math.min(top, innerHeight - box.height - gap)) + 'px';
+  }
+  function showHelp(anchor) {
+    if (helpDismissed) return;
+    if (helpDismissTimer !== null) clearTimeout(helpDismissTimer);
+    if (helpAnchor !== anchor) closeHelp();
+    helpAnchor = anchor;
+    helpTip.textContent = anchor.getAttribute('data-help');
+    anchor.setAttribute('aria-describedby', 'menu-tooltip');
+    helpTip.hidden = false;
+    positionHelp();
+  }
+  function scheduleHelpDismiss(event) {
+    if (!helpAnchor || helpAnchor.contains?.(event.relatedTarget) || helpTip.contains?.(event.relatedTarget)) return;
+    helpDismissTimer = setTimeout(closeHelp, 180);
+  }
+  document.body.addEventListener('pointerover', event => {
+    const anchor = event.target.closest?.('[data-help]');
+    if (anchor) showHelp(anchor);
+  });
+  document.body.addEventListener('focusin', event => {
+    const anchor = event.target.closest?.('[data-help]');
+    if (anchor?.matches?.(':focus-visible')) { helpDismissed = false; showHelp(anchor); }
+    else closeHelp();
+  });
+  document.body.addEventListener('pointermove', event => {
+    if (!helpDismissed || !(event.movementX || event.movementY)) return;
+    helpDismissed = false;
+    const anchor = event.target.closest?.('[data-help]');
+    if (anchor) showHelp(anchor);
+  });
+  document.body.addEventListener('pointerout', scheduleHelpDismiss);
+  document.body.addEventListener('focusout', scheduleHelpDismiss);
+  helpTip.addEventListener('pointerenter', () => clearTimeout(helpDismissTimer));
+  helpTip.addEventListener('pointerleave', scheduleHelpDismiss);
+  window.addEventListener('resize', closeHelp);
+  window.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !helpTip.hidden) {
+      // Hiding the tooltip can expose a different control under a stationary pointer.
+      helpDismissed = true;
+      event.preventDefault(); event.stopImmediatePropagation(); closeHelp();
+    }
+  }, true);
+
+  function refreshControlHelp() {
+    for (const [id, text] of Object.entries(CONTROL_HELP)) {
+      setHelp(document.getElementById(id), text[locale === 'ru' ? 1 : 0]);
+    }
+  }
   const agentLog = document.getElementById('agent-log');
   let uiMode = 'agent';
   document.getElementById('settings-drawer').hidden = true;
+  let settingsTab = 'chat';
   const notice = document.getElementById('notice');
   const noticeText = document.getElementById('notice-text');
   const noticeActionButton = document.getElementById('notice-action');
@@ -110,6 +194,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   let locale = 'en';
   let submitting = false;
   let running = false;
+  let liveRun = null, renderedNodes = [];
   let preparing = false;
   let uploading = false;
   let attachmentCount = 0;
@@ -388,6 +473,10 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
         const name = document.createElement('span'); name.textContent = row.label;
         const hint = document.createElement('span'); hint.className = 'hint'; hint.textContent = row.hint;
         button.append(name, hint);
+        const routeHelp = row.key === 'model' || row.key === 'agentModel'
+          ? row.hint + '\\n' + CONTROL_HELP.workflow[locale === 'ru' ? 1 : 0]
+          : OPTION_HELP[row.key + ':' + row.value]?.[locale === 'ru' ? 1 : 0] || row.hint;
+        setHelp(button, row.label + '\\n' + routeHelp);
         button.addEventListener('click', () => { closeOptions(); post({ type: 'setOption', key: row.key, value: row.value }); });
         optionsMenu.append(button);
       }
@@ -417,7 +506,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   function showNotice(text, action) {
     currentNotice = text ? { text, action: action || null } : null;
     noticeText.textContent = text || '';
-    noticeActionButton.hidden = !action; noticeActionButton.textContent = action === 'chooseFolder' ? (locale==='ru'?'Выбрать папку':'Choose folder') : action === 'addWorkspaceFolder' ? (locale==='ru'?'Добавить как папку рабочей области':'Add as workspace folder') : action === 'rulesSettings' ? (locale==='ru'?'Проверить правила в ⚙':'Review rules in ⚙') : action === 'account' ? t('signIn') : action === 'context' ? t('contextPreview') : t('resolvePending');
+    noticeActionButton.hidden = !action; noticeActionButton.textContent = action === 'retryStep' ? (locale==='ru'?'Повторить шаг':'Retry step') : action === 'chooseFolder' ? (locale==='ru'?'Выбрать папку':'Choose folder') : action === 'addWorkspaceFolder' ? (locale==='ru'?'Добавить как папку рабочей области':'Add as workspace folder') : action === 'rulesSettings' ? (locale==='ru'?'Проверить правила в ⚙':'Review rules in ⚙') : action === 'account' ? t('signIn') : action === 'context' ? t('contextPreview') : t('resolvePending');
     notice.className = text ? 'visible' : '';
     document.getElementById('notice-close').setAttribute('aria-label', t('dismiss'));
   }
@@ -432,6 +521,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     modeButton.textContent = label;
     modeButton.className = 'mini-select ' + (uiMode === 'chat' ? '' : uiMode);
     modeButton.title = t('mode') + ': ' + label;
+    setHelp(modeButton, MODE_HELP[uiMode === 'chat' ? 'chat' : preset]?.[locale] || t('mode'));
     modeButton.setAttribute('aria-label', t('mode') + ': ' + label);
     modeButton.setAttribute('aria-expanded', String(!modeMenu.hidden));
     renderModeMenu();
@@ -447,8 +537,8 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       {mode:'edit', label:t('modeEdit'), hint:t('modeEditHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'edit'},
       {mode:'plan', label:t('modePlan'), hint:t('modePlanHint'), checked:uiMode === 'plan'},
       {mode:'auto', label:t('modeAuto'), hint:t('modeAutoHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'auto'},
-      {mode:'extra', label:t('modeExtra'), hint:fullAccess?.extraUnavailableReason || t('modeExtraHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'extra', disabled:fullAccess?.available !== true || fullAccess?.extraAvailable === false},
-      {mode:'full', label:t('modeFull'), hint:t('modeFullHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'full', disabled:fullAccess?.available !== true}
+      {mode:'extra', label:t('modeExtra'), hint:fullAccess?.extraUnavailableReason ? t('modeExtraRoot') : t('modeExtraHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'extra', disabled:fullAccess?.available !== true || fullAccess?.extraAvailable === false},
+      {mode:'full', label:t('modeFull'), hint:t('modeFullShort'), checked:uiMode === 'agent' && optionState?.agentPreset === 'full', disabled:fullAccess?.available !== true}
     ];
     if (optionState?.agentPreset === 'custom') rows.push({mode:'custom', label:t('modeCustom'), hint:'', checked:uiMode === 'agent'});
     for (const row of rows) {
@@ -456,11 +546,43 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       button.setAttribute('role','menuitemradio'); button.setAttribute('aria-checked',String(row.checked));
       const name = document.createElement('span'); name.textContent = row.label;
       const hint = document.createElement('span'); hint.className = 'hint'; hint.textContent = row.hint;
-      button.append(name,hint); button.disabled = !!row.disabled || running || submitting || preparing || !!pendingModeRequestId;
-      button.addEventListener('click', () => chooseMode(row.mode)); modeMenu.append(button);
+      button.append(name,hint);
+      button.disabled = running || submitting || preparing || !!pendingModeRequestId;
+      // A policy-disabled item remains focusable so its prerequisites can be read.
+      button.setAttribute('aria-disabled', String(!!row.disabled || button.disabled));
+      let details = MODE_HELP[row.mode]?.[locale] || row.hint;
+      if (row.mode === 'extra' && fullAccess?.extraUnavailableReason) details = fullAccess.extraUnavailableReason + '\\n\\n' + details;
+      if (row.mode === 'full') details += '\\n\\n' + t('modeFullHint');
+      setHelp(button, details);
+      button.addEventListener('click', () => { if (!row.disabled && !button.disabled) chooseMode(row.mode); }); modeMenu.append(button);
     }
-    if(fullAccess?.enabled){const cancel=document.createElement('button');cancel.type='button';cancel.textContent=t('fullAccessRevert');cancel.setAttribute('data-mode','revoke');cancel.addEventListener('click',()=>{closeModeMenu();post({type:'fullAccessRevert',fullAccessScope:fullAccess.scopeKey});});modeMenu.append(cancel);}
-    if(fullAccess?.enabled && !fullAccess.extra){const reviews=document.createElement('button');reviews.type='button';reviews.setAttribute('data-mode','account-reviews');reviews.setAttribute('role','menuitemcheckbox');reviews.setAttribute('aria-checked',String(fullAccess.reviews === true));reviews.textContent=locale === 'ru' ? 'Ревью через подписки Codex / Claude' : 'Codex / Claude account reviews';reviews.disabled=running || submitting || preparing || !!pendingModeRequestId;reviews.addEventListener('click',()=>{closeModeMenu();post({type:'accountReviews',fullAccessScope:fullAccess.scopeKey,enabled:fullAccess.reviews !== true});});modeMenu.append(reviews);}
+    if (fullAccess?.enabled) {
+      const cancel = document.createElement('button'); cancel.type = 'button';
+      cancel.textContent = t('fullAccessRevert'); cancel.setAttribute('data-mode','revoke');
+      setHelp(cancel, MODE_HELP.revoke[locale]);
+      cancel.addEventListener('click', () => { closeModeMenu(); post({type:'fullAccessRevert',fullAccessScope:fullAccess.scopeKey}); });
+      modeMenu.append(cancel);
+    }
+    if (fullAccess?.enabled && !fullAccess.extra) {
+      const reviews = document.createElement('button'); reviews.type = 'button';
+      reviews.setAttribute('data-mode','account-reviews'); reviews.setAttribute('role','menuitemcheckbox');
+      reviews.setAttribute('aria-checked',String(fullAccess.reviews === true));
+      const label = document.createElement('span');
+      label.textContent = locale === 'ru' ? 'Ревью через подписки Codex / Claude' : 'Codex / Claude account reviews';
+      const hint = document.createElement('span'); hint.className = 'hint';
+      hint.textContent = fullAccess.reviews ? (locale === 'ru' ? 'Разрешено для этого проекта' : 'Allowed for this project') : (locale === 'ru' ? 'Требует подтверждения для этого проекта' : 'Requires project approval');
+      reviews.append(label, hint); setHelp(reviews, MODE_HELP['account-reviews'][locale]);
+      reviews.disabled = running || submitting || preparing || !!pendingModeRequestId;
+      reviews.addEventListener('click', () => { closeModeMenu(); post({type:'accountReviews',fullAccessScope:fullAccess.scopeKey,enabled:fullAccess.reviews !== true}); });
+      modeMenu.append(reviews);
+    }
+    const access = document.createElement('button'); access.type = 'button'; access.setAttribute('role','menuitem');
+    access.setAttribute('data-mode','access-info');
+    access.disabled = running || submitting || preparing || !!pendingModeRequestId;
+    access.textContent = locale === 'ru' ? 'Доступ, подписки и оплата…' : 'Access, subscriptions and billing…';
+    setHelp(access, CONTROL_HELP.connections[locale === 'ru' ? 1 : 0]);
+    access.addEventListener('click', () => { closeModeMenu(); post({type:'connections'}); });
+    modeMenu.append(access);
     modeButton.disabled = !!pendingModeRequestId || (!fullAccess?.enabled && (running || submitting || preparing));
   }
   function openModeMenu() {
@@ -469,6 +591,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     const selected = modeMenu.querySelector('[aria-checked="true"]') || modeMenu.querySelector('button'); selected?.focus();
   }
   function closeModeMenu(restoreFocus = false) {
+    closeHelp();
     modeMenu.hidden = true; modeMenu.className = ''; modeButton.setAttribute('aria-expanded','false');
     if (restoreFocus) modeButton.focus();
   }
@@ -486,6 +609,41 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     post({type:'agentPreset',preset,requestId:pendingModeRequestId});
   }
   let agentSteps = new Map(), currentAgentStep = null;
+  // Live work log inside the transcript, so progress is visible in every view.
+  function runCopy(lang) { return lang === 'ru'
+    ? {title:'Tvijo · работает', trace:'Ход работы', steps:'шагов', receipt:'Квитанция задачи', waiting:'Думаю', step:'шаг'}
+    : {title:'Tvijo · working', trace:'Work log', steps:'steps', receipt:'Task receipt', waiting:'Thinking', step:'step'}; }
+  function liveRunNode() {
+    if (!liveRun) return null;
+    const c = runCopy(liveRun.locale), block = document.createElement('article');
+    block.className = 'message assistant live-run';
+    const role = document.createElement('div'); role.className = 'role'; role.textContent = c.title + (liveRun.step ? ' · ' + c.step + ' ' + liveRun.step + (liveRun.maxSteps ? '/' + liveRun.maxSteps : '') : '');
+    const body = document.createElement('div'); body.className = 'run-trace-body';
+    const waiting = liveRun.done ? '' : liveRun.waiting ? c.waiting + '…' : '';
+    const key = row => row.step + '|' + row.title + '|' + row.target;
+    renderTrace(document, body, liveRun.rows, {waiting}, {live:!liveRun.done, isOpen:row => liveRun.open.has(key(row)), onToggle:(row, open) => { if (open) liveRun.open.add(key(row)); else liveRun.open.delete(key(row)); }});
+    block.append(role, body); return block;
+  }
+  function paintLiveRun() {
+    const node = liveRunNode();
+    const nearBottom = !(messages.scrollHeight - messages.scrollTop - messages.clientHeight > 120);
+    messages.replaceChildren(...renderedNodes, ...(node ? [node] : []));
+    if (nearBottom) messages.scrollTop = messages.scrollHeight;
+  }
+  function liveRunEvent(event) {
+    if (event.type === 'start') { liveRun = {locale:event.locale === 'ru' ? 'ru' : event.locale === 'en' ? 'en' : locale, rows:[], open:new Set(), step:0, maxSteps:event.maxSteps || 0, waiting:true, done:false}; paintLiveRun(); return; }
+    if (!liveRun) return;
+    if (event.type === 'reset') { liveRun = null; paintLiveRun(); return; }
+    if (event.type === 'step') { liveRun.step = event.step; liveRun.waiting = true; }
+    else if ((event.type === 'action' || event.type === 'result' || event.type === 'notice') && event.view && typeof event.view === 'object') {
+      const index = event.type === 'result' ? liveRun.rows.findIndex(row => row.step === event.view.step && row.status === 'running') : -1;
+      if (index >= 0) liveRun.rows[index] = {...event.view, thought:liveRun.rows[index].thought}; else liveRun.rows.push(event.view);
+      if (liveRun.rows.length > 120) liveRun.rows.shift();
+      liveRun.waiting = event.type !== 'action';
+    } else if (event.type === 'final') { liveRun.done = true; liveRun.waiting = false; }
+    else return;
+    paintLiveRun();
+  }
   function clearAgentLog() { agentLog.replaceChildren(); agentLog.className = ''; agentPanel.hidden = true; agentStatus = ''; agentSteps = new Map(); currentAgentStep = null; updateAgentPanel(); }
   function agentLine(tag, detail, kind, target = agentLog) {
     const line = document.createElement('div'); line.className = 'line ' + (kind || '');
@@ -496,6 +654,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   }
   function renderAgentEvent(event) {
     if (!event || typeof event !== 'object') return;
+    liveRunEvent(event);
     if (event.type === 'capabilities') { agentLine(locale === 'ru' ? 'Доступ' : 'Access', (event.capabilities?.mode || 'unknown') + ' · ' + (event.capabilities?.run_command ? (locale === 'ru' ? 'терминал доступен' : 'terminal available') : (locale === 'ru' ? 'без команд' : 'no commands'))); return; }
     if (event.type === 'reset') { clearAgentLog(); return; }
     if (event.type === 'start') {
@@ -536,12 +695,13 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   }
   function setLocale(next) {
     locale = next; document.documentElement.lang = locale;
+    closeHelp();
     document.getElementById('folder-active').textContent=locale==='ru'?'Папка активного файла':'Active file folder';
     document.getElementById('folder-recent').textContent=locale==='ru'?'Недавние папки':'Recent folders';
     document.getElementById('signout').textContent=locale==='ru'?'Выйти':'Sign out';
-    document.getElementById('drawer-title').textContent = t('chatSettings');
+    updateDrawerHeading();
     document.getElementById('bot-setup-text').textContent = t('botSetupNote'); document.getElementById('bot-setup').textContent = t('botSetup'); document.getElementById('bot-settings').textContent = t('botSettings');
-    for (const [id,key] of [['drawer-close','closeSettings'],['settings','settings']]) {
+    for (const [id,key] of [['drawer-close','backConversation'],['drawer-back','backSettings'],['settings','settings']]) {
       document.getElementById(id).title = t(key); document.getElementById(id).setAttribute('aria-label',t(key));
     }
     document.getElementById('settings-drawer').setAttribute('aria-label',t('chatSettings'));
@@ -619,6 +779,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     lastMessages = null; render(previous); renderBudget(lastAccount);
     renderAttachments(lastAttachments);
     if(lastQuote) drawQuote(lastQuote);
+    refreshControlHelp();
     saveState();
   }
   let lastSignedIn = false;
@@ -646,16 +807,17 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     document.getElementById('connection-label').textContent = lastSignedIn ? t('ready') : t('signIn');
   }
   function setTab(tab) {
-    setDrawer(false);
+    setDrawer(tab !== 'chat', tab);
     mapVisibility(false);
     rewindPanel.hidden = true;
-    for (const name of ['chat','context','terminal','usage']) document.getElementById('tab-' + name).setAttribute('aria-selected', String(name === tab));
-    messages.hidden = tab !== 'chat';
+    // The conversation retains its flex space behind the overlay and anchors the composer.
+    messages.hidden = false;
     document.getElementById('context-panel').className = tab === 'context' || tab === 'terminal' || tab === 'usage' ? 'visible' : '';
     document.getElementById('context-items').hidden = tab !== 'context';
     document.getElementById('usage-items').hidden = tab !== 'usage';
     document.getElementById('clear-context').hidden = tab !== 'context';
     document.getElementById('context-help').hidden = tab !== 'context';
+    document.getElementById('context-summary').hidden = tab !== 'context';
     document.getElementById('terminal-info').hidden = tab !== 'terminal';
     document.getElementById('terminal-info').textContent = t('terminalInfo');
     if (tab === 'terminal') post({type:'terminal'});
@@ -774,9 +936,25 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       block.className = 'message ' + (item.role === 'assistant' ? 'assistant' : 'user') + (item.live ? ' live' : '');
       const role = document.createElement('div'); role.className = 'role'; role.textContent = item.role === 'assistant' ? t('assistant') : item.from ? item.from : t('user');
       const content = document.createElement('div');
+      let traceNode = null;
+      if (item.role === 'assistant' && Array.isArray(item.trace) && item.trace.length) {
+        const c = runCopy(locale), steps = new Set(item.trace.map(row => row.step).filter(Number.isFinite)).size;
+        traceNode = document.createElement('details'); traceNode.className = 'run-trace';
+        const plural = n => locale !== 'ru' ? (n === 1 ? 'step' : 'steps') : n % 10 === 1 && n % 100 !== 11 ? 'шаг' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'шага' : 'шагов';
+        const summary = document.createElement('summary'); summary.textContent = c.trace + ' · ' + steps + ' ' + plural(steps);
+        const body = document.createElement('div'); body.className = 'run-trace-body';
+        renderTrace(document, body, item.trace, {}, {live:false});
+        traceNode.append(summary, body);
+      }
       if (item.role === 'assistant') renderMarkdown(document, content, item.content, { post, copyLabel:t('copy'), plainLabel:locale === 'ru' ? 'текст' : 'text', truncatedLabel:locale === 'ru' ? 'Ответ сокращён; полный текст доступен в редакторе.' : 'Answer truncated; full text is available in the editor.' });
       else content.textContent = item.content || '';
-      block.append(role, content); messages.append(block);
+      block.append(role, ...(traceNode ? [traceNode] : []), content); messages.append(block);
+      if (item.role === 'assistant' && typeof item.receipt === 'string' && item.receipt) {
+        const receipt = document.createElement('details'); receipt.className = 'task-receipt';
+        const summary = document.createElement('summary'); summary.textContent = runCopy(locale).receipt;
+        const text = document.createElement('pre'); text.textContent = item.receipt.slice(0, 20000);
+        receipt.append(summary, text); block.append(receipt);
+      }
       // Only real history rows can be a point to return to: not the live question, not host notes,
       // and not a shared server thread (it is append-only on the service).
       const branch = conversationEditable && !item.live && !item.note ? document.createElement('div') : null;
@@ -801,6 +979,8 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       }
       if (branch) block.append(branch);
     }
+    renderedNodes = Array.from(messages.children || []);
+    if (liveRun) { const node = liveRunNode(); if (node) messages.append(node); }
     messages.scrollTop = messages.scrollHeight;
   }
   function renderAttachments(items) {
@@ -852,6 +1032,10 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     if (data.type === 'state' && ['blue','violet','teal','amber','mono','spectrum'].includes(data.colorTheme)) document.body.setAttribute('data-palette',data.colorTheme);
     if(data.type === 'chooseFolder'){openFolderBrowser();return;}
     if(data.type === 'openSettings'){setDrawer(true);return;}
+    if (data.type === 'openUsage') {
+      if (data.scopeKey !== undefined && data.scopeKey !== scopeKey) return;
+      setTab('usage'); return;
+    }
     if (data.type === 'rewind') {
       setTab('chat'); messages.hidden = true; rewindPanel.hidden = false;
       rewindRuns = data.runs || []; rewindChosen = null; rewindWorkspaceKey = data.workspaceKey;
@@ -889,6 +1073,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       return;
     }
     if (data.type === 'state') {
+      if (!data.busy && liveRun) { liveRun = null; lastMessages = null; }
       orchestrationState = data.orchestration || {enabled:false};
       lastQuote = null;
       const nextScope = typeof data.scopeKey === 'string' ? data.scopeKey : null;
@@ -897,7 +1082,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
         const legacyTime = draftTimes[nextScope];
         const legacyScopedDraft = scopeKey === null && saved?.composerScope === undefined && nextScope && typeof drafts[nextScope] === 'string' && (!Number.isFinite(legacyTime) || Date.now() - legacyTime < draftTtl) ? drafts[nextScope] : undefined;
         const leavingScope = scopeKey !== null;
-        if (scopeKey !== nextScope && leavingScope) clearAgentLog();
+        if (scopeKey !== nextScope && leavingScope) { clearAgentLog(); liveRun = null; }
         if (scopeKey) drafts[composerScope || scopeKey] = question.value;
         scopeKey = nextScope;
         composerScope = nextComposerScope;
@@ -993,7 +1178,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       lastQuote = data.quote || {}; drawQuote(lastQuote);
     } else if (data.type === 'usage') {
       if (data.scopeKey !== undefined && data.scopeKey !== scopeKey) return;
-      renderUsage(data.usage); setTab('usage');
+      renderUsage(data.usage);
     } else if (data.type === 'submission') {
       if (data.scopeKey !== undefined && data.scopeKey !== scopeKey) return;
       const ownSubmission = typeof data.question === 'string' && data.question === lastSubmitted;
@@ -1067,7 +1252,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   document.getElementById('composer-signin').addEventListener('click', () => post({type:'account'}));
   document.getElementById('signin').addEventListener('click', () => post({type:lastSignedIn ? 'account' : 'account'}));
   document.getElementById('cancel').addEventListener('click', () => post({type:'cancel'}));
-  noticeActionButton.addEventListener('click', () => {if(currentNotice?.action==='rulesSettings'){setDrawer(true);return;}post({type: ['chooseFolder','addWorkspaceFolder'].includes(currentNotice?.action) ? currentNotice.action : currentNotice?.action === 'account' ? 'account' : currentNotice?.action === 'context' ? 'contextPreview' : 'cancel'});});
+  noticeActionButton.addEventListener('click', () => {if(currentNotice?.action==='rulesSettings'){setDrawer(true);return;}post({type: currentNotice?.action==='retryStep' ? 'retryStep' : ['chooseFolder','addWorkspaceFolder'].includes(currentNotice?.action) ? currentNotice.action : currentNotice?.action === 'account' ? 'account' : currentNotice?.action === 'context' ? 'contextPreview' : 'cancel'});});
   document.getElementById('bot-setup').addEventListener('click', () => post({type:'botSetup'}));
   document.getElementById('bot-settings').addEventListener('click', () => post({type:'botSettings'}));
   document.getElementById('notice-close').addEventListener('click', () => { showNotice(''); post({type:'dismissNotice'}); });
@@ -1089,24 +1274,58 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     else if(event.key==='Enter'||event.key===' '){event.preventDefault();document.activeElement?.click();}
   });
   for (const type of ['workspace','selection','path']) document.getElementById(type).addEventListener('click', () => { closePlus(); optionsMenu.className = ''; post({type}); });
-  document.getElementById('tab-usage').addEventListener('click', () => { setTab('usage'); post({type:'usage'}); });
+  document.getElementById('tab-usage').addEventListener('click', () => { setTab('usage'); document.getElementById('tab-usage').focus(); post({type:'usage'}); });
   document.getElementById('connections').addEventListener('click', () => post({type:'connections'}));
   document.getElementById('product-guide').addEventListener('click', () => post({type:'productGuide'}));
   document.getElementById('tasks').addEventListener('click', () => post({type:'tasks'}));
-  function setDrawer(open) {
+  function updateDrawerHeading() {
+    document.getElementById('drawer-title').textContent = settingsTab === 'chat' ? t('chatSettings') : settingsTab === 'usage' ? (locale === 'ru' ? 'Расходы' : 'Usage') : t(settingsTab);
+  }
+  function positionDrawer() {
+    const drawer = document.getElementById('settings-drawer');
+    if (drawer.hidden) return;
+    const composerTop = document.getElementById('form').getBoundingClientRect().top;
+    drawer.style.bottom = Math.max(10, innerHeight - composerTop + 8) + 'px';
+  }
+  window.addEventListener('resize', positionDrawer);
+  function setDrawer(open, tab = 'chat') {
+    closeHelp();
+    settingsTab = open ? tab : 'chat';
     document.getElementById('settings-drawer').hidden = !open;
     document.getElementById('settings').setAttribute('aria-expanded',String(open));
+    document.getElementById('settings-home').hidden = settingsTab !== 'chat';
+    document.getElementById('drawer-back').hidden = settingsTab === 'chat';
+    document.getElementById('context-panel').className = open && settingsTab !== 'chat' ? 'visible' : '';
+    for (const name of ['chat','context','terminal','usage']) {
+      const button = document.getElementById('tab-' + name);
+      button.setAttribute('aria-selected',String(name === settingsTab));
+      button.setAttribute('tabindex',name === settingsTab ? '0' : '-1');
+    }
+    updateDrawerHeading();
+    positionDrawer();
+    if (!open) messages.hidden = false;
     if (open) document.getElementById('drawer-close').focus();
   }
-  document.getElementById('settings').addEventListener('click', () => setDrawer(document.getElementById('settings-drawer').hidden));
+  document.getElementById('settings').addEventListener('click', () => {
+    if (document.getElementById('settings-drawer').hidden) setDrawer(true);
+    else setTab('chat');
+  });
+  document.getElementById('drawer-back').addEventListener('click', () => {setDrawer(true);document.getElementById('tab-chat').focus();});
   document.getElementById('drawer-close').addEventListener('click', () => {setDrawer(false);document.getElementById('settings').focus();});
   document.getElementById('settings-drawer').addEventListener('keydown', event => {if(event.key==='Escape'){setDrawer(false);document.getElementById('settings').focus();}});
   document.getElementById('extension-settings').addEventListener('click', () => post({type:'settings'}));
   document.getElementById('context-select').addEventListener('click', () => {setDrawer(false);post({type:'contextSelect'});});
   document.getElementById('engineering').addEventListener('click', () => {engineering=!engineering;document.body.setAttribute('data-view',engineering?'engineering':'simple');setLocale(locale);});
-  document.getElementById('tab-chat').addEventListener('click', () => setTab('chat'));
-  document.getElementById('tab-context').addEventListener('click', () => setTab('context'));
-  document.getElementById('tab-terminal').addEventListener('click', () => setTab('terminal'));
+  document.getElementById('tab-chat').addEventListener('click', () => {setDrawer(true);document.getElementById('tab-chat').focus();});
+  document.getElementById('tab-context').addEventListener('click', () => {setTab('context');document.getElementById('tab-context').focus();});
+  document.getElementById('tab-terminal').addEventListener('click', () => {setTab('terminal');document.getElementById('tab-terminal').focus();});
+  document.getElementById('settings-tabs').addEventListener('keydown', event => {
+    if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+    const ids = ['chat','context','usage','terminal'];
+    const current = ids.indexOf(event.target?.id?.replace('tab-','') || settingsTab);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? ids.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + ids.length) % ids.length;
+    event.preventDefault(); document.getElementById('tab-' + ids[next]).click();
+  });
   document.getElementById('clear-context').addEventListener('click', () => post({type:'clearAttachments'}));
   document.getElementById('lang').addEventListener('click', () => { setLocale(locale === 'en' ? 'ru' : 'en'); post({type:'locale', value:locale}); });
   document.getElementById('theme').addEventListener('click', () => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system'));

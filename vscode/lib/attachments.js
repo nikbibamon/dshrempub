@@ -10,6 +10,9 @@ const MAX_IMAGE_PIXELS = 8 * 1024 * 1024;
 const MAX_ATTACHMENTS = 4;
 const MAX_TOTAL_BYTES = 4 * 1024 * 1024;
 const MAX_CONTEXT_BYTES = 80 * 1024;
+// A VSIX/ZIP/DB is never readable chat context: name the archive instead of
+// reporting a misleading 64 KiB text limit or "invalid UTF-8".
+const ARCHIVE_FILE = /\.(?:vsix|zip|tar|gz|tgz|bz2|xz|7z|rar|jar|whl|nupkg|exe|msi|dll|so|dylib|node|bin|db|sqlite3?|pdf|xlsx?|docx?|pptx?)$/i;
 
 function imageInfo(bytes) {
   if (bytes.length >= 24 && bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex')) && bytes.toString('ascii', 12, 16) === 'IHDR') {
@@ -83,7 +86,8 @@ async function prepareAttachment(name, bytes, { ocr = extractImageText, language
     if (refusal) throw new core.ServiceError('attachment_refused', refusal);
   } else {
     if (/\.(?:png|jpe?g|gif|webp|svg|bmp|tiff?|heic)$/i.test(name)) throw new core.ServiceError('image_format', 'Attach a valid PNG or JPG. Other image formats are not supported.');
-    if (bytes.length > MAX_TEXT_BYTES) throw new core.ServiceError('attachment_size', 'Text attachments are limited to 64 KiB. Attach a selection instead.');
+    if (ARCHIVE_FILE.test(name.split('/').pop())) throw new core.ServiceError('attachment_refused', 'Archives and binary files cannot be attached. Extract the text you need first (for example: unzip -p <file>.vsix extension/CHANGELOG.md > /tmp/notes.md) and attach that file.');
+    if (bytes.length > MAX_TEXT_BYTES) throw new core.ServiceError('attachment_size', 'Text attachments are limited to 64 KiB. Attach a selection or a smaller file instead.');
     const refusal = core.checkKnowledgeFile(name, bytes);
     if (refusal) throw new core.ServiceError('attachment_refused', refusal);
     text = bytes.toString('utf8');
