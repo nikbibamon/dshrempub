@@ -2,6 +2,9 @@
 const agentContext = require('./agent-context');
 const {shrinkJson, textLocale} = require('./agent-trace');
 const TOOL_RESULT_BYTES = 16000;
+// An echoed protocol line ("TOOL_RESULT {...}") is never an answer. Naming TOOL_RESULT while explaining
+// this code is: a live run lost a correct answer about context trimming because it mentioned the word.
+const RAW_TOOL_RESULT = /TOOL_RESULT\s*[{[]/;
 
 // A bounded client-side agent loop. Each model turn is one ordinary paid task
 // through the existing service route; tools run locally on the editor host.
@@ -190,7 +193,7 @@ async function runAgent({ goal, tree, projectContext = '', rules = '', history =
   let spent = 0;
   let parseFailures = 0;
   const fallback = /[а-яё]/i.test(goal) ? 'Достигнут лимит шагов. Проверьте журнал действий и уточните вопрос: итоговый ответ не получен.' : 'Agent reached the step limit. Review the action log and narrow the question: a final answer was not received.';
-  const safeAnswer = value => typeof value === 'string' && value.trim() && !value.includes('TOOL_RESULT') ? value : fallback;
+  const safeAnswer = value => typeof value === 'string' && value.trim() && !RAW_TOOL_RESULT.test(value) ? value : fallback;
   for (let step = 1; step <= steps; step++) {
     if (signal?.aborted) { const stopped = new Error('Agent stopped by the user.'); stopped.code = 'agent_stopped'; throw stopped; }
     onEvent({ type: 'step', step, maxSteps: steps, spent });
@@ -223,7 +226,7 @@ async function runAgent({ goal, tree, projectContext = '', rules = '', history =
       const text = safeAnswer(action.answer);
       const remainingOperatorSteps = Array.isArray(action.remaining_operator_steps) ? action.remaining_operator_steps.filter(x=>typeof x==='string' && x.trim()).slice(0,12).map(x=>x.slice(0,1000)) : [];
       const validRemainder = action.remaining_operator_steps === undefined || (Array.isArray(action.remaining_operator_steps) && action.remaining_operator_steps.every(x=>typeof x==='string'));
-      const validAnswer = typeof action.answer === 'string' && action.answer.trim() && !action.answer.includes('TOOL_RESULT');
+      const validAnswer = typeof action.answer === 'string' && action.answer.trim() && !RAW_TOOL_RESULT.test(action.answer);
       const status = action.status === 'done' && validAnswer && validRemainder && !remainingOperatorSteps.length ? 'done' : 'blocked';
       onEvent({ type: 'final', text, steps: step, spent, status, reason:'finish', remainingOperatorSteps });
       return { text, steps: step, spent, reason: 'finish', status, modelStatus:action.status, remainingOperatorSteps };

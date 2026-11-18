@@ -101,3 +101,14 @@ test('0.10.34 at the step limit a finish action is the answer; another action ke
   assert.match(stray.result.text, /^Достигнут лимит шагов/);
   assert.ok(Math.abs(stray.result.spent - 0.02) < 1e-9);
 });
+
+test('0.10.34 an answer that names TOOL_RESULT is kept; an echoed tool result is still refused', async () => {
+  const finishWith = async answer => runAgent({goal:'Объясни, как ужимается контекст', maxSteps:2, tools:{execute:async () => ({ok:true})},
+    ask:async () => ({content:JSON.stringify({tool:'finish', status:'done', answer}), cost:{spent_usd:0}})});
+  const explained = await finishWith('Потом урезаются выводы инструментов: `TOOL_RESULT` до шапки и хвоста, 12К → 200 байт.');
+  assert.equal(explained.status, 'done');
+  assert.match(explained.text, /урезаются выводы инструментов/);
+  const echoed = await finishWith('TOOL_RESULT {"ok":true,"stdout":"secret build log"}');
+  assert.equal(echoed.status, 'blocked');
+  assert.doesNotMatch(echoed.text, /secret build log/);
+});
