@@ -133,14 +133,14 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
     return device;
   }
 
-  async function pollDeviceLogin(device, { signal } = {}) {
+  async function pollDeviceLogin(device, { signal, rememberDevice = false } = {}) {
     const interval = Math.max(1, Number(device.interval) || 5) * 1000;
     const deadline = now() + Math.max(1, Number(device.expires_in) || 600) * 1000;
     while (now() < deadline) {
       if (signal?.aborted) throw new ServiceError('interrupted', 'Sign-in was cancelled');
       await sleep(interval);
       try {
-        const token = await request('/auth/token', { method: 'POST', body: { device_code: device.device_code } });
+        const token = await request('/auth/token', { method: 'POST', body: { device_code: device.device_code, ...(rememberDevice ? { remember_device: true } : {}) } });
         if (!token?.access_token) throw new ServiceError('incomplete', 'Service returned an incomplete login response');
         return { access_token: token.access_token, expires_at: new Date(now() + (Number(token.expires_in) || 3600) * 1000).toISOString(), api_base: root };
       } catch (error) {

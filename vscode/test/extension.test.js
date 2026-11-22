@@ -3075,6 +3075,50 @@ test('0.10.16 scan truncation does not pause Full access; the settings note stil
  }finally{x.close();}
 });
 
+test('command confirmation can save Full access and resume this truncated Auto run', async () => {
+  const root = await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(), 'full-in-run-'));
+  await Promise.all(Array.from({length:1030}, (_, i) => fs.mkdir(path.join(root, 'scan-' + i))));
+  const actions = [
+    {tool:'run_command', command:'printf first'},
+    {tool:'run_command', command:'printf second && printf chained'},
+    {tool:'run_command', command:'git push origin HEAD'},
+    {tool:'run_command', command:'git clean -ffdx'},
+    {tool:'finish', status:'done', answer:'Finished'}
+  ];
+  let app;
+  app = host({
+    root, defaultAuto:true, chatSequence:actions.map(JSON.stringify),
+    onWarning:async (message, _opts, run, upgrade) => {
+      if (message.includes('printf first')) {
+        assert.equal(upgrade, 'Full access for this folder…');
+        app.warning(upgrade);
+      } else if (message.startsWith('Enable Full access')) app.warning(run);
+      else {
+        assert.match(message, /git push origin HEAD/);
+        assert.equal(upgrade, undefined);
+        app.warning('Cancel');
+      }
+    }
+  });
+  try {
+    app.settings.set('workspaceContext','off');
+    app.settings.set('agentMaxSteps',actions.length);
+    await app.receive({type:'ready'});
+    await app.receive({type:'ask',question:'Perform the checks',agent:true});
+    const results = app.posts.filter(row => row.type === 'agent' && row.event?.type === 'result').map(row => row.event.result);
+    assert.equal(results[0].stdout, 'first');
+    assert.equal(results[1].stdout, 'secondchained');
+    assert.equal(results[2].refused, true);
+    assert.equal(results[3].ok, false);
+    assert.equal(app.warnings.length, 3);
+    const next = host({root,storage:app.storage,globalState:app.context.globalState,secrets:app.context.secrets});
+    try {
+      await next.receive({type:'ready'});
+      assert.equal(next.posts.filter(row => row.type === 'state').at(-1).fullAccess.enabled, true);
+    } finally { next.close(); }
+  } finally { app.close(); }
+});
+
 async function nativeCommitHost(hook='pre-commit',script){
  const {execFileSync}=require('node:child_process'),{createHash}=require('node:crypto');
  const base=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'orchestration-commit-cancel-'));
@@ -3167,6 +3211,30 @@ test('settings panel saves validated values on host and reports failures without
   await panel.receive({type:'guideAction',id:'configExample'});assert.ok(app.docs.some(d=>d.language==='jsonc'&&d.content.includes('tvijo.agentBudgetUsd')));
   assert.equal(app.requests.filter(r=>r.url.endsWith('/tasks')&&r.method==='POST').length,0);
  }finally{app.close();}
+});
+
+test('Settings saves the Auto checkboxes while an Agent run is waiting for an answer', async () => {
+  const app = host({chatContent:'{"tool":"finish","status":"done","answer":"Done"}'});
+  try {
+    app.settings.set('workspaceContext','off');
+    await app.receive({type:'ready'});
+    await app.commands.get('tvijo.settings')();
+    app.blockResponse('/tasks/task-test/chat','POST');
+    const running = app.receive({type:'ask',question:'Inspect the workspace',agent:true});
+    for (let i=0; i<200 && !app.responseWaiting(); i++) await new Promise(resolve => setTimeout(resolve,5));
+    assert.equal(app.responseWaiting(),true);
+    const panel = app.panels[0];
+    for (const key of ['agentAutoApply','agentAutoRun']) {
+      await panel.receive({type:'saveSetting',key:'tvijo.'+key,value:true,requestId:1});
+      const result = app.posts.filter(row => row.type === 'settingsSaved' && row.key === 'tvijo.'+key).at(-1);
+      assert.equal(result.value,true);
+      assert.equal(result.error,undefined);
+    }
+    app.releaseResponse();
+    await running;
+    await app.receive({type:'ready'});
+    assert.equal(app.posts.filter(row => row.type === 'state').at(-1).options.agentPreset,'auto');
+  } finally { app.releaseResponse(); app.close(); }
 });
 
 test('host budget warning adds only the chosen increment to this run and preserves cost receipts',async()=>{

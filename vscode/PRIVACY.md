@@ -44,14 +44,16 @@ The extension sends a question, conversation history, selected code and explicit
 attached text to the configured service when you press **Ask**. It does not scan your
 workspace automatically. A file chosen, pasted or dropped from your computer is first
 transferred to the VS Code extension host (the SSH server in a Remote SSH window).
-Image text is extracted there with Tesseract, without an upstream model call. Images
-are not sent to a vision model. Only extracted text is submitted with the question.
+Tesseract extracts text there. FFmpeg, when installed, generates a small grayscale
+text thumbnail for layout. Both run on the extension host. When you press **Ask**,
+the service receives the previewed text and thumbnail. Original image bytes stay
+on the extension host.
 Avoid selecting credentials or private data you are not authorized to send.
 
 Unsubmitted attachments and image previews remain in extension-host memory until sent,
 removed, or the host reloads. They are not written to temporary files by this extension.
-After submission, file contents and OCR text are part of conversation history; original
-image bytes are not. The composer draft is kept in VS Code webview state and in a
+Submitted file text, OCR and thumbnails can enter conversation history. The composer
+draft is kept in VS Code webview state and in a
 scoped local draft file after a one-second typing pause. A separate
 **Add file to my knowledge base** command requires confirmation and stores the file's
 text in the service knowledge base. Attaching a file to a question does not add it there.

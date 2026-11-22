@@ -735,13 +735,15 @@ function activate(context) {
     await vscode.commands.executeCommand('vscode.diff', before.uri, after.uri, 'Tvijo agent: ' + relative);
   }
 
-  async function confirmAgentRun({ command, cwd }) {
+  async function confirmAgentRun({ command, cwd }, upgrade) {
     if (typeof vscode.window.showWarningMessage !== 'function') return false;
     const run = L('Run command', 'Выполнить команду');
+    const full = L('Full access for this folder…', 'Полный доступ для этой папки…');
     const answer = await vscode.window.showWarningMessage(
       L('Tvijo agent wants to run a command', 'Tvijo агент хочет выполнить команду') + ':\n' + command + '\n\n' + cwd,
       { modal: true, detail: L('The command runs with your local permissions; output is captured and truncated.', 'Команда выполняется с вашими локальными правами; вывод захватывается и обрезается.') },
-      run);
+      run, ...(upgrade ? [full] : []));
+    if (upgrade && answer === full) return upgrade();
     return answer === run;
   }
 
@@ -810,7 +812,7 @@ function activate(context) {
     const folder = await requireWorkspace();
     if (!folder) throw new core.ServiceError('no_workspace', L('Open a project folder before starting the agent.', 'Откройте папку проекта, прежде чем запускать агента.'));
     const baseGuard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
-    const fullGrant = planMode ? null : fullAccess.capture(folder);
+    let fullGrant = planMode ? null : fullAccess.capture(folder);
     let verifyAgentSavedFiles = () => {};
     const guard = async() => { await baseGuard(); if (fullGrant) fullAccess.assertCurrent(folder,fullGrant); verifyAgentSavedFiles(); };
     if (attachmentScope !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account or thread changed before the agent started.');
@@ -829,7 +831,7 @@ function activate(context) {
     agentAbort = abort; agentRunning = true; busy = true; lastError = null; lastAgentOutcome = null; retryAgentStep=null;
     const rulesTracker=projectRulesHost.beginTask(folder);
     let taskRefsChanged=false;
-    const taskEffectsText=()=>[rulesTracker.scanTruncated && !fullGrant?L('Rules scan truncated; commands require confirmation for this task.','Сканирование правил усечено; команды этой задачи требуют подтверждения.'):'',taskRefsChanged?L('HEAD or Git refs changed during this task through a command or another writer. Auto-commit refused.','HEAD или ссылки Git изменились во время задачи командой или другим процессом. Автокоммит отклонён.'):'',rulesTracker.changed().length?L('Rules changed outside an approved direct edit and were quarantined: ','Правила изменены вне одобренной прямой правки и помещены в карантин: ')+rulesTracker.changed().map(row=>row.file).join(', '):''].filter(Boolean).join('\n');
+    const taskEffectsText=()=>[rulesTracker.scanTruncated && !fullGrant?L('Rules scan truncated. At the next command prompt you can enable Full access for this folder and continue the task.','Сканирование правил усечено. При следующем запросе команды можно включить полный доступ для этой папки и продолжить задачу.'):'',taskRefsChanged?L('HEAD or Git refs changed during this task through a command or another writer. Auto-commit refused.','HEAD или ссылки Git изменились во время задачи командой или другим процессом. Автокоммит отклонён.'):'',rulesTracker.changed().length?L('Rules changed outside an approved direct edit and were quarantined: ','Правила изменены вне одобренной прямой правки и помещены в карантин: ')+rulesTracker.changed().map(row=>row.file).join(', '):''].filter(Boolean).join('\n');
     const localAgentRunId = randomUUID();
     const recoveryKey = recoveryScope(auth);
     const taskReceipt = createTaskReceipt({id:localAgentRunId,projectScope:recoveryKey,projectId:shared.selection(auth.scope)?.projectId || null,folder:folder.uri.fsPath,mode:planMode ? 'plan' : fullGrant?.extra ? 'extra' : fullGrant ? 'full' : 'agent',startedAt});
@@ -883,7 +885,7 @@ function activate(context) {
       let firstAgentAnswer = null;
       const exchanges = [];
       const writeVersions = new Map();
-      const saveAgentEdits = !!fullGrant || (autoApply && autoRun);
+      let saveAgentEdits = !!fullGrant || (autoApply && autoRun);
       const savedWrites = new Map(), firstPrevious=new Map(), servedModels=new Set(), commitEvents=[];
       const autoCommit=require('./lib/auto-commit');
       const commitStart=await autoCommit.capture({root:folder.uri.fsPath,workspaceRoot:folder.owner?.canonicalRoot || folder.uri.fsPath,storageRoot:context.globalStorageUri?.fsPath,author:await require('./lib/commit-author').commitAuthor(config.get('commitIdentity','git'),context.globalState,auth.scope)});
@@ -899,7 +901,7 @@ function activate(context) {
       const commandSession = mapSession(auth);
       const reviewer = createAgentReview({root:folder.uri.fsPath,guard,signal:abort.signal,enabled:!!fullGrant?.reviews,claudeEnabled:config.get('agentReview.claudeEnabled',false),maxCalls:2});
       const tools = createTools({
-        root: folder.uri.fsPath, rgPath: findRipgrep(vscode.env.appRoot), allowShell: !!fullGrant, extraAccess: !!fullGrant?.extra, agentReview:reviewer, reviewEnabled:!!fullGrant?.reviews,
+        root: folder.uri.fsPath, rgPath: findRipgrep(vscode.env.appRoot), allowShell: () => !!fullGrant, extraAccess: !!fullGrant?.extra, agentReview:reviewer, reviewEnabled:!!fullGrant?.reviews,
         knowledge:require('./lib/knowledge-client').createKnowledgeTool({api,token:auth.access_token,guard}),
         codeIntelligence:(action,{signal}) => codeIntelligence.inspect({vscode,root:folder.uri.fsPath,action,guard,signal}),
         planInspect:(operation,{signal}) => planInspection.inspect({vscode,root:folder.uri.fsPath,operation,guard,signal}), guard, signal:abort.signal,
@@ -908,11 +910,23 @@ function activate(context) {
           if (planMode) return false;
           await guard();
           const namesRule=(info.decision.operands || info.decision.args).some(arg=>require('./lib/project-rules').isRulesPath(arg.split('=').at(-1)));
-          // Full access is the user's standing approval: a truncated rules scan,
-          // quarantined rule edits and non-destructive Git no longer pause it.
-          // Hard denials, commands that name rules files and git push still do.
-          const approved = fullGrant ? (!namesRule && !info.decision.outward) || await confirmAgentRun(info) : !rulesTracker.approvalRequired && !namesRule && !info.decision.requiresApproval && autoRun && safeAutoCommand(info.command) ? true : await confirmAgentRun(info);
-          await guard(); return approved;
+          const ordinary = !namesRule && !info.decision.outward;
+          if (ordinary && (fullGrant || (!rulesTracker.approvalRequired && !info.decision.requiresApproval && autoRun && safeAutoCommand(info.command)))) return true;
+          const upgrade = ordinary && !fullGrant && fullAccess.status(folder).available ? async () => {
+            const upgradeGuard = async () => {
+              await guard();
+              if (abort.signal.aborted || info.signal?.aborted) throw new Error('The command was cancelled.');
+            };
+            if (!await fullAccess.enable(folder, { guard:upgradeGuard })) return false;
+            fullGrant = fullAccess.capture(folder);
+            await guard();
+            saveAgentEdits = true;
+            await postChatState();
+            return !!fullGrant;
+          } : undefined;
+          const approved = await confirmAgentRun(info, upgrade);
+          await guard();
+          return approved;
         },
         confirmWrite: async info => {
           if (planMode) return false;
@@ -1304,7 +1318,7 @@ function activate(context) {
         no_workspace: 'Сначала откройте рабочую область: файл вне проекта приложить нельзя.',
         rules_context: 'Файлы правил прикладываются через «Просмотр контекста проекта» или список в настройках.',
         image_format: 'Поддерживаются только PNG и JPG.',
-        image_no_text: 'В изображении не найден читаемый текст. Обрежьте скриншот и приложите снова.',
+        image_no_text: 'Нет читаемого текста или текстовой миниатюры. Обрежьте скриншот или проверьте FFmpeg на хосте расширения.',
         image_dimensions: 'Изображение больше 8 мегапикселей или 8192 точек по стороне. Обрежьте его.',
         ocr_unavailable: 'Для распознавания текста на этом хосте нужен Tesseract с настроенными языками.',
         ocr_timeout: 'Распознавание текста заняло больше 20 секунд. Обрежьте скриншот и приложите снова.',
@@ -1919,7 +1933,9 @@ function activate(context) {
         if(message?.type==='locale' && ['en','ru'].includes(message.value)){await context.globalState.update(UI_LOCALE,message.value);await postChatState();}
         else if (message?.type === 'saveSetting') {
           await sync.save(message.key,message.requestId,async()=>{
-            ensureIdle();
+            const permissionSetting = ['tvijo.agentAutoRun','tvijo.agentAutoApply'].includes(message.key);
+            if (!permissionSetting || !agentRunning) ensureIdle();
+            else if (modeUpdatePending || rewindBusy) throw new core.ServiceError('busy','Wait for the current permission update to finish.');
             let value;
             try{value=require('./lib/settings-controls').validateSetting(message.key,message.value);}catch{throw Error(L('Cannot save this value. Check its type, allowed choices and range.','Не удалось сохранить значение. Проверьте тип, допустимые варианты и диапазон.'));}
             if(message.key==='tvijo.pack' && !['','none'].includes(value) && !(identity && settingsPackCatalogue && settingsPackCatalogue.base===identity.base && settingsPackCatalogue.token===identity.token && settingsPackCatalogue.data.some(pack=>pack.id===value)))throw Error(L('Choose a pack from the loaded catalog. The saved ID is preserved.','Выберите пакет из загруженного каталога. Сохранённый ID сохранён.'));
@@ -1936,6 +1952,7 @@ function activate(context) {
               const inspected=cfg.inspect?.(message.key.slice(6));
               if(inspected?.workspaceValue!==undefined || inspected?.workspaceFolderValue!==undefined) throw Error(L('This value is overridden by workspace settings. Use Edit in VS Code.','Значение переопределено рабочей областью. Используйте «Изменить в VS Code».'));
               await cfg.update(message.key.slice(6),value,vscode.ConfigurationTarget.Global);
+              if (permissionSetting && settingsValues()[message.key] !== value) throw Error(L('VS Code kept a different effective value. Check User and Remote settings.','VS Code сохранил другое действующее значение. Проверьте пользовательские и удалённые настройки.'));
             }
           });
           await refresh();
@@ -2145,7 +2162,7 @@ function activate(context) {
       remote_connection: vscode.env.remoteName || null, extension_host_platform: process.platform,
       running_package_marked_obsolete: obsolete, reload_command: 'Tvijo: Reload window',
       gateway_version: health.version || 'unknown', service, health,
-      image_mode: 'local OCR text, not visual reasoning', sends_on: 'Ask only', max_task_usd: '1'
+      image_mode: 'local OCR and optional grayscale text thumbnail', sends_on: 'Ask only', max_task_usd: '1'
     }, null, 2));
     if (obsolete === true) {
       const reload = L('Reload this window', 'Перезагрузить это окно');
@@ -2173,7 +2190,7 @@ function activate(context) {
     const knownSecrets = [auth.access_token, auth.refresh_token, storageUri?.fsPath, storageUri?.toString?.()].filter(Boolean);
     await showPrivateDocument('markdown', conversationExport.exportConversation(history, { knownSecrets }), auth);
   });
-  command('tvijo.help', () => showDocument('markdown', '# Tvijo DSHREM ' + (context.extension?.packageJSON?.version || require('./package.json').version) + '\n\n' + L('If an update still shows old behavior, use **Tvijo: Reload window**. Right-click a folder in Explorer → **Work in Tvijo**, or use the folder button in chat. Agent mode reads, edits and tests in that folder with confirmations; Full access requires explicit approval. Chat answers without tools.','Если после обновления поведение не изменилось, выполните **Tvijo: Reload window**. Нажмите правой кнопкой по папке в Explorer → **Work in Tvijo** или выберите папку кнопкой в чате. Агент читает, правит и тестирует с подтверждениями; полный доступ требует явного согласия. Чат отвечает без инструментов.') + '\n\nClick **Attach** to choose a file on your computer, paste a PNG/JPG screenshot, or drop a file into the chat. Use **Workspace** or `/attach path/to/file` for files on the SSH host. Select code and click **Selection** to attach only those lines.\n\nImages use local text extraction (OCR); the model does not see visual layout. Files are context for the next question. Knowledge-base uploads are a separate, confirmed action. Nothing is sent to the model until **Ask**. Each question has a $1 cap. Chat answers questions and suggests changes. Use Create isolated coding task to explicitly upload selected source and immutable tests, run a bounded offline test profile, review concrete diffs and explicitly apply unchanged targets.\n\n' + L('Use **Tvijo: Data & privacy** for read-only server preferences and **Tvijo: Resources** for verified public links. Both are in Settings and how it works and All commands.','Используйте **Tvijo: Data & privacy** для просмотра настроек сервера и **Tvijo: Resources** для проверенных ссылок. Обе команды доступны в настройках и списке всех команд.') + '\n\n' + ACTIONS.map(([, label, detail]) => `- **${label}**${detail ? ` — ${detail}` : ''}`).join('\n')));
+  command('tvijo.help', () => showDocument('markdown', '# Tvijo DSHREM ' + (context.extension?.packageJSON?.version || require('./package.json').version) + '\n\n' + L('If an update still shows old behavior, use **Tvijo: Reload window**. Right-click a folder in Explorer → **Work in Tvijo**, or use the folder button in chat. Agent mode reads, edits and tests in that folder with confirmations; Full access requires explicit approval. Chat answers without tools.','Если после обновления поведение не изменилось, выполните **Tvijo: Reload window**. Нажмите правой кнопкой по папке в Explorer → **Work in Tvijo** или выберите папку кнопкой в чате. Агент читает, правит и тестирует с подтверждениями; полный доступ требует явного согласия. Чат отвечает без инструментов.') + '\n\nClick **Attach** to choose a file on your computer, paste a PNG/JPG screenshot, or drop a file into the chat. Use **Workspace** or `/attach path/to/file` for files on the SSH host. Select code and click **Selection** to attach only those lines.\n\nImages use local text extraction (OCR) and, with FFmpeg on the extension host, a small grayscale text thumbnail. The service receives those text representations. Files are context for the next question. Knowledge-base uploads are a separate, confirmed action. Nothing is sent to the model until **Ask**. Each question has a $1 cap. Chat answers questions and suggests changes. Use Create isolated coding task to explicitly upload selected source and immutable tests, run a bounded offline test profile, review concrete diffs and explicitly apply unchanged targets.\n\n' + L('Use **Tvijo: Data & privacy** for read-only server preferences and **Tvijo: Resources** for verified public links. Both are in Settings and how it works and All commands.','Используйте **Tvijo: Data & privacy** для просмотра настроек сервера и **Tvijo: Resources** для проверенных ссылок. Обе команды доступны в настройках и списке всех команд.') + '\n\n' + ACTIONS.map(([, label, detail]) => `- **${label}**${detail ? ` — ${detail}` : ''}`).join('\n')));
 
   command('tvijo.openLearningGuide', async () => {
     // Only the packaged, reviewed guide is executable here. No task path,
@@ -2214,7 +2231,7 @@ function activate(context) {
       (_progress, token) => {
         const abort = new AbortController();
         token.onCancellationRequested(() => abort.abort());
-        return api.pollDeviceLogin(device, { signal: abort.signal });
+        return api.pollDeviceLogin(device, { signal: abort.signal, rememberDevice: true });
       });
     assertAuthAttempt(attempt, api.base);
     await commitAuthentication(attempt, api.base, async check => {
@@ -3104,7 +3121,10 @@ function activate(context) {
           } else if (message?.type === 'previewAttachment') {
             const auth = await requireAuth();
             const item = attachments.find((item) => item.id === message.id);
-            if (item) await showPrivateDocument('plaintext', item.name + '\n\n' + item.text, auth);
+            if (item) {
+              const preview = item.sketch?.trim() ? files.questionWithAttachments('', [item]).trimStart() : item.name + '\n\n' + item.text;
+              await showPrivateDocument('plaintext', preview, auth);
+            }
           } else if (message?.type === 'copy' || message?.type === 'openAnswer') {
             const auth = await requireAuth();
             const history = historyFor(auth.scope);

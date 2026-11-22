@@ -450,8 +450,9 @@ function createTools({ root, confirmRun, confirmWrite, applyWrite, beforeWrite =
       switch (action.tool) {
         case 'agent_capabilities': {
           const extra = !context.planMode && (typeof extraAccess === 'function' ? !!extraAccess() : !!extraAccess);
+          const shell = typeof allowShell === 'function' ? allowShell() : allowShell;
           const canReview = !context.planMode && !!agentReview && (extra || reviewEnabled === true);
-          const value = {ok:true, mode:context.planMode ? 'plan' : extra ? 'extra' : allowShell ? 'full' : 'agent', run_command:!context.planMode, host_shell:extra && process.platform !== 'win32', shell_syntax:process.platform === 'win32' || context.planMode ? 'literal' : extra ? 'posix' : allowShell ? 'literal_chains' : 'literal', editor_file_scope:root, review:canReview, copilot:'Use @tvijo or #tvijo from Copilot Chat; outbound Copilot review is not implemented.'};
+          const value = {ok:true, mode:context.planMode ? 'plan' : extra ? 'extra' : shell ? 'full' : 'agent', run_command:!context.planMode, host_shell:extra && process.platform !== 'win32', shell_syntax:process.platform === 'win32' || context.planMode ? 'literal' : extra ? 'posix' : shell ? 'literal_chains' : 'literal', editor_file_scope:root, review:canReview, copilot:'Use @tvijo or #tvijo from Copilot Chat; outbound Copilot review is not implemented.'};
           if (canReview) value.agents = await agentReview.status();
           await guard(); return value;
         }
