@@ -476,9 +476,9 @@ preview ends, the panel says which limit was reached and offers a credit action.
 
 - Up to four attachments, 2 MiB each and 4 MiB combined; text files 64 KiB each; attached
   and extracted text together limited to 80 KiB.
-- Images use local Tesseract OCR only (`tvijo.ocrLanguages`, default `eng+rus`, one
-  thread, 20-second bound). Colours, charts, object identity and layout are not analysed.
-  PDF is not converted.
+- Images use local Tesseract OCR (`tvijo.ocrLanguages`, default `eng+rus`, one
+  thread, 20-second bound) and a small grayscale text thumbnail when FFmpeg is available.
+  The attachment preview shows exactly what the model receives. PDF is not converted.
 - Credential-like files, detected secrets, binaries and paths outside an open workspace
   folder are refused; symlinks are refused.
 - `tvijo.workspaceContext` (default `ask`, 48000 bytes) offers a bounded project block on
@@ -589,9 +589,9 @@ Attachments are shown before sending and can be removed individually. Click **As
 or use **Preview text** first to inspect the exact file/OCR text.
 Ask sends them with your question; with no question text, Ask explains the attachment.
 
-Images use **local OCR text extraction**, not visual reasoning. The preview shows the
-original, but the model receives extracted text only. Colours, charts, object identity
-and visual layout are not analysed. Tesseract must be installed on the extension host.
+The image card shows the original on the extension host. The model receives local OCR
+text and, when FFmpeg is available, a small grayscale text thumbnail for approximate
+layout. Install Tesseract on the extension host for text extraction.
 `tvijo.ocrLanguages` defaults to `eng+rus`; use `eng`
 on hosts with only English OCR data. OCR uses one thread with a 20-second bound.
 

@@ -1,3 +1,10 @@
+## Unreleased
+
+- Enable and save Full access for a trusted folder from a command confirmation. The current Agent run continues with the new permission.
+- Save the Auto checkboxes in Settings while an Agent task is active. The next run reads the saved values.
+- Editor device login requests a seven-day session from a compatible gateway.
+- Image context includes a local grayscale text thumbnail when FFmpeg is available. Preview text shows both the thumbnail and OCR.
+
 ## 0.10.34 — 2026-11-18 (menu help and reply language candidate)
 
 - **Help no longer covers the menu.** Help for a menu choice opens above the open menu, so every choice stays visible while you read it. On a short panel long help scrolls in the free space above the menu. Help for other controls keeps its position next to the control.

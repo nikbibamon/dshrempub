@@ -997,7 +997,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
         const preview = document.createElement('img'); preview.src = item.preview; preview.alt = item.name; row.append(preview);
       }
       const label = document.createElement('div'); label.className = 'label'; label.textContent = item.name;
-      const detail = document.createElement('small'); detail.textContent = (item.kind === 'image' ? t('ocr') : t('fileContext')) + ' · ' + Math.ceil(item.size / 1024) + ' KiB'; label.append(detail);
+      const detail = document.createElement('small'); detail.textContent = (item.kind === 'image' ? t(item.layout ? 'imageLayout' : 'ocr') : t('fileContext')) + ' · ' + Math.ceil(item.size / 1024) + ' KiB'; label.append(detail);
       const inspect = document.createElement('button'); inspect.type = 'button'; inspect.textContent = t('preview'); inspect.disabled = running || submitting || preparing;
       inspect.addEventListener('click', () => post({type:'previewAttachment',id:item.id})); label.append(inspect);
       const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.title = 'Remove ' + item.name; remove.setAttribute('aria-label', remove.title); remove.disabled = running || submitting || preparing;
@@ -1115,7 +1115,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       document.getElementById('auto-commit').textContent=(locale==='ru'?'Автокоммит: ':'Auto-commit: ')+(data.autoCommit==='off'?(locale==='ru'?'выкл':'off'):(locale==='ru'?'вкл':'on'));
       document.getElementById('bot-setup-note').hidden = !data.botSetupNeeded;
       const bridgeNote = document.getElementById('bridge-note'); bridgeNote.hidden = !data.bridgeEnabled; bridgeNote.textContent = t('bridgeOn');
-      const scanNote=document.getElementById('rules-scan-note');scanNote.hidden=!data.rulesScanTruncated;scanNote.textContent=locale==='ru'?'Сканирование правил усечено — команды требуют подтверждения.':'Rules scan truncated — commands require confirmation.';
+      const scanNote=document.getElementById('rules-scan-note');scanNote.hidden=!data.rulesScanTruncated;scanNote.textContent=locale==='ru'?'Сканирование правил усечено. В авторежиме может потребоваться подтверждение команды.':'Rules scan truncated. Auto may ask for command confirmation.';
       const rulesPanel=document.getElementById('loaded-rules');rulesPanel.replaceChildren();
       for(const rule of data.loadedRules || []){const row=document.createElement('div');row.className='rule-row';const toggle=document.createElement('button');toggle.type='button';toggle.textContent=(rule.quarantined?'⚠ ':rule.disabled?'☐ ':'☑ ')+rule.file+' · '+rule.bytes+' B'+(rule.truncated?(locale==='ru'?' · обрезано':' · truncated'):'')+(rule.status==='rejected'?' · '+rule.reason:'')+(rule.quarantined?(locale==='ru'?' · карантин — включить снова':' · quarantined — re-enable'):'');toggle.disabled=running;toggle.addEventListener('click',()=>post({type:rule.quarantined?'reenableRule':'toggleRule',id:rule.quarantined?(rule.quarantineId || rule.id):rule.id}));row.append(toggle);rulesPanel.append(row);}
       renderRunSession(data.runSession);
