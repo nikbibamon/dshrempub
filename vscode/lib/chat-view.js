@@ -166,6 +166,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
 
   function refreshControlHelp() {
     for (const [id, text] of Object.entries(CONTROL_HELP)) {
+      if (id === 'signin' || id === 'composer-signin') continue;
       setHelp(document.getElementById(id), text[locale === 'ru' ? 1 : 0]);
     }
   }
@@ -807,10 +808,17 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   }
   function renderAccountControls() {
     const checking = ['loading','checking','connecting'].includes(lastAuthState);
+    const savedSessionHelp = lastAuthState === 'reconnecting'
+      ? ['Check your saved Tvijo session again.', 'Повторно проверяет сохранённый сеанс Tvijo.']
+      : lastAuthState === 'loading' || lastAuthState === 'checking'
+        ? ['Tvijo is checking for a saved session.', 'Tvijo проверяет сохранённый сеанс.']
+        : null;
     for (const id of ['signin', 'composer-signin']) {
       const button = document.getElementById(id);
       button.textContent = accountActionLabel();
       button.disabled = checking;
+      setHelp(button, (savedSessionHelp || CONTROL_HELP[id])[locale === 'ru' ? 1 : 0]);
+      if (button === helpAnchor && !helpTip.hidden) showHelp(button);
     }
     document.getElementById('composer-signin').hidden = lastSignedIn;
   }

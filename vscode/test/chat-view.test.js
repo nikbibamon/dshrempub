@@ -711,6 +711,7 @@ test('saved session reconnect renders a localized retry instead of starting sign
   const button = view.element('composer-signin');
   assert.equal(button.hidden,false);
   assert.equal(button.textContent,'Checking session…');
+  assert.match(button.getAttribute('data-help'),/checking for a saved session/);
   assert.equal(button.disabled,true);
   assert.equal(view.element('send').disabled,true);
   const outgoing = view.outgoing.length;
@@ -720,10 +721,12 @@ test('saved session reconnect renders a localized retry instead of starting sign
   view.emit('window:message',{data:{type:'state',signedIn:false,scopeKey:null,authState:'reconnecting'}});
   assert.equal(button.disabled,false);
   assert.equal(button.textContent,'Reconnect');
+  assert.equal(button.getAttribute('data-help'),'Check your saved Tvijo session again.');
   button.click();
   assert.equal(view.outgoing.at(-1).type,'reconnectAccount');
   view.emit('lang:click',{});
   assert.equal(button.textContent,'Подключиться снова');
+  assert.equal(button.getAttribute('data-help'),'Повторно проверяет сохранённый сеанс Tvijo.');
   view.element('signin').click();
   assert.equal(view.outgoing.at(-1).type,'reconnectAccount');
   assert.equal(view.element('send').disabled,true);
