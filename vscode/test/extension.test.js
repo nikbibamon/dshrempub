@@ -127,6 +127,10 @@ function host(options = {}) {
       if (id === 'vscode') return vscode;
       if (id === './lib/full-access' && options.isPrivileged) {const actual=originalLoad.call(this,id,...args);return {...actual,createFullAccess:params=>actual.createFullAccess({...params,isPrivileged:options.isPrivileged})};}
       if (id === './lib/local-tools' && options.isPrivileged) {const actual=originalLoad.call(this,id,...args);return {...actual,createTools:params=>actual.createTools({...params,isPrivileged:options.isPrivileged})};}
+      if (id === './lib/rules-host' && options.scanOptions) {
+        const actual = originalLoad.call(this, id, ...args);
+        return {...actual, createRulesHost:params => actual.createRulesHost({...params, scanOptions:options.scanOptions})};
+      }
       if (id === './lib/agent-review') return {createAgentReview:options.agentReview || (()=>({status:async()=>({ok:true,agents:{},fixture:true}),review:async()=>{throw Error('Review test must supply a bounded mock; native CLIs are never launched by this fixture.');}}))};
       if (id === './lib/syntax-host' && options.syntaxHost) return {createSyntaxHost:() => options.syntaxHost};
       if (id === './lib/checkpoints' && options.checkpointFailure) {
@@ -175,6 +179,26 @@ function host(options = {}) {
     webview: { cspSource: 'test:', onDidReceiveMessage: (fn) => { receive = fn; return disposable; }, postMessage: async (message) => { recordPost(message); return true; } },
     onDidDispose: (fn) => { disposal = fn; }
   });
+  function disposeView() {
+    const dispose = disposal;
+    disposal = undefined;
+    dispose?.();
+  }
+  function disposeHost() {
+    for (const item of context.subscriptions.splice(0)) item.dispose?.();
+  }
+  let closed = false;
+  function close() {
+    if (closed) return;
+    closed = true;
+    try {
+      disposeView();
+    } finally {
+      // Stop extension timers before this fixture gives up the global transport.
+      try { disposeHost(); }
+      finally { globalThis.fetch = originalFetch; }
+    }
+  }
   const { tenantState, scopeKey } = require('../lib/tenant-state');
   const accountLocal=tenantState(context);
   const folderScope=scope=>require('node:crypto').createHash('sha256').update(JSON.stringify([scope,require('../lib/active-workspace').identity(require('../lib/active-workspace').createActiveWorkspace({vscode,state:context.workspaceState}).current())])).digest('hex');
@@ -187,9 +211,7 @@ function host(options = {}) {
     releaseResponse: () => { blockedRequest = null; releaseRequest?.(); },
     block: () => { blockGrant = true; }, unblock: () => release?.(),
     setApiBase: value => { serviceBase = value; },
-    disposeView: () => disposal(),
-    disposeHost: () => { for (const item of context.subscriptions) item.dispose?.(); },
-    close: () => { disposal(); globalThis.fetch = originalFetch; } };
+    disposeView, disposeHost, close };
 }
 
 // Deliberately meaningless catalogue: no product pack content belongs in tests.
@@ -2681,6 +2703,37 @@ for (const failure of ['503', 'network']) test('saved session reconnect through 
   } finally { app.disposeHost(); app.close(); }
 });
 
+test('closing a host fixture stops its timer before another host acquires the mock transport', async t => {
+  t.mock.timers.enable({apis:['setInterval']});
+  const accountReads = app => app.requests.filter(r => r.url.endsWith('/account')).length;
+  const tick = async () => {
+    t.mock.timers.tick(30000);
+    for (let i = 0; i < 16; i++) await new Promise(resolve => setImmediate(resolve));
+  };
+  const retired = host();
+  let active;
+  try {
+    await retired.receive({type:'ready'});
+    retired.disposeView();
+    const beforeViewTick = accountReads(retired);
+    await tick();
+    assert.equal(accountReads(retired),beforeViewTick+1,'closing the view alone keeps the host active');
+    retired.close();
+
+    active = host();
+    await active.receive({type:'ready'});
+    const activeFetch = globalThis.fetch;
+    retired.close();
+    assert.equal(globalThis.fetch,activeFetch,'repeated teardown leaves the successor transport alone');
+    const before = accountReads(active);
+    await tick();
+    assert.equal(accountReads(active),before+1,'only the active host may verify its account');
+  } finally {
+    active?.close();
+    retired.close();
+  }
+});
+
 test('saved session reconnect retries one idle tick per outage and allows a later manual check', async t => {
   t.mock.timers.enable({apis:['setInterval']});
   let available = false;
@@ -2950,7 +3003,7 @@ async function savedAgentFixture(options={}) {
  }
  const changed=options.content??'agent changed';
  const actions=options.actions??[{tool:'write_file',path:relative,content:changed},{tool:'read_file',path:relative},{tool:'run_command',command:'cat '+relative},{tool:'finish',answer:'Disk verified'}];
- app=host({root,defaultAuto:options.defaultAuto,account:options.account,grantModel:options.grantModel,checkpointFailure:options.checkpointFailure,chatSequence:actions.map(JSON.stringify),onRequest:options.onRequest,configurationUpdate:options.configurationUpdate,
+ app=host({root,defaultAuto:options.defaultAuto,account:options.account,grantModel:options.grantModel,checkpointFailure:options.checkpointFailure,chatSequence:actions.map(JSON.stringify),onRequest:options.onRequest,configurationUpdate:options.configurationUpdate,scanOptions:options.scanOptions,
   onWarning:async(_message,_opts,button)=>{if(options.auto && !options.denyApproval)app.warning(button);},
   documentFor,syntaxHost:{newRun:()=>({}),check:async()=>null,dispose(){},invalidate(){},cancelActive(){}},
   applyEdit:async edit=>{
@@ -3245,9 +3298,9 @@ test('judgefix2 production final answer explicitly reports hook commit withdrawa
 });
 
 test('0.10.16 scan truncation does not pause Full access; the settings note still reports it EN/RU',async()=>{
- const x=await savedAgentFixture({actions:[{tool:'run_command',command:'printf approved && printf chained'},{tool:'finish',status:'done',answer:'Scan limit'}]});
+ const x=await savedAgentFixture({scanOptions:{maxDirectories:1},actions:[{tool:'run_command',command:'printf approved && printf chained'},{tool:'finish',status:'done',answer:'Scan limit'}]});
  try{
-  await Promise.all(Array.from({length:1030},(_,i)=>fs.mkdir(path.join(x.root,'scan-dir-'+i))));const n=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,n);assert.equal(x.results()[0].ok,true,JSON.stringify(x.results()));assert.equal(x.results()[0].stdout,'approvedchained');
+  await fs.mkdir(path.join(x.root,'scan-dir'));const n=x.app.warnings.length;await x.run();assert.equal(x.app.warnings.length,n);assert.equal(x.results()[0].ok,true,JSON.stringify(x.results()));assert.equal(x.results()[0].stdout,'approvedchained');
   const state=x.app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.rulesScanTruncated,true);assert.doesNotMatch(String(state.error?.text||''),/scan truncated/);assert.doesNotMatch(state.messages.at(-1).content,/require confirmation/);
   const {sidebar}=require('./helpers/sidebar');for(const locale of ['en','ru']){const view=sidebar({}, {...state,locale,error:{text:'x',action:'rulesSettings'}});view.element('notice-action').click();assert.equal(view.element('rules-scan-note').hidden,false);assert.match(view.element('rules-scan-note').textContent,/truncated|усечено/);}
  }finally{x.close();}
@@ -3255,7 +3308,7 @@ test('0.10.16 scan truncation does not pause Full access; the settings note stil
 
 test('command confirmation can save Full access and resume this truncated Auto run', async () => {
   const root = await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(), 'full-in-run-'));
-  await Promise.all(Array.from({length:1030}, (_, i) => fs.mkdir(path.join(root, 'scan-' + i))));
+  await fs.mkdir(path.join(root, 'scan-dir'));
   const actions = [
     {tool:'run_command', command:'printf first'},
     {tool:'run_command', command:'printf second && printf chained'},
@@ -3265,7 +3318,7 @@ test('command confirmation can save Full access and resume this truncated Auto r
   ];
   let app;
   app = host({
-    root, defaultAuto:true, chatSequence:actions.map(JSON.stringify),
+    root, defaultAuto:true, scanOptions:{maxDirectories:1}, chatSequence:actions.map(JSON.stringify),
     onWarning:async (message, _opts, run, upgrade) => {
       if (message.includes('printf first')) {
         assert.equal(upgrade, 'Full access for this folder…');
@@ -3686,15 +3739,15 @@ for (const failure of ['partial save','effective override','account change','wor
 
 test('live Auto keeps an incomplete rules scan, literal parser and hard denials in force', async () => {
   const root = await permissionProject();
-  await Promise.all(Array.from({length:1030}, (_, i) => fs.mkdir(path.join(root,'scan-'+i))));
+  await fs.mkdir(path.join(root, 'scan-dir'));
   const actions = [verificationCommand,{tool:'run_command',command:'printf a && printf b'},
     {tool:'run_command',command:'sudo true'},verifiedAnswer];
-  const app = host({root,chatSequence:actions.map(JSON.stringify)});
+  const app = host({root,scanOptions:{maxDirectories:1},chatSequence:actions.map(JSON.stringify)});
   let running;
   try {
     ({running} = await pausePermissionRun(app));
     await sendActivePreset(app,'auto');
-    assert.match(permissionState(app).activePermissions.rulesNote,/1,024 directories or 20,000 entries/);
+    assert.match(permissionState(app).activePermissions.rulesNote,/16,384 directories or 300,000 entries/);
     app.warning('Cancel');
     app.releaseResponse();
     await running;

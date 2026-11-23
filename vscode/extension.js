@@ -997,10 +997,14 @@ function activate(context) {
     agentAbort = abort; agentRunning = true; busy = true; lastError = null; lastAgentOutcome = null; retryAgentStep=null;
     const rulesTracker=projectRulesHost.beginTask(folder);
     const trusted = vscode.workspace.isTrusted;
-    const rulesNote = () => rulesTracker.scanTruncated ? L(
-      'The project rules scan is incomplete. Auto requires confirmation for commands in this run. The scan stops at 1,024 directories or 20,000 entries, or may be incomplete after a read error.',
-      'Проверка правил проекта не завершена. В этой задаче Auto запрашивает подтверждение команд. Предел проверки — 1 024 каталога или 20 000 записей. Проверка также может быть неполной из-за ошибки чтения.'
-    ) : '';
+    const rulesNote = () => {
+      if (!rulesTracker.scanTruncated) return '';
+      const {SCAN_MAX_DIRECTORIES, SCAN_MAX_ENTRIES} = require('./lib/project-rules');
+      return L(
+        `The project rules scan is incomplete. Auto requires confirmation for commands in this run. The scan stops at ${SCAN_MAX_DIRECTORIES.toLocaleString('en-US')} directories or ${SCAN_MAX_ENTRIES.toLocaleString('en-US')} entries, or may be incomplete after a read error.`,
+        `Проверка правил проекта не завершена. В этой задаче Auto запрашивает подтверждение команд. Предел проверки — ${SCAN_MAX_DIRECTORIES.toLocaleString('ru-RU')} каталога или ${SCAN_MAX_ENTRIES.toLocaleString('ru-RU')} записей. Проверка также может быть неполной из-за ошибки чтения.`
+      );
+    };
     let taskRefsChanged=false;
     const taskEffectsText=()=>[!fullGrant ? rulesNote() : '',taskRefsChanged?L('HEAD or Git refs changed during this task through a command or another writer. Auto-commit refused.','HEAD или ссылки Git изменились во время задачи командой или другим процессом. Автокоммит отклонён.'):'',rulesTracker.changed().length?L('Rules changed outside an approved direct edit and were quarantined: ','Правила изменены вне одобренной прямой правки и помещены в карантин: ')+rulesTracker.changed().map(row=>row.file).join(', '):''].filter(Boolean).join('\n');
     const localAgentRunId = randomUUID();
