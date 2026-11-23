@@ -728,6 +728,10 @@ function activate(context) {
   }
 
   function switchIdentity(next) {
+    // Outstanding permission writes use identity as a continuity guard.
+    // A successful read of the same credential refreshes accountSnapshot only.
+    if (identity && next && identity.scope === next.scope && identity.tenant === next.tenant &&
+        sameCredential(identity.credential, next.credential)) return;
     if (identity?.scope !== next?.scope || identity?.token !== next?.token) {
       if (identity) tenantAttachments.set(currentViewScope(identity.scope), attachments);
       if (identity) void orchestration.invalidate().catch(()=>{});

@@ -3560,6 +3560,73 @@ for (const {tool, enable, method} of [
   });
 }
 
+for (const refresh of ['same credential','changed token','changed expiry','401','503']) {
+  test('live Auto settings save during idle account refresh with ' + refresh, async t => {
+    t.mock.timers.enable({apis:['setInterval']});
+    const recorded = savedSession();
+    const secrets = memory({'tvijo.auth':recorded});
+    let beginSave, finishSave;
+    const saving = new Promise(resolve => { beginSave = resolve; });
+    const releaseSave = new Promise(resolve => { finishSave = resolve; });
+    let verifyAgain = false;
+    const app = host({secrets,
+      accountReply:async () => {
+        if (!verifyAgain) return null;
+        if (refresh === '401' || refresh === '503') return Response.json({}, {status:Number(refresh)});
+        return Response.json({tenant_id:'tenant-a', refreshed:true});
+      },
+      configurationUpdate:async (key,value,settings) => {
+        settings.set(key,value);
+        if (key === 'agentAutoRun' && value === true) {
+          beginSave();
+          await releaseSave;
+        }
+      }
+    });
+    let updating;
+    try {
+      await app.receive({type:'ready'});
+      assert.equal(latestAuthState(app).signedIn,true);
+      await app.commands.get('tvijo.settings')();
+      updating = app.panels[0].receive({type:'saveSetting',key:'tvijo.agentAutoRun',value:true,requestId:1});
+      await saving;
+      if (refresh === 'changed token' || refresh === 'changed expiry') {
+        const changed = JSON.parse(recorded);
+        if (refresh === 'changed token') changed.access_token = 'synthetic-rotated-token';
+        else changed.expires_at = '2099-01-01T00:00:00Z';
+        await secrets.store('tvijo.auth',JSON.stringify(changed));
+      }
+      const accountReads = () => app.requests.filter(r => r.url.endsWith('/account')).length;
+      const before = accountReads();
+      verifyAgain = true;
+      t.mock.timers.tick(30000);
+      const expectedState = refresh === '401' ? 'reauth_required' : refresh === '503' ? 'reconnecting' : 'signed_in';
+      const settled = () => {
+        const state = latestAuthState(app);
+        return state.authState === expectedState && (expectedState !== 'signed_in' || state.account?.refreshed === true);
+      };
+      for (let i = 0; i < 100 && !settled(); i++) await new Promise(resolve => setImmediate(resolve));
+      assert.equal(settled(),true,'the idle timer completed account verification before the save resumed');
+      assert.equal(accountReads(),before+1);
+      finishSave();
+      await updating;
+      const result = app.posts.findLast(row => row.type === 'settingsSaved' && row.key === 'tvijo.agentAutoRun');
+      const same = refresh === 'same credential';
+      if (same) assert.equal(result.error,undefined);
+      else assert.match(result.error,/account, folder or task changed/);
+      assert.equal(result.value,same);
+      assert.equal(app.settings.get('agentAutoRun'),same);
+      assert.deepEqual(app.requests.filter(r => r.method !== 'GET'),[]);
+      assert.deepEqual(app.external,[]);
+    } finally {
+      finishSave();
+      await Promise.allSettled([updating]);
+      app.disposeHost();
+      app.close();
+    }
+  });
+}
+
 for (const failure of ['partial save','effective override','account change','workspace change','cancel']) {
   test('live Auto preserves effective permissions on '+failure, async () => {
     const root = await permissionProject();
