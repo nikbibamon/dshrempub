@@ -175,6 +175,26 @@ function host(options = {}) {
     webview: { cspSource: 'test:', onDidReceiveMessage: (fn) => { receive = fn; return disposable; }, postMessage: async (message) => { recordPost(message); return true; } },
     onDidDispose: (fn) => { disposal = fn; }
   });
+  function disposeView() {
+    const dispose = disposal;
+    disposal = undefined;
+    dispose?.();
+  }
+  function disposeHost() {
+    for (const item of context.subscriptions.splice(0)) item.dispose?.();
+  }
+  let closed = false;
+  function close() {
+    if (closed) return;
+    closed = true;
+    try {
+      disposeView();
+    } finally {
+      // Stop extension timers before this fixture gives up the global transport.
+      try { disposeHost(); }
+      finally { globalThis.fetch = originalFetch; }
+    }
+  }
   const { tenantState, scopeKey } = require('../lib/tenant-state');
   const accountLocal=tenantState(context);
   const folderScope=scope=>require('node:crypto').createHash('sha256').update(JSON.stringify([scope,require('../lib/active-workspace').identity(require('../lib/active-workspace').createActiveWorkspace({vscode,state:context.workspaceState}).current())])).digest('hex');
@@ -187,9 +207,7 @@ function host(options = {}) {
     releaseResponse: () => { blockedRequest = null; releaseRequest?.(); },
     block: () => { blockGrant = true; }, unblock: () => release?.(),
     setApiBase: value => { serviceBase = value; },
-    disposeView: () => disposal(),
-    disposeHost: () => { for (const item of context.subscriptions) item.dispose?.(); },
-    close: () => { disposal(); globalThis.fetch = originalFetch; } };
+    disposeView, disposeHost, close };
 }
 
 // Deliberately meaningless catalogue: no product pack content belongs in tests.
@@ -2679,6 +2697,37 @@ for (const failure of ['503', 'network']) test('saved session reconnect through 
     assert.deepEqual(app.requests.filter(r => r.method !== 'GET'),[]);
     assert.deepEqual(app.external,[]);
   } finally { app.disposeHost(); app.close(); }
+});
+
+test('closing a host fixture stops its timer before another host acquires the mock transport', async t => {
+  t.mock.timers.enable({apis:['setInterval']});
+  const accountReads = app => app.requests.filter(r => r.url.endsWith('/account')).length;
+  const tick = async () => {
+    t.mock.timers.tick(30000);
+    for (let i = 0; i < 16; i++) await new Promise(resolve => setImmediate(resolve));
+  };
+  const retired = host();
+  let active;
+  try {
+    await retired.receive({type:'ready'});
+    retired.disposeView();
+    const beforeViewTick = accountReads(retired);
+    await tick();
+    assert.equal(accountReads(retired),beforeViewTick+1,'closing the view alone keeps the host active');
+    retired.close();
+
+    active = host();
+    await active.receive({type:'ready'});
+    const activeFetch = globalThis.fetch;
+    retired.close();
+    assert.equal(globalThis.fetch,activeFetch,'repeated teardown leaves the successor transport alone');
+    const before = accountReads(active);
+    await tick();
+    assert.equal(accountReads(active),before+1,'only the active host may verify its account');
+  } finally {
+    active?.close();
+    retired.close();
+  }
 });
 
 test('saved session reconnect retries one idle tick per outage and allows a later manual check', async t => {
