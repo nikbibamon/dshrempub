@@ -1,3 +1,13 @@
+## 0.10.38 — 2026-11-23 (unreleased local VSIX candidate)
+
+- **Auto applies to the current Agent task.** A saved Manual, Edit or Auto change takes effect at the next eligible operation. Full access still requires separate consent.
+- **Scan rules in larger workspaces.** The bounded scan covers up to 16,384 directories and 300,000 entries. An incomplete scan still requires confirmation for Auto commands. Rules changed outside an approved direct edit remain subject to quarantine.
+- **Reconnect a saved session.** Choose **Reconnect** after a temporary account verification failure. History, attachments and sending become available after verification. An expired or rejected session requires sign-in.
+- **Auto saves survive a same-session refresh.** A successful check of the same saved session keeps a pending Auto save. A changed, expired, rejected or unverifiable session still blocks that save.
+- **Image context uses text.** Screenshots contribute OCR text and can include a grayscale text thumbnail when FFmpeg is available.
+- **Gateway session lifetime.** The deployed gateway still issues 24-hour device sessions. The server-side lifetime change is tracked separately.
+- **Candidate history.** This build supersedes local candidates 0.10.36 and 0.10.37.
+
 ## 0.10.37 — 2026-11-23 (unreleased local VSIX candidate)
 
 - **Auto saves survive a same-session refresh.** A successful account check for the same saved session no longer rolls back a pending Auto setting. A changed, expired, rejected or unverifiable session still blocks that save.
