@@ -706,6 +706,39 @@ test('signed-out composer offers account activation even with cached transcript,
   assert.equal(view.element('composer-signin').hidden,false);
 });
 
+test('saved session reconnect renders a localized retry instead of starting sign-in', () => {
+  const view = sidebar({}, {signedIn:false,scopeKey:null,authState:'checking'});
+  const button = view.element('composer-signin');
+  assert.equal(button.hidden,false);
+  assert.equal(button.textContent,'Checking session…');
+  assert.equal(button.disabled,true);
+  assert.equal(view.element('send').disabled,true);
+  const outgoing = view.outgoing.length;
+  button.click();
+  assert.equal(view.outgoing.length,outgoing);
+
+  view.emit('window:message',{data:{type:'state',signedIn:false,scopeKey:null,authState:'reconnecting'}});
+  assert.equal(button.disabled,false);
+  assert.equal(button.textContent,'Reconnect');
+  button.click();
+  assert.equal(view.outgoing.at(-1).type,'reconnectAccount');
+  view.emit('lang:click',{});
+  assert.equal(button.textContent,'Подключиться снова');
+  view.element('signin').click();
+  assert.equal(view.outgoing.at(-1).type,'reconnectAccount');
+  assert.equal(view.element('send').disabled,true);
+
+  view.emit('window:message',{data:{type:'state',signedIn:true,scopeKey:'tenant-a',authState:'signed_in'}});
+  assert.equal(button.hidden,true);
+  assert.equal(view.element('send').disabled,false);
+  view.emit('window:message',{data:{type:'state',signedIn:false,scopeKey:null,authState:'reauth_required'}});
+  assert.equal(button.hidden,false);
+  assert.equal(button.textContent,'Войти');
+  assert.equal(view.element('send').disabled,true);
+  button.click();
+  assert.equal(view.outgoing.at(-1).type,'account');
+});
+
 test('quote state is concise and localized in simple view, detailed only in engineering', () => {
   const view = sidebar();
   const quote={estimated_max_micro_tvijo:1500000,ceiling_micro_tvijo:2000000,quote_id:'private-quote-123',tariff_version:'v7'};

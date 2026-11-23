@@ -763,9 +763,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     document.getElementById('quick-edit').textContent = t('quickEdit');
     if (lastUsage) renderUsage(lastUsage);
     document.getElementById('tab-terminal').textContent = t('terminal');
-    document.getElementById('signin').textContent = t(lastSignedIn ? 'signedIn' : 'signIn');
-    document.getElementById('composer-signin').textContent = t('signIn');
-    document.getElementById('composer-signin').hidden = lastSignedIn;
+    renderAccountControls();
     renderIdentity();
     document.getElementById('settings').title = t('settings');
     if (uiMode === 'chat') document.getElementById('question').placeholder = t('ask');
@@ -801,10 +799,31 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   let lastAttachments = [];
   let lastAccount = null;
   let lastAuthState = 'loading', lastAuthError = '', activeWorkspaceLabel = '';
+  function accountActionLabel() {
+    if (lastAuthState === 'reconnecting') return locale === 'ru' ? 'Подключиться снова' : 'Reconnect';
+    if (lastAuthState === 'loading' || lastAuthState === 'checking') return locale === 'ru' ? 'Проверяем сеанс…' : 'Checking session…';
+    if (lastAuthState === 'connecting') return locale === 'ru' ? 'Ожидаем входа…' : 'Waiting for sign-in…';
+    return t(lastSignedIn ? 'signedIn' : 'signIn');
+  }
+  function renderAccountControls() {
+    const checking = ['loading','checking','connecting'].includes(lastAuthState);
+    for (const id of ['signin', 'composer-signin']) {
+      const button = document.getElementById(id);
+      button.textContent = accountActionLabel();
+      button.disabled = checking;
+    }
+    document.getElementById('composer-signin').hidden = lastSignedIn;
+  }
+  function accountAction() {
+    if (['loading','checking','connecting'].includes(lastAuthState)) return;
+    post({type:lastAuthState === 'reconnecting' ? 'reconnectAccount' : 'account'});
+  }
   function renderIdentity() {
     const profile = lastAccount?.identity;
     const name = profile?.email_verified && profile.email ? profile.email : profile?.display_name;
-    const labels = locale === 'ru' ? {loading:'Проверка аккаунта…',connecting:'Ожидание входа в браузере…',signed_out:'Не выполнен вход',error:'Ошибка подключения',signed_in:'Аккаунт подтверждён'} : {loading:'Checking account…',connecting:'Waiting for browser sign-in…',signed_out:'Signed out',error:'Connection error',signed_in:'Account verified'};
+    const labels = locale === 'ru'
+      ? {loading:'Проверка аккаунта…',checking:'Проверяем сохранённый сеанс…',reconnecting:'Не удалось проверить сохранённый сеанс',connecting:'Ожидание входа в браузере…',signed_out:'Не выполнен вход',reauth_required:'Требуется повторный вход',error:'Ошибка подключения',signed_in:'Аккаунт подтверждён'}
+      : {loading:'Checking account…',checking:'Checking saved session…',reconnecting:'Could not verify the saved session',connecting:'Waiting for browser sign-in…',signed_out:'Signed out',reauth_required:'Sign in again',error:'Connection error',signed_in:'Account verified'};
     document.getElementById('account-identity').textContent = name || '';
     document.getElementById('account-verification').textContent = lastAuthError || (lastSignedIn && !profile?.email_verified ? (locale === 'ru' ? 'Email не подтверждён' : 'Email unverified') : labels[lastAuthState]) || labels.signed_out;
     document.getElementById('workspace-choice').textContent = activeWorkspaceLabel || (locale === 'ru' ? 'Выбрать проект…' : 'Choose project…');
@@ -818,7 +837,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     if (typeof preview?.tokens_remaining === 'number' && Number.isFinite(preview.tokens_remaining)) values.push(preview.tokens_remaining.toLocaleString() + ' ' + (locale === 'ru' ? 'токенов' : 'tokens'));
     if (preview?.remaining_usd != null && Number.isFinite(Number(preview.remaining_usd))) values.push('$' + Number(preview.remaining_usd).toFixed(3) + (preview.renewing === false ? (locale === 'ru' ? ' из $' : ' of $') + preview.total_usd : ''));
     budget.textContent = values.join(' · ');
-    document.getElementById('connection-label').textContent = lastSignedIn ? t('ready') : t('signIn');
+    document.getElementById('connection-label').textContent = lastSignedIn ? t('ready') : accountActionLabel();
   }
   function setTab(tab) {
     setDrawer(tab !== 'chat', tab);
@@ -1171,13 +1190,12 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       pending = !!data.pending;
       controls(); renderAttachments(data.attachments || []);
       lastSignedIn = !!data.signedIn;
-      document.getElementById('composer-signin').hidden = lastSignedIn;
       lastAccount = data.account || null;
       lastAuthState = data.authState || (lastSignedIn ? 'signed_in' : 'signed_out'); lastAuthError = data.authError || '';
       activeWorkspaceLabel = data.workspaceSelected === false ? '' : data.projectLabel || '';
       renderIdentity();
       if (lastUsage && (!data.signedIn || !data.account || scopeKey !== lastUsageScope || (lastUsage.account && data.account.tenant_id !== lastUsage.account.tenant_id))) { lastUsage = null; document.getElementById('usage-items').replaceChildren(); }
-      document.getElementById('signin').textContent = t(lastSignedIn ? 'signedIn' : 'signIn');
+      renderAccountControls();
       renderBudget(lastAccount);
       updateMode();
       legacyHistory = !!data.legacyHistory;
@@ -1264,8 +1282,8 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   document.getElementById('folder-close').addEventListener('click', closeFolderBrowser);
   document.getElementById('folder-browser').addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); closeFolderBrowser(); } });
   document.getElementById('runtime-version').addEventListener('click', () => post({type:'reloadWindow'}));
-  document.getElementById('composer-signin').addEventListener('click', () => post({type:'account'}));
-  document.getElementById('signin').addEventListener('click', () => post({type:lastSignedIn ? 'account' : 'account'}));
+  document.getElementById('composer-signin').addEventListener('click', accountAction);
+  document.getElementById('signin').addEventListener('click', accountAction);
   document.getElementById('cancel').addEventListener('click', () => post({type:'cancel'}));
   noticeActionButton.addEventListener('click', () => {if(currentNotice?.action==='rulesSettings'){setDrawer(true);return;}post({type: currentNotice?.action==='retryStep' ? 'retryStep' : ['chooseFolder','addWorkspaceFolder'].includes(currentNotice?.action) ? currentNotice.action : currentNotice?.action === 'account' ? 'account' : currentNotice?.action === 'context' ? 'contextPreview' : 'cancel'});});
   document.getElementById('bot-setup').addEventListener('click', () => post({type:'botSetup'}));

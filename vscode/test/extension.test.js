@@ -20,6 +20,7 @@ function memory(initial = {}) {
 function host(options = {}) {
   const optionsHost = options;
   const base = 'http://localhost:18106/api/dshrem/v1';
+  let serviceBase = base;
   const commands = new Map();
   const executed = [];
   const posts = [];
@@ -82,7 +83,7 @@ function host(options = {}) {
     commands: { registerCommand: (id, fn) => { commands.set(id, fn); return disposable; }, executeCommand: async (id, ...args) => { executed.push({ id, args }); return commands.get(id)?.(...args); } },
     workspace: {
       isTrusted:options.workspaceTrusted !== false,
-      getConfiguration: () => ({ get: (key, fallback) => key === 'apiBase' ? base : (settings.has(key) ? settings.get(key) : fallback), inspect: key => ({ globalValue: settings.get(key) }), update: async (key, value) => { if (options.configurationUpdate) return options.configurationUpdate(key, value, settings); settings.set(key, value); } }),
+      getConfiguration: () => ({ get: (key, fallback) => key === 'apiBase' ? serviceBase : (settings.has(key) ? settings.get(key) : fallback), inspect: key => ({ globalValue: settings.get(key) }), update: async (key, value) => { if (options.configurationUpdate) return options.configurationUpdate(key, value, settings); settings.set(key, value); } }),
       onDidChangeConfiguration: fn => { configurationChangeListeners.push(fn); return disposable; },
       onDidChangeWorkspaceFolders: fn => { workspaceChangeListener = fn; return disposable; },
       workspaceFolders: [{ uri: Uri.file(root) }],
@@ -149,7 +150,7 @@ function host(options = {}) {
     await optionsHost.onRequest?.({url,body,method:options.method});
     requests.push({ url, body, method: options.method, token: options.headers.authorization });
     if (blockedRequest && url.endsWith(blockedRequest.path) && options.method === blockedRequest.method) await new Promise(resolve => { releaseRequest = resolve; });
-    if (url.endsWith('/account') && optionsHost.accountReply) { const response=await optionsHost.accountReply(options.headers.authorization); if(response)return response; }
+    if (url.endsWith('/account') && optionsHost.accountReply) { const response=await optionsHost.accountReply(options.headers.authorization, options.signal); if(response)return response; }
     if (url.endsWith('/account')) return Response.json({ tenant_id: options.headers.authorization === 'Bearer account-b' ? 'tenant-b' : 'tenant-a', ...optionsHost.account });
     if (url.endsWith('/data-preferences')) return optionsHost.preferences === 'error' ? Response.json({error:'unavailable'},{status:503}) : Response.json(optionsHost.preferences ?? {preferences:[{purpose:'analytics',state:'denied'}]});
     if (url.endsWith('/packs')) return optionsHost.packs ? Response.json(optionsHost.packs) : Response.json({}, { status: 404 });
@@ -185,7 +186,9 @@ function host(options = {}) {
     blockResponse: (requestPath, method = 'GET') => { blockedRequest = { path: requestPath, method }; }, responseWaiting: () => !!releaseRequest,
     releaseResponse: () => { blockedRequest = null; releaseRequest?.(); },
     block: () => { blockGrant = true; }, unblock: () => release?.(),
+    setApiBase: value => { serviceBase = value; },
     disposeView: () => disposal(),
+    disposeHost: () => { for (const item of context.subscriptions) item.dispose?.(); },
     close: () => { disposal(); globalThis.fetch = originalFetch; } };
 }
 
@@ -2609,11 +2612,186 @@ test('verified account identity is sent persistently and expired login never fal
   let state=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.authState,'signed_in');assert.equal(state.account.identity.email,'admin@example.test');
   await app.context.secrets.store('tvijo.auth',JSON.stringify({access_token:'test-token',api_base:app.base,expires_at:'2000-01-01T00:00:00Z'}));
   await app.receive({type:'ready'});state=app.posts.filter(p=>p.type==='state').at(-1);
-  assert.equal(state.signedIn,false);assert.equal(state.account,null);assert.equal(state.authState,'error');assert.match(state.authError,/expired/);
+  assert.equal(state.signedIn,false);assert.equal(state.account,null);assert.equal(state.authState,'reauth_required');assert.match(state.authError,/expired/);
   await app.receive({type:'ask',question:'Must not dispatch'});assert.equal(app.requests.filter(r=>r.method==='POST').length,0);
  }finally{app.close();}
 });
 
+
+const savedSession = () => JSON.stringify({
+  access_token:'test-token',
+  api_base:'http://localhost:18106/api/dshrem/v1',
+  expires_at:new Date(Date.now() + 3600000).toISOString()
+});
+const latestAuthState = app => app.posts.filter(item => item.type === 'state').at(-1);
+function assertUnverifiedSession(app, authState) {
+  const state = latestAuthState(app);
+  assert.equal(state.authState,authState);
+  assert.equal(state.signedIn,false);
+  assert.equal(state.account,null);
+  assert.equal(state.scopeKey,null);
+  assert.equal(state.fullAccess.enabled,false);
+  assert.deepEqual(state.messages,[]);
+  assert.deepEqual(state.attachments,[]);
+  return state;
+}
+
+for (const failure of ['503', 'network']) test('saved session reconnect through the sidebar recovers after ' + failure, async () => {
+  const {sidebar} = require('./helpers/sidebar');
+  const saved = savedSession();
+  const secrets = memory({'tvijo.auth':saved});
+  const workspaceState = memory();
+  const firstHost = host({secrets,workspaceState});
+  try {
+    await firstHost.receive({type:'ready'});
+    await firstHost.local.saveHistory(firstHost.scope('tenant-a'),[{role:'user',content:'synthetic private transcript'}]);
+    assert.equal(latestAuthState(firstHost).signedIn,true);
+  } finally { firstHost.disposeHost(); firstHost.close(); }
+
+  let offline = true;
+  const app = host({secrets,workspaceState,accountReply:async () => {
+    if (!offline) return null;
+    if (failure === 'network') throw new Error('synthetic transport failure');
+    return new Response('<html>synthetic private origin error</html>', {status:503});
+  }});
+  try {
+    await app.receive({type:'ready'});
+    const state = assertUnverifiedSession(app,'reconnecting');
+    assert.doesNotMatch(state.authError,/synthetic private origin error|synthetic transport failure|Sign in/i);
+    assert.equal(app.status.command,'tvijo.account');
+    assert.equal(await secrets.get('tvijo.auth'),saved);
+    await app.receive({type:'ask',agent:true,question:'blocked synthetic request'});
+    assertUnverifiedSession(app,'reconnecting');
+    assert.deepEqual(app.requests.filter(r => r.method !== 'GET'),[]);
+    const view = sidebar({},state);
+    assert.equal(view.element('send').disabled,true);
+    assert.equal(view.element('composer-signin').textContent,'Reconnect');
+    view.element('composer-signin').click();
+    offline = false;
+    const requestStart = app.requests.length;
+    await app.receive(view.outgoing.at(-1));
+    const recovered = latestAuthState(app);
+    assert.equal(recovered.authState,'signed_in');
+    assert.equal(recovered.account.tenant_id,'tenant-a');
+    assert.equal(recovered.messages[0].content,'synthetic private transcript');
+    assert.equal(await secrets.get('tvijo.auth'),saved);
+    assert.deepEqual(app.requests.slice(requestStart).filter(r => r.url.endsWith('/account')).map(r => r.token),['Bearer test-token']);
+    assert.deepEqual(app.requests.filter(r => r.method !== 'GET'),[]);
+    assert.deepEqual(app.external,[]);
+  } finally { app.disposeHost(); app.close(); }
+});
+
+test('saved session reconnect retries one idle tick per outage and allows a later manual check', async t => {
+  t.mock.timers.enable({apis:['setInterval']});
+  let available = false;
+  const app = host({accountReply:async () => available ? null : Response.json({}, {status:503})});
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  try {
+    await app.receive({type:'ready'});
+    assertUnverifiedSession(app,'reconnecting');
+    const attempts = () => app.requests.filter(r => r.url.endsWith('/account')).length;
+    const initial = attempts();
+    assert.equal(initial,1,'startup and ready share one verification');
+    t.mock.timers.tick(30000);
+    await flush();
+    assert.equal(attempts(),initial+1);
+    assertUnverifiedSession(app,'reconnecting');
+    for (let tick=0;tick<3;tick++) { t.mock.timers.tick(30000); await flush(); }
+    assert.equal(attempts(),initial+1);
+    available = true;
+    await app.receive({type:'reconnectAccount'});
+    assert.equal(attempts(),initial+2);
+    assert.equal(latestAuthState(app).signedIn,true);
+    assert.deepEqual(app.requests.filter(r => r.method !== 'GET'),[]);
+  } finally { app.disposeHost(); app.close(); }
+});
+
+test('saved session reconnect cannot move a verified credential to a different tenant', async () => {
+  let mode = 'verified';
+  const app = host({accountReply:async () => mode === 'offline'
+    ? Response.json({}, {status:503}) : mode === 'changed' ? Response.json({tenant_id:'tenant-b'}) : null});
+  try {
+    await app.receive({type:'ready'});
+    assert.equal(latestAuthState(app).signedIn,true);
+    mode = 'offline';
+    await app.receive({type:'ready'});
+    assertUnverifiedSession(app,'reconnecting');
+    mode = 'changed';
+    await app.receive({type:'reconnectAccount'});
+    assertUnverifiedSession(app,'reauth_required');
+    assert.deepEqual(app.requests.filter(r => r.method !== 'GET'),[]);
+  } finally { app.disposeHost(); app.close(); }
+});
+
+test('saved session reconnect denies 401 and stale Reconnect cannot dispatch sign-in', async () => {
+  const {sidebar} = require('./helpers/sidebar');
+  const app = host({accountReply:async () => Response.json({error:{code:'authentication_required'}}, {status:401})});
+  try {
+    await app.receive({type:'ready'});
+    const denied = assertUnverifiedSession(app,'reauth_required');
+    const view = sidebar({},denied);
+    assert.equal(view.element('composer-signin').textContent,'Sign in');
+    assert.equal(view.element('send').disabled,true);
+    await app.receive({type:'reconnectAccount'});
+    await app.receive({type:'ask',agent:true,question:'blocked synthetic request'});
+    assertUnverifiedSession(app,'reauth_required');
+    assert.deepEqual(app.requests.filter(r => r.method !== 'GET'),[]);
+    view.element('composer-signin').click();
+    await app.receive(view.outgoing.at(-1));
+    assert.deepEqual(app.requests.filter(r => r.method !== 'GET').map(r => r.url.slice(app.base.length)),['/auth/device']);
+    assert.deepEqual(app.external,[]);
+  } finally { app.disposeHost(); app.close(); }
+});
+
+for (const transition of ['base change','sign-out','host disposal']) test('saved session reconnect is fenced by ' + transition, async () => {
+  let capturedSignal, release, waiting;
+  const started = new Promise(resolve => { waiting = resolve; });
+  const saved = savedSession();
+  const project = 'synthetic inactive slot';
+  const secrets = memory({'tvijo.auth':saved,'tvijo.project.auth':project});
+  const app = host({secrets,accountReply:async (_token,signal) => {
+    capturedSignal = signal;
+    waiting();
+    await new Promise(resolve => { release = resolve; });
+    return Response.json({tenant_id:'tenant-a'});
+  }});
+  try {
+    const checking = app.receive({type:'ready'});
+    await started;
+    await new Promise(resolve => setImmediate(resolve));
+    assertUnverifiedSession(app,'checking');
+    assert.equal(app.requests.filter(r => r.url.endsWith('/account')).length,1);
+    if (transition === 'base change') {
+      app.setApiBase('https://different.invalid/api');
+      app.configurationChanged();
+    } else if (transition === 'sign-out') {
+      await app.commands.get('tvijo.signOut')();
+    } else {
+      app.disposeHost();
+    }
+    assert.equal(capturedSignal.aborted,true);
+    const before = app.posts.length;
+    release();
+    await checking;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(app.posts.slice(before).every(p => p.type !== 'state' || p.signedIn === false));
+    if (transition === 'base change') {
+      assertUnverifiedSession(app,'reauth_required');
+      assert.equal(await secrets.get('tvijo.auth'),saved);
+      assert.deepEqual(app.requests.filter(r => r.method !== 'GET'),[]);
+      assert.ok(app.requests.every(r => r.url.startsWith(app.base)));
+    } else if (transition === 'sign-out') {
+      assertUnverifiedSession(app,'signed_out');
+      assert.equal(await secrets.get('tvijo.auth'),undefined);
+      assert.equal(await secrets.get('tvijo.project.auth'),project);
+      const writes = app.requests.filter(r => r.method !== 'GET');
+      assert.deepEqual(writes.map(r => [r.url.slice(app.base.length),r.token]),[['/auth/logout','Bearer test-token']]);
+    } else {
+      assert.equal(app.posts.length,before);
+      assert.equal(await secrets.get('tvijo.auth'),saved);
+    }
+  } finally { release?.(); app.disposeHost(); app.close(); }
+});
 
 test('delayed account A unauthorized response cannot clear newly verified account B',async()=>{
  let delay=false,release,waiting=false;

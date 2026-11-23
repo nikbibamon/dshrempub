@@ -236,8 +236,10 @@ function activate(context) {
   const handlers = new Map();
   let customerBot = null;
   let accountSnapshot = null;
-  let authState = 'loading';
-  let authError = '';
+  let deviceLoginError = '';
+  let savedAuthCheck = null;
+  let authDisposed = false;
+  let signOutAttempt = null;
   let reconnecting = false;
   let identity = null;
   let authAttempt = 0;
@@ -430,16 +432,18 @@ function activate(context) {
     const selection = await packs.selectPack(catalogue, vscode.workspace.getConfiguration('tvijo').get('pack', ''), permissionFolder()?.uri.fsPath);
     return { catalogue, ...selection };
   }
-  function updatePackStatus(selection, auth) {
+  function updatePackStatus(selection, auth, savedSessionState) {
     const available = !!selection?.catalogue.length;
     if (packAvailable !== available) {
       packAvailable = available;
       vscode.commands.executeCommand('setContext', 'tvijo.hasPacks', available);
     }
-    status.text = available ? packs.statusText(selection, accountSnapshot, uiLocale()) : auth ? '$(sparkle) Tvijo' : '$(account) Tvijo: sign in';
-    status.tooltip = available ? L('Choose skill pack · remaining allowance today (USD)', 'Выбрать пакет навыков · остаток на сегодня (USD)') : auth ? L('Tvijo: account and credit', 'Tvijo: аккаунт и баланс') : L('Tvijo: sign in', 'Tvijo: войти');
+    const savedSession = savedSessionState === 'checking' || savedSessionState === 'reconnecting';
+    const accountLabel = savedSession ? L('Tvijo: reconnect', 'Tvijo: восстановить подключение') : L('Tvijo: sign in', 'Tvijo: войти');
+    status.text = available ? packs.statusText(selection, accountSnapshot, uiLocale()) : auth ? '$(sparkle) Tvijo' : '$(account) ' + accountLabel;
+    status.tooltip = available ? L('Choose skill pack · remaining allowance today (USD)', 'Выбрать пакет навыков · остаток на сегодня (USD)') : auth ? L('Tvijo: account and credit', 'Tvijo: аккаунт и баланс') : accountLabel;
     status.tooltip += '\nTvijo ' + runtimeVersion + (vscode.env.remoteName === 'ssh-remote' ? ' · Remote SSH' : '');
-    status.command = available ? 'tvijo.choosePack' : auth ? 'tvijo.account' : 'tvijo.signIn';
+    status.command = available ? 'tvijo.choosePack' : auth || savedSession ? 'tvijo.account' : 'tvijo.signIn';
     status.accessibilityInformation = { label: status.text + '. ' + status.tooltip };
     status.show();
   }
@@ -566,7 +570,7 @@ function activate(context) {
   }
 
   function assertAuthAttempt(attempt, base) {
-    if (attempt !== authAttempt || base !== client().base) throw new core.ServiceError('account_changed', 'A newer sign-in, sign-out or service change replaced this sign-in attempt.');
+    if (authDisposed || attempt !== authAttempt || base !== client().base) throw new core.ServiceError('account_changed', 'A newer sign-in, sign-out or service change replaced this sign-in attempt.');
   }
   function commitAuthentication(attempt, base, change) {
     // Serialize SecretStorage/memento writes: a superseded write already in
@@ -597,34 +601,130 @@ function activate(context) {
     catch (error) { if (context.globalState.get(AUTH_MODE) === value) await context.globalState.update(AUTH_MODE, previous); throw error; }
   }
 
-  async function readAuth() {
-    const raw = await context.secrets.get(context.globalState.get(AUTH_MODE) === 'project' ? PROJECT_AUTH_KEY : AUTH_KEY);
-    if (!raw) return null;
-    try { return JSON.parse(raw); } catch { return null; }
+  function selectedAuthKey() {
+    return context.globalState.get(AUTH_MODE) === 'project' ? PROJECT_AUTH_KEY : AUTH_KEY;
   }
 
-  // A token is only valid for the service URL it was issued by; switching apiBase forces a new sign-in.
+  async function readAuth() {
+    const secretKey = selectedAuthKey();
+    const raw = await context.secrets.get(secretKey);
+    if (!raw) return null;
+    try { return { ...JSON.parse(raw), secretKey }; } catch { return null; }
+  }
+
+  function sameCredential(a, b) {
+    return a?.access_token === b?.access_token && a?.api_base === b?.api_base && a?.kind === b?.kind &&
+      a?.secretKey === b?.secretKey && a?.expires_at === b?.expires_at;
+  }
+
+  function savedAuthProblem(auth) {
+    if (!auth?.access_token) return new core.ServiceError('unauthorized', 'Sign in first: run "Tvijo: Sign in".');
+    if (auth.api_base !== client().base) return new core.ServiceError('unauthorized', 'The saved sign-in belongs to a different service URL. Sign in again.');
+    if (auth.expires_at && Date.now() >= Date.parse(auth.expires_at)) return new core.ServiceError('unauthorized', 'The sign-in has expired. Sign in again.');
+    return null;
+  }
+
+  function accountPresentation(auth) {
+    if (signOutAttempt === authAttempt) return { authState:'signed_out', authError:'' };
+    if (deviceLoginActive) return { authState:'connecting', authError:'' };
+    if (!auth?.access_token) return { authState:deviceLoginError ? 'error' : 'signed_out', authError:deviceLoginError };
+    const problem = savedAuthProblem(auth);
+    if (problem) return { authState:'reauth_required', authError:localizedMessage(problem) };
+    if (identity && sameCredential(identity.credential, auth)) return { authState:'signed_in', authError:'' };
+    const check = savedAuthCheck;
+    if (check?.attempt === authAttempt && sameCredential(check.credential, auth)) {
+      return { authState:check.state, authError:check.error ? localizedMessage(check.error) : '' };
+    }
+    return { authState:'checking', authError:'' };
+  }
+
+  function cancelSavedAuthCheck() {
+    savedAuthCheck?.controller.abort();
+    savedAuthCheck = null;
+  }
+
+  function nextAuthAttempt() {
+    cancelSavedAuthCheck();
+    deviceLoginError = '';
+    return ++authAttempt;
+  }
+
+  async function verifySavedAuth(auth, attempt, background) {
+    assertAuthAttempt(attempt, auth.api_base);
+    const previous = savedAuthCheck?.attempt === attempt && sameCredential(savedAuthCheck.credential, auth) ? savedAuthCheck : null;
+    if (previous?.promise) return previous.promise;
+    if (previous?.state === 'reauth_required') throw previous.error;
+    // The existing idle timer can retry once per outage. Window focus, view
+    // ready, or the Reconnect control can still request another check.
+    if (background && previous?.state === 'reconnecting' && previous.backgroundRetried) throw previous.error;
+    cancelSavedAuthCheck();
+    const verifiedTenant = sameCredential(identity?.credential, auth) ? identity.tenant : previous?.verifiedTenant;
+    if (!verifiedTenant) switchIdentity(null);
+    const controller = new AbortController();
+    const check = {
+      attempt, credential:auth, controller, verifiedTenant, state:'checking', error:null,
+      backgroundRetried:previous?.state === 'reconnecting' && (background || previous.backgroundRetried)
+    };
+    savedAuthCheck = check;
+    const current = async () => {
+      const latest = await readAuth();
+      return !authDisposed && savedAuthCheck === check && authAttempt === attempt &&
+        selectedAuthKey() === auth.secretKey && client().base === auth.api_base && sameCredential(latest, auth);
+    };
+    const accountChanged = () => new core.ServiceError('account_changed', 'The account changed. Try again in the current account.');
+    check.promise = (async () => {
+      try {
+        const account = await client().request(auth.kind === 'project' ? '/projects' : '/account', { token:auth.access_token, signal:controller.signal });
+        if (!await current()) throw accountChanged();
+        const problem = savedAuthProblem(auth);
+        if (problem) throw problem;
+        if (typeof account?.tenant_id !== 'string' || !account.tenant_id || (verifiedTenant && account.tenant_id !== verifiedTenant)) {
+          throw new core.ServiceError('account_unknown', 'The service account could not be verified. Local history remains private.');
+        }
+        const scope = scopeKey(auth.api_base, account.tenant_id);
+        if (auth.kind === 'project') {
+          const project = account.projects?.find(item => item.id === account.project_id);
+          if (!project) throw new core.ServiceError('account_unknown', 'The project key has no accessible project.');
+          if (shared.selection(scope)?.projectId !== project.id) {
+            await selectShared(scope, project);
+            if (!await current()) throw accountChanged();
+          }
+        }
+        switchIdentity({ token:auth.access_token, base:auth.api_base, tenant:account.tenant_id, scope, credential:auth });
+        accountSnapshot = account;
+        check.verifiedTenant = account.tenant_id;
+        check.state = 'signed_in';
+      } catch (error) {
+        if (!await current()) throw accountChanged();
+        switchIdentity(null);
+        const denied = error.status === 401 || ['unauthorized','account_unknown','authorization_denied'].includes(error.code);
+        check.state = denied ? 'reauth_required' : 'reconnecting';
+        check.error = error;
+        throw error;
+      } finally { check.promise = null; }
+    })();
+    if (!identity) void postChatState();
+    return check.promise;
+  }
+
   async function requireAuth() {
     const attempt = authAttempt;
-    const auth = await readAuth();
-    if (!auth?.access_token) throw new core.ServiceError('unauthorized', 'Sign in first: run "Tvijo: Sign in".');
-    if (auth.api_base !== client().base) throw new core.ServiceError('unauthorized', 'The saved sign-in belongs to a different service URL. Sign in again.');
-    if (auth.expires_at && Date.now() >= Date.parse(auth.expires_at)) throw new core.ServiceError('unauthorized', 'The sign-in has expired. Sign in again.');
+    return authorizeSavedAuth(await readAuth(), attempt);
+  }
+
+  async function authorizeSavedAuth(auth, attempt, { refresh = false, background = false } = {}) {
+    if (signOutAttempt === authAttempt) throw new core.ServiceError('unauthorized', 'Sign in first: run "Tvijo: Sign in".');
+    const problem = savedAuthProblem(auth);
+    if (problem) throw problem;
     assertAuthAttempt(attempt, auth.api_base);
-    if (identity?.token === auth.access_token && identity.base === auth.api_base) return { ...auth, scope: identity.scope, tenant_id: identity.tenant, key_limits: auth.kind === 'project' ? accountSnapshot?.key_limits : null, authEpoch: attempt, viewScope: currentViewScope(identity.scope) };
-    switchIdentity(null);
-    const account = auth.kind === 'project' ? await workspaceClient(client(), auth.access_token).projects() : await client().account(auth.access_token);
-    const current = await readAuth();
-    if (attempt !== authAttempt || current?.access_token !== auth.access_token || current.api_base !== auth.api_base || client().base !== auth.api_base) throw new core.ServiceError('account_changed', 'The account changed. Try again in the current account.');
-    if (typeof account?.tenant_id !== 'string' || !account.tenant_id) throw new core.ServiceError('account_unknown', 'The service account could not be verified. Local history remains private.');
-    switchIdentity({ token: auth.access_token, base: auth.api_base, tenant: account.tenant_id, scope: scopeKey(auth.api_base, account.tenant_id) });
-    accountSnapshot = account;
-    if (auth.kind === 'project') {
-      const project = account.projects?.find(item => item.id === account.project_id);
-      if (!project) throw new core.ServiceError('account_unknown', 'The project key has no accessible project.');
-      if (shared.selection(identity.scope)?.projectId !== project.id) await selectShared(identity.scope, project);
+    if (selectedAuthKey() !== auth.secretKey) throw new core.ServiceError('account_changed', 'The account changed. Try again in the current account.');
+    const checking = savedAuthCheck?.promise && sameCredential(savedAuthCheck.credential, auth);
+    if (checking || !sameCredential(identity?.credential, auth) || (refresh && auth.kind !== 'project')) {
+      await verifySavedAuth(auth, attempt, background);
     }
-    return { ...auth, scope: identity.scope, tenant_id: identity.tenant, key_limits: auth.kind === 'project' ? accountSnapshot?.key_limits : null, authEpoch: attempt, viewScope: currentViewScope(identity.scope) };
+    assertAuthAttempt(attempt, auth.api_base);
+    if (!sameCredential(identity?.credential, auth)) throw new core.ServiceError('account_changed', 'The account changed. Try again in the current account.');
+    return { ...auth, scope:identity.scope, tenant_id:identity.tenant, key_limits:auth.kind === 'project' ? accountSnapshot?.key_limits : null, authEpoch:attempt, viewScope:currentViewScope(identity.scope) };
   }
 
   function switchIdentity(next) {
@@ -648,36 +748,24 @@ function activate(context) {
 
   async function isCurrentAuth(auth) {
     const current = await readAuth();
-    return current?.access_token === auth.access_token && current.api_base === auth.api_base && client().base === auth.api_base && identity?.scope === auth.scope && identity.token === auth.access_token && (auth.authEpoch === undefined || auth.authEpoch === authAttempt) && (!auth.viewScope || currentViewScope(auth.scope) === auth.viewScope);
+    return !authDisposed && !savedAuthProblem(current) && sameCredential(current, auth) && selectedAuthKey() === current.secretKey && identity?.scope === auth.scope && sameCredential(identity?.credential, auth) && (auth.authEpoch === undefined || auth.authEpoch === authAttempt) && (!auth.viewScope || currentViewScope(auth.scope) === auth.viewScope);
   }
 
-  async function refreshStatus({reconcile = false} = {}) {
+  async function refreshStatus({reconcile = false, background = false} = {}) {
     const attempt = authAttempt;
     const expected = await readAuth();
-    if (attempt !== authAttempt) return;
+    if (authDisposed || attempt !== authAttempt || deviceLoginActive || signOutAttempt === attempt) return;
     let auth;
-    try { auth = await requireAuth(); authError = ''; }
-    catch (error) {
-      const current = await readAuth();
-      if (attempt !== authAttempt || current?.access_token !== expected?.access_token || current?.api_base !== expected?.api_base) return;
-      switchIdentity(null); authError = current?.access_token ? localizedMessage(error) : authError;
-    }
-    if (attempt !== authAttempt) return;
-    const live = !!auth;
-    authState = deviceLoginActive ? 'connecting' : live ? 'signed_in' : authError ? 'error' : 'signed_out';
-    if (!live || !packAvailable) updatePackStatus(null, auth);
-    if (live && auth.kind !== 'project') {
-      try {
-        const account = await client().account(auth.access_token);
-        if (attempt !== authAttempt || !await isCurrentAuth(auth)) return;
-        if (account.tenant_id !== auth.tenant_id) throw new core.ServiceError('account_unknown','The server account identity changed. Sign in again.');
-        accountSnapshot = account;
-      } catch (error) {
-        if (attempt !== authAttempt || !await isCurrentAuth(auth)) return;
-        authState = 'error'; authError = localizedMessage(error);
-        if (error.code === 'unauthorized' || error.code === 'account_unknown' || error.status === 401) { switchIdentity(null); auth = null; }
+    try { auth = await authorizeSavedAuth(expected, attempt, {refresh:true, background}); }
+    catch {
+      if (authDisposed || attempt !== authAttempt || !sameCredential(await readAuth(), expected)) return;
+      if (savedAuthProblem(expected)) {
+        cancelSavedAuthCheck();
+        switchIdentity(null);
       }
     }
+    if (authDisposed || attempt !== authAttempt) return;
+    if (!auth || !packAvailable) updatePackStatus(null, auth, accountPresentation(expected).authState);
     if (auth && !busy && !attaching && shared.selection(auth.scope)?.threadId) {
       try { await loadSharedThread(auth, shared.selection(auth.scope)); }
       catch { /* Keep the last verified thread snapshot; Refresh shared server thread exposes errors. */ }
@@ -699,14 +787,21 @@ function activate(context) {
     const busyContext=busy || attaching || rewindBusy || modeUpdatePending;
     if(busyContext!==lastBusyContext){lastBusyContext=busyContext;void vscode.commands.executeCommand('setContext','tvijo.busy',busyContext);}
     const view=chatView, renderEpoch=authAttempt, renderWorkspaceEpoch=workspaceEpoch;
-    if (!view) return;
+    if (!view || authDisposed) return;
     const auth = await readAuth();
-    if(view!==chatView || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
+    if(view!==chatView || authDisposed || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
     const guessedFolder=permissionFolder();
     if(!busy){const mode=vscode.workspace.getConfiguration('tvijo').get('workspaceContext','ask');projectRulesHost.snapshot({folder:guessedFolder,contextMode:mode==='off'?'off':'on',knownSecrets:[auth?.access_token,auth?.refresh_token].filter(Boolean)});}
     const scopeRefusal=activeWorkspace.refusal(),refusedCandidate=activeWorkspace.refusedCandidate();
     if(scopeRefusal && !lastError)lastError={text:localizedMessage(scopeRefusal),action:errorAction(scopeRefusal)};
-    const signedIn = !!(auth?.access_token && auth.api_base === client().base && !(auth.expires_at && Date.now() >= Date.parse(auth.expires_at)) && identity?.token === auth.access_token && identity.base === auth.api_base);
+    const {authState, authError} = accountPresentation(auth);
+    const signedIn = !savedAuthProblem(auth) && selectedAuthKey() === auth.secretKey && sameCredential(identity?.credential, auth);
+    const authStatus = {
+      checking:L('Checking saved session…', 'Проверяем сохранённый сеанс…'),
+      reconnecting:L('Could not verify the saved session. Reconnect to try again.', 'Не удалось проверить сохранённый сеанс. Повторите подключение.'),
+      connecting:L('Waiting for browser sign-in…', 'Ожидаем входа в браузере…'),
+      reauth_required:authError
+    }[authState];
     const scope = signedIn ? identity.scope : null;
     const history = scope ? historyFor(scope) : [];
     const nextAgentScope = scope ? currentViewScope(scope) : null;
@@ -730,7 +825,7 @@ function activate(context) {
       const boundary = item.role === 'assistant' && !run.receipt && typeof content === 'string' ? content.lastIndexOf('\n---\nTask ') : -1;
       return boundary < 0 ? {role:item.role, content,...run,agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined} : {role:item.role, content:content.slice(0,boundary), footer:content.slice(boundary + 5),...run,agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined};
     });
-    messages.push(...rewindNotes.filter(note => note.root === permissionFolder()?.uri.fsPath).map(note => ({role:'assistant', content:note.text, note:true})));
+    if (signedIn) messages.push(...rewindNotes.filter(note => note.root === permissionFolder()?.uri.fsPath).map(note => ({role:'assistant', content:note.text, note:true})));
     let options = null;
     let pack = null;
     if (signedIn) {
@@ -740,15 +835,15 @@ function activate(context) {
       pack = selection.catalogue.length ? (packs.publicSelection(selection, uiLocale()) || { label: L('Choose skill pack', 'Выбрать пакет навыков'), summary: '' }) : null;
       updatePackStatus(selection, auth);
       try { options = chatOptions(auth, selection.pack); } catch { options = null; }
-    } else updatePackStatus(null, null);
-    if(view!==chatView || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
+    } else updatePackStatus(null, null, authState);
+    if(view!==chatView || authDisposed || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch || authState !== accountPresentation(auth).authState) return;
     const run = activeAgentPermissions;
     const activePermissions = run?.scope === nextAgentScope && run.canUpdate()
       ? { id:run.id, preset:modePresets.presetFor(run.flags.agentAutoApply, run.flags.agentAutoRun), rulesNote:run.rulesNote() } : null;
-    await view.webview.postMessage({ type: 'state', activePermissions, conversationEditable:!!scope && !shared.selection(scope), colorTheme:vscode.workspace.getConfiguration('tvijo').get('colorTheme','blue'), orchestration:{enabled:orchestration.enabled(),coordinator:'ds41f',policy:vscode.workspace.getConfiguration('tvijo').get('orchestration.workerPolicy','sol')}, autoCommit:vscode.workspace.getConfiguration('tvijo').get('autoCommit','afterTask'), loadedRules:projectRulesHost.loaded?.() || [],rulesScanTruncated:projectRulesHost.scanTruncated(), runtimeVersion:context.extension?.packageJSON?.version || require('./package.json').version, composerMode:scope ? composerMode({scope}) : null, workspacePath:permissionFolder()?.uri.fsPath || refusedCandidate?.fsPath || '', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, liveQuestion, liveFrom, botSetupNeeded, bridgeEnabled:vscode.workspace.getConfiguration('tvijo').get('bridge.enabled', false) === true, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length || !!(scope && local.history(scope).length), account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError || (projectRulesHost.scanTruncated() && !fullAccessState().enabled?{text:L('Rules scan truncated. Further commands require confirmation for this task.','Сканирование правил усечено. Следующие команды этой задачи требуют подтверждения.'),action:'rulesSettings'}:null) || ((projectRulesHost.loaded?.() || []).some(row=>row.quarantined)?{text:L('Rules changed outside an approved direct edit. Quarantined rules are excluded from future requests until you re-enable them in ⚙.','Правила изменены вне одобренной прямой правки. Правила в карантине исключены из следующих запросов до повторного включения в ⚙.'),action:'rulesSettings'}:null), authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : refusedCandidate ? path.basename(refusedCandidate.fsPath) : L('Choose project','Выбрать проект'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
+    await view.webview.postMessage({ type: 'state', activePermissions, conversationEditable:!!scope && !shared.selection(scope), colorTheme:vscode.workspace.getConfiguration('tvijo').get('colorTheme','blue'), orchestration:{enabled:orchestration.enabled(),coordinator:'ds41f',policy:vscode.workspace.getConfiguration('tvijo').get('orchestration.workerPolicy','sol')}, autoCommit:vscode.workspace.getConfiguration('tvijo').get('autoCommit','afterTask'), loadedRules:projectRulesHost.loaded?.() || [],rulesScanTruncated:projectRulesHost.scanTruncated(), runtimeVersion:context.extension?.packageJSON?.version || require('./package.json').version, composerMode:scope ? composerMode({scope}) : null, workspacePath:permissionFolder()?.uri.fsPath || refusedCandidate?.fsPath || '', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, liveQuestion:signedIn ? liveQuestion : null, liveFrom:signedIn ? liveFrom : '', botSetupNeeded, bridgeEnabled:vscode.workspace.getConfiguration('tvijo').get('bridge.enabled', false) === true, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length || !!(scope && local.history(scope).length), account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError || (projectRulesHost.scanTruncated() && !fullAccessState().enabled?{text:L('Rules scan truncated. Further commands require confirmation for this task.','Сканирование правил усечено. Следующие команды этой задачи требуют подтверждения.'),action:'rulesSettings'}:null) || ((projectRulesHost.loaded?.() || []).some(row=>row.quarantined)?{text:L('Rules changed outside an approved direct edit. Quarantined rules are excluded from future requests until you re-enable them in ⚙.','Правила изменены вне одобренной прямой правки. Правила в карантине исключены из следующих запросов до повторного включения в ⚙.'),action:'rulesSettings'}:null), authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : refusedCandidate ? path.basename(refusedCandidate.fsPath) : L('Choose project','Выбрать проект'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'ds41f') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
-      status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
+      status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : authStatus || L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
   }
 
   async function postActivity(stage, detail = '') {
@@ -1514,7 +1609,7 @@ function activate(context) {
 
   command('tvijo.signInProject', async () => {
     ensureIdle();
-    const attempt = ++authAttempt;
+    const attempt = nextAuthAttempt();
     const api = client();
     const token = await vscode.window.showInputBox({ title: 'Tvijo project API key', password: true, ignoreFocusOut: true, prompt: 'Use a Tvijo project service key. Provider BYOK keys belong to a separate connection flow.' });
     if (!token?.trim()) return;
@@ -1534,11 +1629,12 @@ function activate(context) {
     ensureIdle();
     sharedTaskCap({ kind: 'project', key_limits: data.key_limits });
     await commitAuthentication(attempt, api.base, async check => {
-      await writeAuthSecret(check, PROJECT_AUTH_KEY, JSON.stringify({ access_token: token.trim(), api_base: api.base, kind: 'project', key_limits: data.key_limits }));
+      const credential = { access_token:token.trim(), api_base:api.base, kind:'project', key_limits:data.key_limits };
+      await writeAuthSecret(check, PROJECT_AUTH_KEY, JSON.stringify(credential));
       await writeAuthMode(check, 'project');
       switchIdentity(null);
       const scope = scopeKey(api.base, data.tenant_id);
-      switchIdentity({ token: token.trim(), base: api.base, tenant: data.tenant_id, scope });
+      switchIdentity({ token:token.trim(), base:api.base, tenant:data.tenant_id, scope, credential:{...credential, secretKey:PROJECT_AUTH_KEY} });
       accountSnapshot = data;
       await selectShared(scope, project, thread); check();
     });
@@ -2356,11 +2452,12 @@ function activate(context) {
   command('tvijo.signIn', async () => {
     ensureIdle();
     if (deviceLoginActive) return;
-    deviceLoginActive = true; authState = 'connecting'; authError = '';
+    deviceLoginActive = true;
+    const attempt = nextAuthAttempt();
     await postChatState();
     try {
-    const attempt = ++authAttempt;
     const api = client();
+    assertAuthAttempt(attempt, api.base);
     const device = await api.startDeviceLogin();
     assertAuthAttempt(attempt, api.base);
     await approveDevice(vscode, device, { check: () => assertAuthAttempt(attempt, api.base), L });
@@ -2378,29 +2475,32 @@ function activate(context) {
       switchIdentity(null);
     });
     vscode.window.showInformationMessage('Tvijo: signed in. The token is kept in VS Code secret storage.');
-    } catch (error) { authState = 'error'; authError = localizedMessage(error); throw error; }
+    } catch (error) { if (attempt === authAttempt) deviceLoginError = localizedMessage(error); throw error; }
     finally { deviceLoginActive = false; await postChatState(); }
   });
 
   command('tvijo.signOut', async () => {
     ensureIdle();
-    const attempt = ++authAttempt;
+    const attempt = nextAuthAttempt();
     const api = client();
-    // Mode owns the slot even when that mode has already been signed out.
-    const mode = context.globalState.get(AUTH_MODE) === 'project' ? 'project' : 'device';
-    customerBot?.stop(); customerBot = null;
-    const auth = await readAuth();
-    await commitAuthentication(attempt, api.base, async check => {
-      await writeAuthSecret(check, mode === 'project' ? PROJECT_AUTH_KEY : AUTH_KEY, undefined);
-      await writeAuthMode(check, mode);
+    signOutAttempt = attempt;
+    try {
+      // Mode owns the slot even when that mode has already been signed out.
+      const secretKey = selectedAuthKey();
       switchIdentity(null);
-    });
-    if (auth?.access_token && auth.kind !== 'project' && auth.api_base === api.base) {
-      try { await api.logout(auth.access_token); } catch { /* Local sign-out already completed. */ }
+      const auth = await readAuth();
+      await commitAuthentication(attempt, api.base, async check => {
+        await writeAuthSecret(check, secretKey, undefined);
+        await writeAuthMode(check, secretKey === PROJECT_AUTH_KEY ? 'project' : 'device');
+      });
+      if (auth?.access_token && auth.secretKey === AUTH_KEY && auth.api_base === api.base) {
+        try { await api.logout(auth.access_token); } catch { /* Local sign-out already completed. */ }
+      }
+      assertAuthAttempt(attempt, api.base);
+      vscode.window.showInformationMessage('Tvijo: signed out on this machine.');
+    } finally {
+      if (signOutAttempt === attempt) signOutAttempt = null;
     }
-    assertAuthAttempt(attempt, api.base);
-    authState = 'signed_out'; authError = '';
-    vscode.window.showInformationMessage('Tvijo: signed out on this machine.');
   });
 
   command('tvijo.account', async () => {
@@ -3240,10 +3340,13 @@ function activate(context) {
             else await showPrivateDocument('markdown', item.display || item.content, auth);
           } else if (message?.type === 'chooseWorkspace') {
             await handlers.get('tvijo.chooseWorkspace')();
+          } else if (message?.type === 'reconnectAccount') {
+            await refreshStatus({reconcile:true});
           } else if (message?.type === 'account') {
             const auth = await readAuth();
-            const live = auth?.access_token && auth.api_base === client().base && !(auth.expires_at && Date.now() >= Date.parse(auth.expires_at));
-            await vscode.commands.executeCommand(live && authState !== 'error' ? 'tvijo.account' : 'tvijo.signIn');
+            const {authState} = accountPresentation(auth);
+            if (authState === 'checking' || authState === 'reconnecting') await refreshStatus({reconcile:true});
+            else if (authState !== 'connecting') await vscode.commands.executeCommand(authState === 'signed_in' ? 'tvijo.account' : 'tvijo.signIn');
           } else if (['retryStep', 'new', 'cancel', 'commands', 'workspace', 'selection', 'path', 'help', 'bot', 'workflow', 'credit', 'terminal', 'settings', 'clearAttachments', 'usage', 'connections', 'productGuide', 'tasks', 'history', 'contextSelect', 'contextPreview', 'quickEdit'].includes(message?.type)) {
             if (message.type === 'cancel' && agentRunning) { agentAbort?.abort(); return; }
             const id = { retryStep: 'tvijo.retryStep', new: 'tvijo.newConversation', cancel: 'tvijo.cancelPending', commands: 'tvijo.commands', workspace: 'tvijo.attachFile', selection: 'tvijo.attachSelection', path: 'tvijo.attachPath', help: 'tvijo.help', bot: 'tvijo.botGuide', workflow: 'tvijo.chooseWorkflow', credit: 'tvijo.buyCredit', terminal: 'tvijo.terminal', learn: 'tvijo.learn', feedback: 'tvijo.feedback', settings: 'tvijo.settings', clearAttachments: 'tvijo.clearAttachments', usage: 'tvijo.usage', connections: 'tvijo.connections', productGuide: 'tvijo.productGuide', tasks: 'tvijo.tasks', history: 'tvijo.chooseThread', contextSelect: 'tvijo.contextSelect', contextPreview: 'tvijo.contextPreview', quickEdit: 'tvijo.quickEdit' }[message.type];
@@ -3377,10 +3480,15 @@ function activate(context) {
     vscode.window.showInformationMessage(`Tvijo: ${label} added to your knowledge base.`);
   });
 
-  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration('tvijo.colorTheme') || e.affectsConfiguration('tvijo.pack')) refreshStatus(); if (e.affectsConfiguration('tvijo.model') || e.affectsConfiguration('tvijo.agentModel') || e.affectsConfiguration('tvijo.agentAutoApply') || e.affectsConfiguration('tvijo.agentAutoRun')) postChatState(); if (e.affectsConfiguration('tvijo.apiBase')) { authAttempt++; switchIdentity(null); } if (e.affectsConfiguration('tvijo.apiBase') || e.affectsConfiguration('tvijo.telegram.ownerId') || e.affectsConfiguration('tvijo.telegram.allowedServices') || (e.affectsConfiguration('tvijo.telegram.enabled') && !vscode.workspace.getConfiguration('tvijo').get('telegram.enabled', false))) { customerBot?.stop(); customerBot = null; refreshStatus(); } }));
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration('tvijo.colorTheme') || e.affectsConfiguration('tvijo.pack')) refreshStatus(); if (e.affectsConfiguration('tvijo.model') || e.affectsConfiguration('tvijo.agentModel') || e.affectsConfiguration('tvijo.agentAutoApply') || e.affectsConfiguration('tvijo.agentAutoRun')) postChatState(); if (e.affectsConfiguration('tvijo.apiBase')) { nextAuthAttempt(); switchIdentity(null); } if (e.affectsConfiguration('tvijo.apiBase') || e.affectsConfiguration('tvijo.telegram.ownerId') || e.affectsConfiguration('tvijo.telegram.allowedServices') || (e.affectsConfiguration('tvijo.telegram.enabled') && !vscode.workspace.getConfiguration('tvijo').get('telegram.enabled', false))) { customerBot?.stop(); customerBot = null; refreshStatus(); } }));
   if (vscode.window.onDidChangeWindowState) context.subscriptions.push(vscode.window.onDidChangeWindowState(event => { if (event.focused && !busy) void refreshStatus({reconcile:true}); }));
-  const reconnectTimer = setInterval(() => { if (chatView?.visible !== false && !busy && !deviceLoginActive) void refreshStatus({reconcile:true}); },30000);
-  reconnectTimer.unref?.(); context.subscriptions.push({dispose:() => clearInterval(reconnectTimer)});
+  const reconnectTimer = setInterval(() => { if (chatView?.visible !== false && !busy && !deviceLoginActive) void refreshStatus({reconcile:true, background:true}); },30000);
+  reconnectTimer.unref?.();
+  context.subscriptions.push({dispose:() => {
+    authDisposed = true;
+    nextAuthAttempt();
+    clearInterval(reconnectTimer);
+  }});
   const bridgeEnabled = () => vscode.workspace.getConfiguration('tvijo').get('bridge.enabled', false) === true;
   const storage = context.globalStorageUri?.fsPath;
   const bridgeDelivery = createBridgeDelivery({
