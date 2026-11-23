@@ -1,11 +1,10 @@
 <!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
-## What's new in 0.10.34 — 2026-11-18 (menu help and reply language candidate)
+## What's new in 0.10.35 — 2026-11-23
 
-- **Help no longer covers the menu.** Help for a menu choice opens above the open menu, so every choice stays visible while you read it. On a short panel long help scrolls in the free space above the menu. Help for other controls keeps its position next to the control.
-- **Russian requests get Russian progress notes and answers.** When a request is written in Russian, the agent is told to write its step notes and its final answer in Russian, the protocol example is in Russian, and every step repeats the rule. Code, paths and commands stay as they are.
-- **Search works where ripgrep is not installed.** The agent search uses the ripgrep that ships with VS Code when `rg` is missing on the host, so regular-expression queries find their matches on such a Remote SSH server. Without any ripgrep, a search inside one file now finds its matches, and the result tells the agent that the query was matched as literal text.
-- **Answers are no longer lost.** An answer with line breaks inside the action JSON, or a turn with two actions, is read instead of being sent back to the model; the first action runs and every tool keeps its permission checks. At the step limit a final answer sent as a finish action is shown instead of the step-limit notice. An answer that explains how tool results are handled is no longer refused as an echoed tool result.
-- **Includes 0.10.33.** Settings navigation, help in both languages and the access explanations from the preceding candidate are included.
+- Enable and save Full access for a trusted folder from a command confirmation. The current Agent run continues with the new permission.
+- Save the Auto checkboxes in Settings while an Agent task is active. The next run reads the saved values.
+- Editor device login requests a seven-day session from a compatible gateway.
+- Image context includes a local grayscale text thumbnail when FFmpeg is available. Preview text shows both the thumbnail and OCR.
 
 Earlier versions: the **Changelog** tab.
 <!-- changelog-latest:end -->
@@ -63,7 +62,7 @@ Choose **Configuration file example** in the help section or run **Tvijo: Open c
 
 # Tvijo DSHREM for VS Code
 
-Version 0.10.34. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.35. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
