@@ -59,7 +59,7 @@ function host(options = {}) {
   function fireDiagnostics(uris) { for (const listener of diagnosticsChangeListeners) listener({ uris }); }
   const root = options.root || path.resolve(__dirname, '../..');
   const storage = options.storage || require('node:fs').mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'rewind-host-'));
-  const settings = new Map(options.defaultAuto ? [] : [['agentAutoApply',false],['agentAutoRun',false]]);
+  const settings = options.settings || new Map(options.defaultAuto ? [] : [['agentAutoApply',false],['agentAutoRun',false]]);
   const status = { show() {} };
   class Uri { constructor(fsPath) { this.fsPath = fsPath; this.scheme = 'file'; } static file(value) { return new Uri(value); } static parse(value) { return new Uri(value); } static joinPath(base, ...parts) { return new Uri(path.join(base.fsPath, ...parts)); } }
   class Position { constructor(line, character) { this.line = line; this.character = character; } }
@@ -3213,28 +3213,204 @@ test('settings panel saves validated values on host and reports failures without
  }finally{app.close();}
 });
 
-test('Settings saves the Auto checkboxes while an Agent run is waiting for an answer', async () => {
-  const app = host({chatContent:'{"tool":"finish","status":"done","answer":"Done"}'});
+function permissionState(app) {
+  return app.posts.findLast(row => row.type === 'state');
+}
+
+async function permissionProject() {
+  const root = await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(), 'live-auto-'));
+  await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({scripts:{test:`node -e "console.log('live-auto-fixture')"`}}));
+  return root;
+}
+
+async function pausePermissionRun(app, plan = false) {
+  app.settings.set('workspaceContext','off');
+  await app.receive({type:'ready'});
+  app.blockResponse('/tasks/task-test/chat','POST');
+  const running = app.receive({type:'ask',question:'Verify the project',agent:true,plan});
+  for (let i=0; i<200 && !app.responseWaiting(); i++) await new Promise(resolve => setTimeout(resolve,5));
+  assert.equal(app.responseWaiting(),true);
+  return {running};
+}
+
+function sendActivePreset(app, preset, requestId = preset) {
+  const {scopeKey, activePermissions} = permissionState(app);
+  return app.receive({type:'agentPreset',scopeKey,runId:activePermissions.id,preset,requestId});
+}
+
+const verificationCommand = {tool:'run_command',command:'npm test'};
+const verifiedAnswer = {tool:'finish',status:'done',answer:'Finished'};
+const permissionGrants = app => app.requests.filter(row => row.url.endsWith('/tasks') && row.method === 'POST').length;
+const permissionResults = app => app.posts.filter(row => row.type === 'agent' && row.event?.type === 'result').map(row => row.event.result);
+
+test('live Auto mode renders and runs the next allowlisted command without a fresh grant', async () => {
+  const root = await permissionProject();
+  const app = host({root,chatSequence:[verificationCommand,verifiedAnswer].map(JSON.stringify)});
+  let running;
   try {
-    app.settings.set('workspaceContext','off');
-    await app.receive({type:'ready'});
-    await app.commands.get('tvijo.settings')();
-    app.blockResponse('/tasks/task-test/chat','POST');
-    const running = app.receive({type:'ask',question:'Inspect the workspace',agent:true});
-    for (let i=0; i<200 && !app.responseWaiting(); i++) await new Promise(resolve => setTimeout(resolve,5));
-    assert.equal(app.responseWaiting(),true);
-    const panel = app.panels[0];
-    for (const key of ['agentAutoApply','agentAutoRun']) {
-      await panel.receive({type:'saveSetting',key:'tvijo.'+key,value:true,requestId:1});
-      const result = app.posts.filter(row => row.type === 'settingsSaved' && row.key === 'tvijo.'+key).at(-1);
-      assert.equal(result.value,true);
-      assert.equal(result.error,undefined);
-    }
+    ({running} = await pausePermissionRun(app));
+    const {sidebar} = require('./helpers/sidebar');
+    const view = sidebar({},permissionState(app));
+    const modeItem = id => view.element('mode-menu').children.find(row => row.attributes['data-mode'] === id);
+    assert.equal(view.element('mode').textContent,'Manual');
+    assert.equal(view.element('mode').disabled,false);
+    view.element('mode').click();
+    assert.equal(modeItem('auto').disabled,false);
+    assert.equal(modeItem('full').disabled,true);
+    assert.equal(modeItem('plan').disabled,true);
+    const postsBefore = app.posts.length;
+    modeItem('auto').click();
+    await app.receive(view.outgoing.findLast(row => row.type === 'agentPreset'));
+    for (const data of app.posts.slice(postsBefore)) view.emit('window:message',{data});
+    assert.equal(view.element('mode').textContent,'Auto');
+    assert.equal(permissionState(app).fullAccess.enabled,false);
+    assert.equal(permissionState(app).status,'Permissions updated for this run.');
+    assert.equal(permissionGrants(app),1);
     app.releaseResponse();
     await running;
-    await app.receive({type:'ready'});
-    assert.equal(app.posts.filter(row => row.type === 'state').at(-1).options.agentPreset,'auto');
-  } finally { app.releaseResponse(); app.close(); }
+    assert.equal(permissionResults(app)[0].exitCode,0);
+    assert.match(permissionResults(app)[0].stdout,/live-auto-fixture/);
+    assert.equal(app.warnings.length,0);
+    assert.equal(permissionGrants(app),2);
+    const reopened = host({root,settings:app.settings,storage:app.storage,globalState:app.context.globalState,secrets:app.context.secrets});
+    try {
+      await reopened.receive({type:'ready'});
+      assert.equal(permissionState(reopened).options.agentPreset,'auto');
+      assert.equal(permissionState(reopened).activePermissions,null);
+    } finally { reopened.close(); }
+  } finally { app.releaseResponse(); await running; app.close(); }
+});
+
+test('live Auto checkboxes apply and save an eligible edit in the same run', async () => {
+  const x = await savedAgentFixture({auto:true,denyApproval:true,actions:[
+    {tool:'replace_in_file',path:'code.txt',old:'original',new:'new content'}, verifiedAnswer
+  ]});
+  const {app} = x;
+  let running;
+  try {
+    app.settings.set('agentAutoApply',false);
+    app.settings.set('agentAutoRun',false);
+    ({running} = await pausePermissionRun(app));
+    await app.commands.get('tvijo.settings')();
+    for (const key of ['agentAutoApply','agentAutoRun']) {
+      await app.panels[0].receive({type:'saveSetting',key:'tvijo.'+key,value:true,requestId:1});
+      const response = app.posts.findLast(row => row.type === 'settingsSaved' && row.key === 'tvijo.'+key);
+      assert.equal(response.value,true);
+      assert.equal(response.error,undefined);
+    }
+    assert.equal(permissionState(app).status,'Permissions updated for this run.');
+    assert.equal(permissionGrants(app),1);
+    app.releaseResponse();
+    await running;
+    assert.equal(x.results()[0].saved,true);
+    assert.equal(await fs.readFile(x.file,'utf8'),'new content');
+    assert.equal(app.warnings.length,0);
+  } finally { app.releaseResponse(); await running; x.close(); }
+});
+
+test('live Auto can be turned off before the next command', async () => {
+  const root = await permissionProject();
+  const app = host({root,chatSequence:[verificationCommand,verifiedAnswer].map(JSON.stringify)});
+  let running;
+  try {
+    ({running} = await pausePermissionRun(app));
+    await sendActivePreset(app,'auto');
+    await app.commands.get('tvijo.settings')();
+    await app.panels[0].receive({type:'saveSetting',key:'tvijo.agentAutoRun',value:false,requestId:1});
+    assert.equal(permissionState(app).activePermissions.preset,'edit');
+    app.warning('Cancel');
+    app.releaseResponse();
+    await running;
+    assert.equal(permissionResults(app)[0].refused,true);
+    assert.equal(app.warnings.length,1);
+    assert.equal(permissionState(app).options.agentPreset,'edit');
+  } finally { app.releaseResponse(); await running; app.close(); }
+});
+
+for (const failure of ['partial save','effective override','account change','workspace change','cancel']) {
+  test('live Auto preserves effective permissions on '+failure, async () => {
+    const root = await permissionProject();
+    let began, finish;
+    const started = new Promise(resolve => { began = resolve; });
+    const deferred = new Promise(resolve => { finish = resolve; });
+    const app = host({root,chatSequence:[verificationCommand,verifiedAnswer].map(JSON.stringify),
+      configurationUpdate:async (key,value,settings) => {
+        settings.set(key,value);
+        if (key !== 'agentAutoRun' || value !== true) return;
+        if (failure === 'partial save') throw Error('Synthetic persistence failure');
+        if (['account change','workspace change','cancel'].includes(failure)) { began(); await deferred; }
+      }});
+    if (failure === 'effective override') {
+      const read = app.vscode.workspace.getConfiguration;
+      app.vscode.workspace.getConfiguration = (...args) => {
+        const config = read(...args);
+        return {...config,get:(key,fallback) => key === 'agentAutoRun' ? false : config.get(key,fallback)};
+      };
+    }
+    let running;
+    try {
+      ({running} = await pausePermissionRun(app));
+      const update = sendActivePreset(app,'auto');
+      if (['account change','workspace change','cancel'].includes(failure)) {
+        await started;
+        if (failure === 'cancel') await app.receive({type:'cancel'});
+        if (failure === 'workspace change') app.workspaceChanged();
+        if (failure === 'account change') await app.context.secrets.store('tvijo.auth',JSON.stringify({access_token:'account-b',api_base:app.base}));
+        finish();
+      }
+      await update;
+      assert.equal(app.posts.findLast(row => row.type === 'presetResult').ok,false);
+      assert.equal(app.settings.get('agentAutoRun'),false);
+      assert.equal(app.settings.get('agentAutoApply'),false);
+      assert.equal(permissionGrants(app),1);
+      app.warning('Cancel');
+      app.releaseResponse();
+      await running;
+      assert.ok(permissionResults(app).every(result => result.exitCode === undefined));
+      if (['partial save','effective override'].includes(failure)) assert.equal(permissionResults(app)[0].refused,true);
+    } finally { finish(); app.releaseResponse(); await running; app.close(); }
+  });
+}
+
+test('live Auto keeps an incomplete rules scan, literal parser and hard denials in force', async () => {
+  const root = await permissionProject();
+  await Promise.all(Array.from({length:1030}, (_, i) => fs.mkdir(path.join(root,'scan-'+i))));
+  const actions = [verificationCommand,{tool:'run_command',command:'printf a && printf b'},
+    {tool:'run_command',command:'sudo true'},verifiedAnswer];
+  const app = host({root,chatSequence:actions.map(JSON.stringify)});
+  let running;
+  try {
+    ({running} = await pausePermissionRun(app));
+    await sendActivePreset(app,'auto');
+    assert.match(permissionState(app).activePermissions.rulesNote,/1,024 directories or 20,000 entries/);
+    app.warning('Cancel');
+    app.releaseResponse();
+    await running;
+    const [scan, shell, hard] = permissionResults(app);
+    assert.equal(scan.refused,true);
+    assert.match(shell.error,/shell operators/i);
+    assert.equal(hard.ok,false);
+    assert.equal(app.warnings.length,1);
+    assert.match(app.warnings[0][1].detail,/rules scan is incomplete/);
+    assert.equal(permissionState(app).fullAccess.enabled,false);
+  } finally { app.releaseResponse(); await running; app.close(); }
+});
+
+test('Plan checkbox saves apply to the next Agent run and keep the current Plan read-only', async () => {
+  const root = await permissionProject();
+  const app = host({root,chatSequence:[verificationCommand,verifiedAnswer].map(JSON.stringify)});
+  let running;
+  try {
+    ({running} = await pausePermissionRun(app,true));
+    assert.equal(permissionState(app).activePermissions,null);
+    await app.commands.get('tvijo.settings')();
+    await app.panels[0].receive({type:'saveSetting',key:'tvijo.agentAutoRun',value:true,requestId:1});
+    assert.equal(permissionState(app).status,'Permissions saved for the next Agent run.');
+    app.releaseResponse();
+    await running;
+    assert.equal(permissionResults(app)[0].ok,false);
+    assert.equal(app.warnings.length,0);
+  } finally { app.releaseResponse(); await running; app.close(); }
 });
 
 test('host budget warning adds only the chosen increment to this run and preserves cost receipts',async()=>{

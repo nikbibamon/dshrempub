@@ -195,6 +195,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   let locale = 'en';
   let submitting = false;
   let running = false;
+  let activePermissions = null;
   let liveRun = null, renderedNodes = [];
   let preparing = false;
   let uploading = false;
@@ -515,40 +516,53 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     const amount = v => Number.isSafeInteger(v) && v >= 0 ? (v / 1000000).toLocaleString(locale === 'ru' ? 'ru-RU' : 'en-US', {maximumFractionDigits:6}) : '—';
     state.textContent = t('upTo') + ' ' + amount(q.estimated_max_micro_tvijo) + ' TT' + (engineering ? ' · ' + t('quoteLabel') + ' ' + (q.quote_id || '—') + ' · ' + t('ceilingLabel') + ' ' + amount(q.ceiling_micro_tvijo) + ' TT · ' + t('tariffLabel') + ' ' + (q.tariff_version || '—') : '');
   }
+  const ordinaryMode = mode => ['manual','edit','auto'].includes(mode);
+  const canSetRunningMode = mode => !!activePermissions && ordinaryMode(mode);
+  const modeLabel = preset => t(({manual:'modeManual',edit:'modeEdit',auto:'modeAuto',full:'modeFull',extra:'modeExtra',custom:'modeCustom',plan:'modePlan',chat:'modeChat'})[preset] || 'modeCustom');
   function updateMode() {
-    const preset = uiMode === 'plan' ? 'plan' : optionState?.agentPreset || 'auto';
-    const labelKey = uiMode === 'chat' ? 'modeChat' : uiMode === 'plan' ? 'modePlan' : ({manual:'modeManual',edit:'modeEdit',auto:'modeAuto',full:'modeFull',extra:'modeExtra',custom:'modeCustom'}[preset] || 'modeCustom');
-    const label = t(labelKey);
+    const mode = activePermissions ? 'agent' : uiMode;
+    const preset = mode === 'agent' ? activePermissions?.preset || optionState?.agentPreset || 'auto' : mode;
+    const label = modeLabel(preset);
     modeButton.textContent = label;
-    modeButton.className = 'mini-select ' + (uiMode === 'chat' ? '' : uiMode);
+    modeButton.className = 'mini-select ' + (mode === 'chat' ? '' : mode);
     modeButton.title = t('mode') + ': ' + label;
-    setHelp(modeButton, MODE_HELP[uiMode === 'chat' ? 'chat' : preset]?.[locale] || t('mode'));
+    let help = MODE_HELP[preset]?.[locale] || t('mode');
+    if (activePermissions) {
+      help += ' ' + (locale === 'ru' ? 'Режим текущей задачи.' : 'Permission mode for the current run.');
+      if (optionState?.agentPreset && optionState.agentPreset !== preset) {
+        help += ' ' + (locale === 'ru' ? 'Следующая задача — ' : 'Next run will use ') + modeLabel(optionState.agentPreset) + '.';
+      }
+      if (activePermissions.rulesNote) help += ' ' + activePermissions.rulesNote;
+    }
+    setHelp(modeButton, help);
     modeButton.setAttribute('aria-label', t('mode') + ': ' + label);
     modeButton.setAttribute('aria-expanded', String(!modeMenu.hidden));
     renderModeMenu();
     question.placeholder = uiMode === 'chat' ? t('ask') : t('mentionHint');
-    document.getElementById('mode-help').textContent = t(uiMode === 'chat' ? 'modeChatHelp' : uiMode === 'agent' ? 'modeAgentHelp' : 'modePlanHelp') + (uiMode === 'agent' && ['full','extra','auto'].includes(preset) ? ' ' + t('agentSavedHelp') : '') + ' ' + t('shellHelp');
+    document.getElementById('mode-help').textContent = t(mode === 'chat' ? 'modeChatHelp' : mode === 'agent' ? 'modeAgentHelp' : 'modePlanHelp') + (mode === 'agent' && ['full','extra','auto'].includes(preset) ? ' ' + t('agentSavedHelp') : '') + ' ' + t('shellHelp');
     updateWorkflowLabel();
   }
   function renderModeMenu() {
     modeMenu.replaceChildren();
+    const mode = activePermissions ? 'agent' : uiMode;
+    const preset = activePermissions?.preset || optionState?.agentPreset;
     const rows = [
-      {mode:'chat', label:t('modeChat'), hint:t('modeChatHelp'), checked:uiMode === 'chat'},
-      {mode:'manual', label:t('modeManual'), hint:t('modeManualHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'manual'},
-      {mode:'edit', label:t('modeEdit'), hint:t('modeEditHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'edit'},
-      {mode:'plan', label:t('modePlan'), hint:t('modePlanHint'), checked:uiMode === 'plan'},
-      {mode:'auto', label:t('modeAuto'), hint:t('modeAutoHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'auto'},
-      {mode:'extra', label:t('modeExtra'), hint:fullAccess?.extraUnavailableReason ? t('modeExtraRoot') : t('modeExtraHint'), checked:uiMode === 'agent' && optionState?.agentPreset === 'extra', disabled:fullAccess?.available !== true || fullAccess?.extraAvailable === false},
-      {mode:'full', label:t('modeFull'), hint:t('modeFullShort'), checked:uiMode === 'agent' && optionState?.agentPreset === 'full', disabled:fullAccess?.available !== true}
+      {mode:'chat', label:t('modeChat'), hint:t('modeChatHelp'), checked:mode === 'chat'},
+      {mode:'manual', label:t('modeManual'), hint:t('modeManualHint'), checked:mode === 'agent' && preset === 'manual'},
+      {mode:'edit', label:t('modeEdit'), hint:t('modeEditHint'), checked:mode === 'agent' && preset === 'edit'},
+      {mode:'plan', label:t('modePlan'), hint:t('modePlanHint'), checked:mode === 'plan'},
+      {mode:'auto', label:t('modeAuto'), hint:t('modeAutoHint'), checked:mode === 'agent' && preset === 'auto'},
+      {mode:'extra', label:t('modeExtra'), hint:fullAccess?.extraUnavailableReason ? t('modeExtraRoot') : t('modeExtraHint'), checked:mode === 'agent' && preset === 'extra', disabled:fullAccess?.available !== true || fullAccess?.extraAvailable === false},
+      {mode:'full', label:t('modeFull'), hint:t('modeFullShort'), checked:mode === 'agent' && preset === 'full', disabled:fullAccess?.available !== true}
     ];
-    if (optionState?.agentPreset === 'custom') rows.push({mode:'custom', label:t('modeCustom'), hint:'', checked:uiMode === 'agent'});
+    if (preset === 'custom') rows.push({mode:'custom', label:t('modeCustom'), hint:'', checked:mode === 'agent'});
     for (const row of rows) {
       const button = document.createElement('button'); button.type = 'button'; button.setAttribute('data-mode', row.mode);
       button.setAttribute('role','menuitemradio'); button.setAttribute('aria-checked',String(row.checked));
       const name = document.createElement('span'); name.textContent = row.label;
       const hint = document.createElement('span'); hint.className = 'hint'; hint.textContent = row.hint;
       button.append(name,hint);
-      button.disabled = running || submitting || preparing || !!pendingModeRequestId;
+      button.disabled = (running && !canSetRunningMode(row.mode)) || submitting || preparing || !!pendingModeRequestId;
       // A policy-disabled item remains focusable so its prerequisites can be read.
       button.setAttribute('aria-disabled', String(!!row.disabled || button.disabled));
       let details = MODE_HELP[row.mode]?.[locale] || row.hint;
@@ -584,7 +598,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     setHelp(access, CONTROL_HELP.connections[locale === 'ru' ? 1 : 0]);
     access.addEventListener('click', () => { closeModeMenu(); post({type:'connections'}); });
     modeMenu.append(access);
-    modeButton.disabled = !!pendingModeRequestId || (!fullAccess?.enabled && (running || submitting || preparing));
+    modeButton.disabled = !!pendingModeRequestId || (!fullAccess?.enabled && ((running && !activePermissions) || submitting || preparing));
   }
   function openModeMenu() {
     if (modeButton.disabled) return;
@@ -597,9 +611,8 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     if (restoreFocus) modeButton.focus();
   }
   function chooseMode(mode) {
-    if (pendingModeRequestId) return;
+    if (pendingModeRequestId || submitting || preparing || (running && !canSetRunningMode(mode))) return;
     if (mode === 'chat') { closeModeMenu(true); uiMode = 'chat'; modeExplicit = true; updateMode(); saveDraft(); return; }
-    if (running || submitting || preparing) return;
     if (!workspaceAvailable) { closeModeMenu(); openFolderBrowser(); return; }
     if (mode === 'custom') { closeModeMenu(true); uiMode = 'agent'; modeExplicit = true; updateMode(); saveDraft(); return; }
     const preset = mode === 'plan' ? 'plan' : mode;
@@ -607,7 +620,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     if (mode === 'extra' && fullAccess?.extraAvailable === false) return;
     pendingModeRequestId = String(scopeKey || '') + ':' + (++modeRequestSequence);
     closeModeMenu(true); controls();
-    post({type:'agentPreset',preset,requestId:pendingModeRequestId});
+    post({type:'agentPreset',preset,requestId:pendingModeRequestId,...(running ? {runId:activePermissions.id} : {})});
   }
   let agentSteps = new Map(), currentAgentStep = null;
   // Live work log inside the transcript, so progress is visible in every view.
@@ -1115,7 +1128,8 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       document.getElementById('auto-commit').textContent=(locale==='ru'?'Автокоммит: ':'Auto-commit: ')+(data.autoCommit==='off'?(locale==='ru'?'выкл':'off'):(locale==='ru'?'вкл':'on'));
       document.getElementById('bot-setup-note').hidden = !data.botSetupNeeded;
       const bridgeNote = document.getElementById('bridge-note'); bridgeNote.hidden = !data.bridgeEnabled; bridgeNote.textContent = t('bridgeOn');
-      const scanNote=document.getElementById('rules-scan-note');scanNote.hidden=!data.rulesScanTruncated;scanNote.textContent=locale==='ru'?'Сканирование правил усечено. В авторежиме может потребоваться подтверждение команды.':'Rules scan truncated. Auto may ask for command confirmation.';
+      activePermissions = data.busy ? data.activePermissions || null : null;
+      const scanNote=document.getElementById('rules-scan-note');scanNote.hidden=!data.rulesScanTruncated;scanNote.textContent=activePermissions?.rulesNote || (locale==='ru'?'Сканирование правил усечено. В авторежиме может потребоваться подтверждение команды.':'Rules scan truncated. Auto may ask for command confirmation.');
       const rulesPanel=document.getElementById('loaded-rules');rulesPanel.replaceChildren();
       for(const rule of data.loadedRules || []){const row=document.createElement('div');row.className='rule-row';const toggle=document.createElement('button');toggle.type='button';toggle.textContent=(rule.quarantined?'⚠ ':rule.disabled?'☐ ':'☑ ')+rule.file+' · '+rule.bytes+' B'+(rule.truncated?(locale==='ru'?' · обрезано':' · truncated'):'')+(rule.status==='rejected'?' · '+rule.reason:'')+(rule.quarantined?(locale==='ru'?' · карантин — включить снова':' · quarantined — re-enable'):'');toggle.disabled=running;toggle.addEventListener('click',()=>post({type:rule.quarantined?'reenableRule':'toggleRule',id:rule.quarantined?(rule.quarantineId || rule.id):rule.id}));row.append(toggle);rulesPanel.append(row);}
       renderRunSession(data.runSession);
@@ -1171,8 +1185,8 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       drainFollowUps();
     } else if (data.type === 'presetResult') {
       if (data.scopeKey !== scopeKey || !pendingModeRequestId || data.requestId !== pendingModeRequestId) return;
-      if (data.ok) { uiMode = data.preset === 'plan' ? 'plan' : 'agent'; modeExplicit = true; saveDraft(); }
-      else showNotice(t('modeUpdateFailed'));
+      if (data.ok && data.appliesTo !== 'current') { uiMode = data.preset === 'plan' ? 'plan' : 'agent'; modeExplicit = true; saveDraft(); }
+      if (!data.ok) showNotice(t('modeUpdateFailed'));
       pendingModeRequestId = null; closeModeMenu(true); controls(); updateMode();
     } else if (data.type === 'quote') {
       if (data.scopeKey !== scopeKey) return;
