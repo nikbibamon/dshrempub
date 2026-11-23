@@ -133,14 +133,14 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
     return device;
   }
 
-  async function pollDeviceLogin(device, { signal } = {}) {
+  async function pollDeviceLogin(device, { signal, rememberDevice = false } = {}) {
     const interval = Math.max(1, Number(device.interval) || 5) * 1000;
     const deadline = now() + Math.max(1, Number(device.expires_in) || 600) * 1000;
     while (now() < deadline) {
       if (signal?.aborted) throw new ServiceError('interrupted', 'Sign-in was cancelled');
       await sleep(interval);
       try {
-        const token = await request('/auth/token', { method: 'POST', body: { device_code: device.device_code } });
+        const token = await request('/auth/token', { method: 'POST', body: { device_code: device.device_code, ...(rememberDevice ? { remember_device: true } : {}) } });
         if (!token?.access_token) throw new ServiceError('incomplete', 'Service returned an incomplete login response');
         return { access_token: token.access_token, expires_at: new Date(now() + (Number(token.expires_in) || 3600) * 1000).toISOString(), api_base: root };
       } catch (error) {
@@ -171,11 +171,24 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
       throw error;
     }
     const content = response?.choices?.[0]?.message?.content;
-    if (typeof content !== 'string') throw new ServiceError('no_output', 'Service returned no assistant text');
-    return { taskId: grant.id, content, execution: { model:response.model_alias ?? response.model ?? response.task?.model_alias ?? response.task?.model, route:response.route ?? response.task?.route, calls:response.calls ?? response.task?.calls, agent_tree:response.agent_tree ?? response.task?.agent_tree }, usage: response.usage ?? null, cost: response.task ?? null, evidence: Array.isArray(response.evidence) ? response.evidence : [] };
+    if (typeof content !== 'string' || !content.trim()) {const error=new ServiceError('model_output_unavailable','Service returned no assistant text');error.taskId=grant.id;throw error;}
+    const hit=response.usage?.prompt_cache_hit_tokens ?? response.usage?.prompt_tokens_details?.cached_tokens;
+    const miss=response.usage?.prompt_cache_miss_tokens;
+    const cache={prompt_cache_hit_tokens:Number.isSafeInteger(hit)&&hit>=0?hit:'unknown',prompt_cache_miss_tokens:Number.isSafeInteger(miss)&&miss>=0?miss:'unknown'};
+    return { taskId: grant.id, content, execution: { model:response.model_alias ?? response.model ?? response.task?.model_alias ?? response.task?.model, route:response.route ?? response.task?.route, calls:response.calls ?? response.task?.calls, agent_tree:response.agent_tree ?? response.task?.agent_tree }, cache, usage: response.usage ?? null, cost: response.task ?? null, evidence: Array.isArray(response.evidence) ? response.evidence : [] };
   }
 
   async function taskState(token, taskId) { const snapshot = await request(`/tasks/${encodeURIComponent(taskId)}`, { token }); if (snapshot?.id && snapshot.id !== taskId) throw new ServiceError('incomplete','Task response identity mismatch.'); return taskStateOf(snapshot); }
+  async function failedReceipt(token,taskId){
+    const snapshot=await request(`/tasks/${encodeURIComponent(taskId)}`,{token});
+    if(snapshot?.id!==taskId)throw new ServiceError('incomplete','Task receipt identity mismatch.');
+    if(snapshot.status!=='failed'||snapshot.settled||snapshot.settled_at)return snapshot;
+    // Older gateways expose final ledger conservation and usage on this
+    // existing read endpoint, rather than a settled timestamp on /tasks/id.
+    const wallet=await request('/services/usage',{token});
+    const own=wallet?.tasks?.find(row=>row?.id===taskId&&row.status==='failed');
+    return own?{...snapshot,receipt:own.receipt,usage:own.usage}:snapshot;
+  }
 
   return {
     base: root,
@@ -184,6 +197,7 @@ function createClient({ base, fetchImpl = globalThis.fetch, sleep = (ms) => new 
     pollDeviceLogin,
     ask,
     taskState,
+    failedReceipt,
     lookupGrant: (token, idempotencyKey) => request(`/tasks/by-idempotency/${encodeURIComponent(idempotencyKey)}`, { token }),
     cancel: (token, taskId) => request(`/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST', token }),
     account: (token) => request('/account', { token }),

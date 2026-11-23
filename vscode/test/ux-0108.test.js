@@ -1,6 +1,6 @@
 'use strict';
 const test=require('node:test'), assert=require('node:assert/strict'), fs=require('node:fs'),path=require('node:path');
-test('0.10.8 Auto and step fallbacks match manifest defaults',()=>{
+test('0.10.8 Auto and step fallbacks match manifest defaults',async()=>{
  const props=require('../package.json').contributes.configuration.properties;
  const source=fs.readFileSync(path.join(__dirname,'../extension.js'),'utf8');
  for(const key of ['agentAutoApply','agentAutoRun','agentMaxSteps']){
@@ -8,7 +8,7 @@ test('0.10.8 Auto and step fallbacks match manifest defaults',()=>{
   const matches=[...source.matchAll(new RegExp("get\\('"+key+"', ([^)]+)\\)",'g'))];
   assert.ok(matches.length);for(const match of matches)assert.equal(JSON.parse(match[1]),props['tvijo.'+key].default);
  }
- assert.match(require('../lib/agent').systemPrompt({}),/at most 60/);
+ let state;await require('../lib/agent').runAgent({goal:'work',tools:{execute:async()=>({ok:true})},ask:async({messages})=>{state=messages.at(-1).content;return {content:'{"tool":"finish","status":"done","answer":"done"}',cost:{spent_usd:0}};}});assert.match(state,/at most 60/);
 });
 
 test('0.10.8 webview literal IDs exist and header rows are removed',()=>{
@@ -50,10 +50,12 @@ test('0.10.8 rule writes always require approval, including Full access',()=>{
  assert.equal(isRulesPath('src/app.js'),false);
  const source=fs.readFileSync(path.join(__dirname,'../extension.js'),'utf8');assert.match(source,/rulesWrite \? await confirmAgentWrite\(info\) : fullGrant/);
 });
-test('0.10.8 optional rules are dropped after old conversation when a request cannot fit',()=>{
+test('0.10.29 project rules are preserved and an oversized required policy refuses dispatch',()=>{
  const {fitContext}=require('../lib/context-budget');const system={role:'system',content:'Policy\n[TVIJO OPTIONAL RULES]\n'+'rules '.repeat(1000)+'[END TVIJO OPTIONAL RULES]\n'};
- const fit=fitContext([system,{role:'user',content:'old'.repeat(2000)},{role:'assistant',content:'earlier'},{role:'user',content:'do task'}],null,{maxBytes:1000});
- assert.equal(fit.rulesOmitted,true);assert.equal(fit.messages[0].content,'Policy');assert.equal(fit.messages.at(-1).content,'do task');
+ const messages=[system,{role:'user',content:'old'.repeat(2000)},{role:'assistant',content:'earlier'},{role:'user',content:'do task'}];
+ assert.throws(()=>fitContext(messages,null,{maxBytes:1000}),error=>error.code==='context_limit');
+ assert.match(system.content,/TVIJO OPTIONAL RULES/);
+ const fit=fitContext(messages,null,{maxBytes:20000});assert.equal(fit.rulesOmitted,false);assert.equal(fit.messages[0].content,system.content);
 });
 
 test('0.10.8 Chat explains Agent handoff in English and Russian',()=>{
