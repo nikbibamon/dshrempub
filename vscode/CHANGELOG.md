@@ -1,4 +1,4 @@
-## Unreleased
+## 0.10.35 — 2026-11-23
 
 - Enable and save Full access for a trusted folder from a command confirmation. The current Agent run continues with the new permission.
 - Save the Auto checkboxes in Settings while an Agent task is active. The next run reads the saved values.
