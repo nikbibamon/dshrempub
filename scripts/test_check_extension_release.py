@@ -5,6 +5,8 @@ import importlib.util
 import json
 from pathlib import Path
 import stat
+import shutil
+import subprocess
 import tempfile
 import unittest
 import warnings
@@ -81,19 +83,64 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual(result['catalog_copies'], 1)
         self.assertTrue(result['prepared_assets_checked'])
 
+    def tagged_source(self):
+        root = self.directory / 'tagged-source'
+        root.mkdir()
+        original = CATALOG.parents[1]
+        names = subprocess.check_output(['git','-C',str(original),'ls-files','--','vscode'],text=True).splitlines()
+        for name in names:
+            target=root/name
+            target.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copy2(original/name,target)
+        subprocess.run(['git','init','-q',str(root)],check=True)
+        subprocess.run(['git','-C',str(root),'add','--',*names],check=True)
+        self.fixture_commit(root)
+        version = json.loads((root / 'vscode/package.json').read_bytes())['version']
+        subprocess.run(['git', '-C', str(root), 'tag', 'tvijo-v' + version], check=True)
+        return root
+
+    def fixture_commit(self, root):
+        subprocess.run(['git','-C',str(root),'-c','user.name=Release fixture','-c','user.email=fixture@example.invalid','commit','-qm','Test-only source snapshot'],check=True)
+
     def test_current_repository_packager_remains_accepted(self):
         script = Path(__file__).with_name('package_vsix.py')
         spec = importlib.util.spec_from_file_location('release_test_packager', script)
         packager = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(packager)
         self.vsix = self.directory / 'real-packager.vsix'
-        packager.build(CATALOG.parents[1], self.vsix)
+        source = self.tagged_source()
+        package = json.loads((source / 'vscode/package.json').read_bytes())
+        version = package['version']
+        packager.build(source, self.vsix)
+        # A candidate can be ahead of the published catalog. Prepare a private
+        # catalog for its real archive while retaining the public release history.
+        if version != self.version:
+            self.data['releases'].insert(0, {'version': version})
+        self.data['latest_version'] = version
+        self.data['package'].update(filename=f'tvijo-dshrem-{version}.vsix',
+                                    editor_requirement=package['engines']['vscode'])
         self.write_catalog()
-        self.assertEqual(check(self.catalog, self.vsix)['version'], self.version)
+        self.assertEqual(check(self.catalog, self.vsix)['version'], version)
         with zipfile.ZipFile(self.vsix) as archive:
             guide = archive.read('extension/media/learning-guide.html')
             self.assertEqual(guide, (CATALOG.parents[1] / 'vscode/media/learning-guide.html').read_bytes())
             self.assertIn(b'text/html', archive.read('[Content_Types].xml'))
+
+    def test_dirty_or_untagged_source_refuses_before_creating_an_artifact(self):
+        script = Path(__file__).with_name('package_vsix.py')
+        spec = importlib.util.spec_from_file_location('guard_test_packager', script)
+        packager = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(packager)
+        root=self.tagged_source()
+        target=root/'vscode/extension.js'
+        with target.open('a') as out:out.write('\n// Owned dirty fixture\n')
+        output=self.directory/'must-not-exist.vsix'
+        with self.assertRaisesRegex(ValueError,'Dirty source tree'):packager.build(root,output)
+        self.assertFalse(output.exists())
+        subprocess.run(['git','-C',str(root),'add','--','vscode/extension.js'],check=True)
+        self.fixture_commit(root)
+        with self.assertRaisesRegex(ValueError,'exact version release/candidate tag'):packager.build(root,output)
+        self.assertFalse(output.exists())
 
     def test_wrong_package_identity_is_rejected_even_if_manifest_agrees(self):
         for field, value, attribute in [('name', 'other-extension', 'Id'), ('publisher', 'other-publisher', 'Publisher')]:

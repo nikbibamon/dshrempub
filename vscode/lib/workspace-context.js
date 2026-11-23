@@ -72,7 +72,7 @@ function sameFolder(a, b) {
     (a.uri.authority || '') === (b.uri.authority || '') && a.uri.fsPath === b.uri.fsPath;
 }
 
-async function collect(vscode, { document = null, selectionText = '', maxBytes = DEFAULT_MAX_BYTES, knownPaths = [], knownSecrets = [], contextMode = 'on', folder: requestedFolder = null, selectedPaths = null, selectionForFolder, allowRules } = {}) {
+async function collect(vscode, { document = null, selectionText = '', maxBytes = DEFAULT_MAX_BYTES, knownPaths = [], knownSecrets = [], contextMode = 'on', folder: requestedFolder = null, selectedPaths = null, selectionForFolder, allowRules, agentContext = false } = {}) {
   const folders = vscode.workspace.workspaceFolders || [];
   if (!folders.length) return { text: '', summary: { root: '', files: 0, bytes: 0, truncated: false, activePath: '', rules: { status: 'unavailable' } } };
   const requested = requestedFolder && require('./active-workspace').validFolder(vscode,requestedFolder) ? requestedFolder : null;
@@ -131,9 +131,10 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
   push('root: ' + rootName + '\n');
   push('files: ' + tree.length + (truncated ? ' (bounded; more files not shown)' : '') + '\n');
   push('secrets and binaries are excluded locally\n');
-  push('tree:\n' + tree.map((item) => '  ' + item).join('\n') + '\n');
+  push('tree:\n' + (agentContext ? tree.slice(0,32) : tree).map((item) => '  ' + item).join('\n') + '\n');
+  if(agentContext)push('Agent context contains names only. Use list_dir/read_file for source evidence in this task.\n');
 
-  for (const name of new Set([...PRIORITY, ...(selected || [])])) {
+  for (const name of agentContext ? [] : new Set([...PRIORITY, ...(selected || [])])) {
     if (!included(name) || EXCLUDED_FILE.test(name)) continue;
     const uri = vscode.Uri.joinPath(root, name);
     try {
@@ -157,7 +158,7 @@ async function collect(vscode, { document = null, selectionText = '', maxBytes =
     } catch { /* A missing manifest is normal. */ }
   }
 
-  if (document && activePath && !projectRules.isRulesPath(activePath) && included(activePath) && activePath !== '.tvijo' && !activePath.startsWith('.tvijo/') && !seen.has(activePath) && !EXCLUDED_FILE.test(path.basename(activePath)) && !activePath.split('/').some((part) => EXCLUDED_DIRS.has(part) || part.startsWith('.'))) {
+  if (!agentContext && document && activePath && !projectRules.isRulesPath(activePath) && included(activePath) && activePath !== '.tvijo' && !activePath.startsWith('.tvijo/') && !seen.has(activePath) && !EXCLUDED_FILE.test(path.basename(activePath)) && !activePath.split('/').some((part) => EXCLUDED_DIRS.has(part) || part.startsWith('.'))) {
     seen.add(activePath);
     const body = selectionText && !document.isDirty ? selectionText : document.getText();
     const clipped = body.slice(0, MAX_FILE_BYTES);
