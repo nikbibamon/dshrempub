@@ -522,6 +522,15 @@ function activate(context) {
     }
   }
 
+  function trackPermissionUpdate(run, update) {
+    if (run) {
+      run.pendingUpdates.add(update);
+      const remove = () => run.pendingUpdates.delete(update);
+      update.then(remove, remove);
+    }
+    return update;
+  }
+
   async function checkLivePermissionRun(run) {
     await run.check();
     if (activeAgentPermissions !== run || !run.canUpdate()) {
@@ -897,7 +906,7 @@ function activate(context) {
     const taskEffectsText=()=>[!fullGrant ? rulesNote() : '',taskRefsChanged?L('HEAD or Git refs changed during this task through a command or another writer. Auto-commit refused.','HEAD или ссылки Git изменились во время задачи командой или другим процессом. Автокоммит отклонён.'):'',rulesTracker.changed().length?L('Rules changed outside an approved direct edit and were quarantined: ','Правила изменены вне одобренной прямой правки и помещены в карантин: ')+rulesTracker.changed().map(row=>row.file).join(', '):''].filter(Boolean).join('\n');
     const localAgentRunId = randomUUID();
     const permissionRun = activeAgentPermissions = {
-      id:localAgentRunId, scope:attachmentScope, flags, rulesNote,
+      id:localAgentRunId, scope:attachmentScope, flags, rulesNote, pendingUpdates:new Set(),
       canUpdate:() => !planMode && !fullGrant && !abort.signal.aborted && vscode.workspace.isTrusted === trusted,
       check:baseGuard
     };
@@ -954,6 +963,28 @@ function activate(context) {
       const exchanges = [];
       const writeVersions = new Map();
       let saveThisEdit = false;
+      let automaticApproval = null;
+      const awaitPermissionDecision = async () => {
+        // Persistence uses baseGuard. It must be able to settle while a tool waits here.
+        for (;;) {
+          await guard();
+          if (abort.signal.aborted) throw new core.ServiceError('agent_stopped', 'The agent was stopped.');
+          if (!permissionRun.pendingUpdates.size) return;
+          let stop;
+          const cancelled = new Promise(resolve => {
+            stop = resolve;
+            abort.signal.addEventListener('abort', stop, { once:true });
+          });
+          try { await Promise.race([Promise.allSettled(permissionRun.pendingUpdates), cancelled]); }
+          finally { abort.signal.removeEventListener('abort', stop); }
+          if (!abort.signal.aborted) await rulesTracker.check();
+        }
+      };
+      const toolGuard = async () => {
+        if (!automaticApproval) return guard();
+        await awaitPermissionDecision();
+        if (!automaticApproval()) throw new core.ServiceError('mode_update', L('Permissions changed before the action started.', 'Разрешения изменились до запуска действия.'));
+      };
       const savedWrites = new Map(), firstPrevious=new Map(), servedModels=new Set(), commitEvents=[];
       const autoCommit=require('./lib/auto-commit');
       const commitStart=await autoCommit.capture({root:folder.uri.fsPath,workspaceRoot:folder.owner?.canonicalRoot || folder.uri.fsPath,storageRoot:context.globalStorageUri?.fsPath,author:await require('./lib/commit-author').commitAuthor(config.get('commitIdentity','git'),context.globalState,auth.scope)});
@@ -972,14 +1003,18 @@ function activate(context) {
         root: folder.uri.fsPath, rgPath: findRipgrep(vscode.env.appRoot), allowShell: () => !!fullGrant, extraAccess: !!fullGrant?.extra, agentReview:reviewer, reviewEnabled:!!fullGrant?.reviews,
         knowledge:require('./lib/knowledge-client').createKnowledgeTool({api,token:auth.access_token,guard}),
         codeIntelligence:(action,{signal}) => codeIntelligence.inspect({vscode,root:folder.uri.fsPath,action,guard,signal}),
-        planInspect:(operation,{signal}) => planInspection.inspect({vscode,root:folder.uri.fsPath,operation,guard,signal}), guard, signal:abort.signal,
+        planInspect:(operation,{signal}) => planInspection.inspect({vscode,root:folder.uri.fsPath,operation,guard,signal}), guard:toolGuard, signal:abort.signal,
         onCommandLifecycle: observeCommand(auth,commandSession),
         confirmRun: async info => {
           if (planMode) return false;
-          await guard();
+          await awaitPermissionDecision();
           const namesRule=(info.decision.operands || info.decision.args).some(arg=>require('./lib/project-rules').isRulesPath(arg.split('=').at(-1)));
           const ordinary = !namesRule && !info.decision.outward;
-          if (ordinary && (fullGrant || (!rulesTracker.approvalRequired && !info.decision.requiresApproval && permissionRun.flags.agentAutoRun && safeAutoCommand(info.command)))) return true;
+          if (ordinary && fullGrant) return true;
+          if (ordinary && !rulesTracker.approvalRequired && !info.decision.requiresApproval && permissionRun.flags.agentAutoRun && safeAutoCommand(info.command)) {
+            automaticApproval = () => !rulesTracker.approvalRequired && permissionRun.flags.agentAutoRun;
+            return true;
+          }
           const upgrade = ordinary && !fullGrant && fullAccess.status(folder).available ? async () => {
             const upgradeGuard = async () => {
               await guard();
@@ -999,6 +1034,7 @@ function activate(context) {
           if (planMode) return false;
           await guard();
           const doc = info.previous === null ? null : await vscode.workspace.openTextDocument(vscode.Uri.file(info.absolute));
+          await awaitPermissionDecision();
           const { agentAutoRun:autoRun, agentAutoApply:autoApply } = permissionRun.flags;
           saveThisEdit = !!fullGrant || (autoApply && autoRun);
           if (doc) {
@@ -1008,12 +1044,16 @@ function activate(context) {
           }
           const autoSafe = autoApply && autoRun && modePresets.autoWritePolicy(info.operation, info.previous, info.matchKind);
           const rulesWrite = require('./lib/project-rules').isRulesPath(info.path);
+          if (!rulesWrite && !fullGrant && (!info.matchKind || info.matchKind === 'exact')) {
+            if (autoSafe) automaticApproval = () => permissionRun.flags.agentAutoApply && permissionRun.flags.agentAutoRun;
+            else if (autoApply && !autoRun) automaticApproval = () => permissionRun.flags.agentAutoApply;
+          }
           const approved = rulesWrite ? await confirmAgentWrite(info) : fullGrant ? true : info.matchKind && info.matchKind !== 'exact' ? await confirmAgentWrite(info) : autoSafe ? true : autoRun ? await confirmAgentWrite(info) : autoApply ? (await showProposedWrite(info.path, info.previous, info.content), true) : await confirmAgentWrite(info);
           if(rulesWrite && approved)approvedRulePath=info.absolute;
           await guard(); return approved;
         },
         applyWrite: async ({ absolute, previous, content, diskIdentity }) => {
-          await guard();
+          await toolGuard();
           assertWriteSnapshot(folder.uri.fsPath,absolute,previous,diskIdentity);
           const uri = vscode.Uri.file(absolute);
           if (saveThisEdit) {
@@ -1068,7 +1108,7 @@ function activate(context) {
       tools.execute = async (action, toolContext = {}) => {
         const scanWasTruncated = rulesTracker.scanTruncated;
         await rulesTracker.check();
-        verifyAgentSaves();approvedRulePath=null;
+        verifyAgentSaves();approvedRulePath=null;automaticApproval=null;
         let result;
         try{result = await executeTool(action, toolContext);}
         finally{
@@ -2013,7 +2053,7 @@ function activate(context) {
           const accountEpoch = authAttempt;
           const capturedIdentity = identity;
           let permissionMessage;
-          await sync.save(message.key,message.requestId,async()=>{
+          const update = sync.save(message.key,message.requestId,async()=>{
             if (!permissionSetting || !capturedAbort) ensureIdle();
             else if (modeUpdatePending || rewindBusy || attaching) throw new core.ServiceError('busy','Wait for the current permission update to finish.');
             let value;
@@ -2052,6 +2092,7 @@ function activate(context) {
               await cfg.update(message.key.slice(6),value,vscode.ConfigurationTarget.Global);
             }
           });
+          await trackPermissionUpdate(permissionSetting && applyHere ? run : null, update);
           await refresh();
           await postChatState(permissionMessage);
         } else if (message?.type === 'openSetting' && typeof message.key === 'string' && Object.hasOwn(settingProperties(), message.key)) {
@@ -2986,7 +3027,7 @@ function activate(context) {
       view.webview.html = chatHtml(view.webview);
       const listener = view.webview.onDidReceiveMessage(async (message) => {
         try {
-          if (['ask', 'attach', 'removeAttachment', 'previewAttachment', 'copy', 'openAnswer', 'new', 'cancel', 'workspace', 'selection', 'path', 'clearAttachments', 'tasks', 'history', 'contextSelect', 'usage', 'workflow', 'setOption', 'agentPreset', 'quickEdit', 'choosePack', 'copyCode', 'openExternal', 'agentMap'].includes(message?.type) && message.scopeKey !== undefined) {
+          if (['ask', 'attach', 'removeAttachment', 'previewAttachment', 'copy', 'openAnswer', 'new', 'cancel', 'workspace', 'selection', 'path', 'clearAttachments', 'tasks', 'history', 'contextSelect', 'usage', 'workflow', 'setOption', 'quickEdit', 'choosePack', 'copyCode', 'openExternal', 'agentMap'].includes(message?.type) && message.scopeKey !== undefined) {
             const auth = await requireAuth();
             if (message.scopeKey !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account changed. This action was not sent.');
           }
@@ -3121,9 +3162,10 @@ function activate(context) {
             if (!settings || !['manual', 'edit', 'plan', 'auto', 'full', 'extra'].includes(preset)) throw new core.ServiceError('invalid_option', 'Unknown agent preset.');
             const scope = message.scopeKey;
             const epoch = workspaceEpoch;
-            const run = message.runId === undefined ? null : activeAgentPermissions;
+            const ordinary = ['manual','edit','auto'].includes(preset);
+            const run = ordinary && activeAgentPermissions?.id === message.runId ? activeAgentPermissions : null;
             let result;
-            try {
+            const changePreset = async () => {
               const auth = await requireAuth();
               if (scope !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account changed. This mode was not applied.');
               result = { type:'presetResult', scopeKey:scope, requestId:message.requestId, preset, ok:false };
@@ -3135,7 +3177,7 @@ function activate(context) {
               };
               if (modeUpdatePending) throw new core.ServiceError('busy', 'Wait for the current permission update to finish.');
               await settingsWriteQueue(async () => {
-                if (message.runId !== undefined && (!run || run.id !== message.runId || !['manual','edit','auto'].includes(preset))) {
+                if (message.runId !== undefined && !run) {
                   throw new core.ServiceError('mode_update', 'This mode cannot be applied to the running task.');
                 }
                 await check();
@@ -3158,6 +3200,9 @@ function activate(context) {
                   }
                 } finally { modeUpdatePending = false; }
               });
+            };
+            try {
+              await trackPermissionUpdate(run, changePreset());
             } finally {
               if (result) {
                 try { await postChatState(result.appliesTo === 'current' && result.ok ? permissionSaved(true) : undefined); }

@@ -2772,7 +2772,7 @@ async function savedAgentFixture(options={}) {
  }
  const changed=options.content??'agent changed';
  const actions=options.actions??[{tool:'write_file',path:relative,content:changed},{tool:'read_file',path:relative},{tool:'run_command',command:'cat '+relative},{tool:'finish',answer:'Disk verified'}];
- app=host({root,defaultAuto:options.defaultAuto,account:options.account,grantModel:options.grantModel,checkpointFailure:options.checkpointFailure,chatSequence:actions.map(JSON.stringify),onRequest:options.onRequest,
+ app=host({root,defaultAuto:options.defaultAuto,account:options.account,grantModel:options.grantModel,checkpointFailure:options.checkpointFailure,chatSequence:actions.map(JSON.stringify),onRequest:options.onRequest,configurationUpdate:options.configurationUpdate,
   onWarning:async(_message,_opts,button)=>{if(options.auto && !options.denyApproval)app.warning(button);},
   documentFor,syntaxHost:{newRun:()=>({}),check:async()=>null,dispose(){},invalidate(){},cancelActive(){}},
   applyEdit:async edit=>{
@@ -3327,6 +3327,61 @@ test('live Auto can be turned off before the next command', async () => {
   } finally { app.releaseResponse(); await running; app.close(); }
 });
 
+for (const {tool, enable, method} of [
+  {tool:'command', enable:false, method:'checkbox'},
+  {tool:'command', enable:true, method:'preset'},
+  {tool:'edit', enable:false, method:'preset'},
+  {tool:'edit', enable:true, method:'checkbox'}
+]) {
+  test(`live Auto waits before ${tool === 'edit' ? 'an edit' : 'a command'} while ${method} ${enable ? 'enablement' : 'revocation'} is pending`, async () => {
+    let began, finish;
+    const started = new Promise(resolve => { began = resolve; });
+    const deferred = new Promise(resolve => { finish = resolve; });
+    const configurationUpdate = async (key,value,settings) => {
+      settings.set(key,value);
+      if (key === 'agentAutoRun' && value === enable) { began(); await deferred; }
+    };
+    const edit = tool === 'edit' ? await savedAgentFixture({auto:true,denyApproval:true,configurationUpdate,actions:[
+      {tool:'replace_in_file',path:'code.txt',old:'original',new:'new content'},verifiedAnswer
+    ]}) : null;
+    const app = edit?.app || host({root:await permissionProject(),configurationUpdate,
+      chatSequence:[verificationCommand,verifiedAnswer].map(JSON.stringify)});
+    let running, updating;
+    try {
+      app.settings.set('agentAutoApply',!!edit || !enable);
+      app.settings.set('agentAutoRun',!enable);
+      ({running} = await pausePermissionRun(app));
+      if (method === 'checkbox') await app.commands.get('tvijo.settings')();
+      const action = () => app.posts.some(row => row.type === 'agent' && row.event?.type === 'action');
+      updating = method === 'checkbox'
+        ? app.panels[0].receive({type:'saveSetting',key:'tvijo.agentAutoRun',value:enable,requestId:1})
+        : sendActivePreset(app,enable ? 'auto' : 'manual');
+      await started;
+      app.warning('Cancel');
+      app.releaseResponse();
+      for (let i=0; i<100 && !action(); i++) await new Promise(resolve => setTimeout(resolve,5));
+      assert.ok(action(),'the released model response delivered an action');
+      await new Promise(resolve => setTimeout(resolve,500));
+      assert.equal(permissionResults(app).length,0,'the action waits for the unresolved permission save');
+      assert.equal(app.warnings.length,0,'the action must not make a decision using the old mode');
+      if (edit) assert.equal(await fs.readFile(edit.file,'utf8'),'original');
+      assert.equal(permissionGrants(app),1);
+      finish();
+      await updating;
+      await running;
+      const [result] = permissionResults(app);
+      assert.equal(result.ok,enable);
+      assert.equal(app.warnings.length,enable ? 0 : 1);
+      if (edit) assert.equal(await fs.readFile(edit.file,'utf8'),enable ? 'new content' : 'original');
+      else if (enable) assert.match(result.stdout,/live-auto-fixture/);
+    } finally {
+      finish(); app.releaseResponse();
+      await Promise.allSettled([running,updating]);
+      app.close();
+    }
+  });
+}
+
 for (const failure of ['partial save','effective override','account change','workspace change','cancel']) {
   test('live Auto preserves effective permissions on '+failure, async () => {
     const root = await permissionProject();
@@ -3353,7 +3408,19 @@ for (const failure of ['partial save','effective override','account change','wor
       const update = sendActivePreset(app,'auto');
       if (['account change','workspace change','cancel'].includes(failure)) {
         await started;
-        if (failure === 'cancel') await app.receive({type:'cancel'});
+        if (failure === 'cancel') {
+          app.releaseResponse();
+          for (let i=0; i<100 && !app.posts.some(row => row.type === 'agent' && row.event?.type === 'action'); i++) {
+            await new Promise(resolve => setTimeout(resolve,5));
+          }
+          assert.ok(app.posts.some(row => row.type === 'agent' && row.event?.type === 'action'));
+          await app.receive({type:'cancel'});
+          let deadline;
+          try {
+            const stopped = await Promise.race([running.then(() => true), new Promise(resolve => { deadline = setTimeout(() => resolve(false), 1500); })]);
+            assert.equal(stopped,true,'cancelling the task releases its tool without waiting for VS Code to finish saving');
+          } finally { clearTimeout(deadline); }
+        }
         if (failure === 'workspace change') app.workspaceChanged();
         if (failure === 'account change') await app.context.secrets.store('tvijo.auth',JSON.stringify({access_token:'account-b',api_base:app.base}));
         finish();
