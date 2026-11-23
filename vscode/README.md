@@ -1,10 +1,12 @@
 <!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
-## What's new in 0.10.36 — 2026-11-23 (unreleased local VSIX candidate)
+## What's new in 0.10.37 — 2026-11-23 (unreleased local VSIX candidate)
 
+- **Auto saves survive a same-session refresh.** A successful account check for the same saved session no longer rolls back a pending Auto setting. A changed, expired, rejected or unverifiable session still blocks that save.
 - **Auto applies to the current Agent task.** A saved Manual, Edit or Auto change takes effect at the next eligible operation. Incomplete project rules still require confirmation for Auto commands, and Full access still requires separate consent.
 - **Reconnect a saved session.** If account verification fails temporarily, choose **Reconnect** to retry with the saved session. History, attachments and sending become available after verification. An expired or rejected session requires sign-in.
 - **Image context uses text.** Screenshots contribute OCR text and can include a grayscale text thumbnail when FFmpeg is available.
 - **Gateway session lifetime.** The deployed gateway still issues 24-hour device sessions. The server-side lifetime change is tracked separately.
+- **Candidate history.** This build supersedes local candidate 0.10.36, which could roll back an Auto save during a successful background check of the same account.
 
 Earlier versions: the **Changelog** tab.
 <!-- changelog-latest:end -->
@@ -52,7 +54,7 @@ The normal local Agent defaults are **$2**, **60 steps**, and automatic eligible
 
 **Context:** 200,000 bytes is a local collection/preview default, adjustable to 1,000,000. Generated request context is limited to a 60,000-byte excerpt before the service's existing 90,000-byte message guard and account quotas. Optional context is omitted when needed to preserve the explicit task/file. A larger local preview is not a larger model window. Independent tree, file and rules limits still apply.
 
-**Images:** install Tesseract language packs on the extension host, then select languages in Tvijo settings. English + Russian is the default. Other installed languages are listed by code and common languages have translated names. Only extracted OCR text is sent; this release does not add a visual model route or claim to compare live provider prices.
+**Images:** install Tesseract language packs on the extension host, then select languages in Tvijo settings. English + Russian is the default. Other installed languages are listed by code and common languages have translated names. The service receives OCR text and can also receive a grayscale text thumbnail when FFmpeg is available.
 
 **Telegram:** configure the account-specific owner/token with the setup button, then start the bot. Status distinguishes not configured, stopped and running. The obsolete `telegram.ownerId` VS Code value does not configure the bot. Tokens are kept in SecretStorage and excluded from the example file.
 
@@ -62,7 +64,7 @@ Choose **Configuration file example** in the help section or run **Tvijo: Open c
 
 # Tvijo DSHREM for VS Code
 
-Version 0.10.36. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.37. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
