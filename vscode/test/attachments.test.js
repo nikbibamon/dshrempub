@@ -26,6 +26,29 @@ test('image attachment uses bounded local OCR and never sends base64 in model co
   assert.ok(!context.includes(attachment.preview));
 });
 
+test('a logo without OCR text sends the bounded grayscale sketch as text', async () => {
+  const bytes = pngHeader(640, 480);
+  const sketch = '   9 9\n  99999';
+  const attachment = await prepareAttachment('logo.png', bytes, {
+    ocr: async () => '',
+    layout: async (input, info) => {
+      assert.deepEqual(input, bytes);
+      assert.deepEqual(info, { mime:'image/png', width:640, height:480 });
+      return sketch;
+    }
+  });
+  const question = questionWithAttachments('Describe the logo', [attachment]);
+  assert.match(question, /Grayscale thumbnail/);
+  assert.ok(question.includes(sketch));
+  assert.ok(!question.includes(attachment.preview));
+  assert.equal(require('../lib/attachments').attachmentSummary(attachment).layout, true);
+  assert.throws(() => checkAttachmentSet([{...attachment, text:'x'.repeat(80 * 1024)}]), {code:'attachment_context'});
+  await assert.rejects(prepareAttachment('secret.png', bytes, {
+    ocr: async () => 'api_key=example-secret-value',
+    layout: async () => sketch
+  }), {code:'attachment_refused'});
+});
+
 test('large image dimensions, empty OCR and credential text are refused before a task', async () => {
   let called = false;
   await assert.rejects(prepareAttachment('huge.png', pngHeader(10000, 10000), { ocr: async () => { called = true; return 'x'; } }), { code: 'image_dimensions' });

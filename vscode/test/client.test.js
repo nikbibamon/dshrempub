@@ -76,6 +76,16 @@ test('device login keeps polling through 428 and returns a bound token', async (
   assert.equal(auth.api_base, core.DEFAULT_API_BASE);
 });
 
+test('remembered editor login persists the expiry issued by the service', async () => {
+  const { impl, calls } = fakeFetch({
+    'POST /auth/token': [200, { access_token: 'editor-token', expires_in: 7 * 86400 }]
+  });
+  const client = core.createClient({ fetchImpl: impl, sleep: async () => {}, now: () => 0 });
+  const auth = await client.pollDeviceLogin({ device_code: 'd' }, { rememberDevice: true });
+  assert.deepEqual(calls[0].body, { device_code:'d', remember_device:true });
+  assert.equal(auth.expires_at, '1970-01-08T00:00:00.000Z');
+});
+
 test('device login stops on denial', async () => {
   const { impl } = fakeFetch({ 'POST /auth/token': [403, {}] });
   const client = core.createClient({ fetchImpl: impl, sleep: async () => {}, now: () => 0 });
