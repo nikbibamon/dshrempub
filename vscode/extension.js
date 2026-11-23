@@ -29,6 +29,7 @@ const quickEdit = require('./lib/quick-edit');
 const { runAgent } = require('./lib/agent');
 const {createAgentReview} = require('./lib/agent-review');
 const {createTaskReceipt,formatReceipt,outcomeOf,measuredCost} = require('./lib/task-receipt');
+const agentTrace = require('./lib/agent-trace');
 const { createOrchestrator } = require('./lib/orchestration');
 const modePresets = require('./lib/modes');
 const agentSave = require('./lib/agent-save');
@@ -36,7 +37,7 @@ const captures = require('./lib/context-captures');
 const terminalContext = require('./lib/terminal-context');
 const conversationExport = require('./lib/export-conversation');
 const conversationBranch = require('./lib/conversation-branch');
-const { createTools, safePath, autoCommand, analyzeCommand, assertWriteSnapshot } = require('./lib/local-tools');
+const { createTools, findRipgrep, safePath, autoCommand, analyzeCommand, assertWriteSnapshot } = require('./lib/local-tools');
 const diagnosticsFeedback = require('./lib/diagnostics-feedback');
 const { createMetrics } = require('./lib/metrics');
 const dataPrivacy = require('./lib/data-privacy');
@@ -49,10 +50,13 @@ const {fitContext} = require('./lib/context-budget');
 const {listFolders,folderUri} = require('./lib/folder-browser');
 const {createInbox} = require('./lib/inbox');
 const {createBridgeDelivery} = require('./lib/bridge-diagnostics');
+const { buildCommit, runningPackageMarkedObsolete } = require('./lib/build-info');
 const AUTH_KEY = 'tvijo.auth';
 const CONTEXT_CONSENT = 'tvijo.contextConsent';
 
 function activate(context) {
+  const runtimeVersion = context.extension?.packageJSON?.version || require('./package.json').version;
+  const packageObsolete = () => runningPackageMarkedObsolete(context.extensionPath || __dirname);
   let deviceLoginActive = false;
   let chatView = null;
   const runJournals = createRunJournal(context.globalStorageUri?.fsPath);
@@ -199,6 +203,7 @@ function activate(context) {
   let lastActivity = '';
   let lastError = null;
   let lastAgentOutcome = null;
+  let retryAgentStep = null;
   let settingsPanel = null;
   const reportPanels=new Set();
   const settingsWriteQueue = require('./lib/settings-controls').createSettingsWriteQueue();
@@ -206,6 +211,7 @@ function activate(context) {
   const settingsHostSignature=()=>JSON.stringify(['controllerPath','pythonPath','statePath'].map(key=>vscode.workspace.getConfiguration('tvijo').get('orchestration.'+key,'')));
   let agentAbort = null;
   let agentRunning = false;
+  let activeAgentPermissions = null;
   const orchestration = createOrchestrator({state:context.globalState, configuration:()=>vscode.workspace.getConfiguration('tvijo')});
   const terminalCaptures = terminalContext.createTerminalCapture();
   context.subscriptions.push({ dispose: () => terminalCaptures.invalidate() });
@@ -244,6 +250,12 @@ function activate(context) {
   const UI_LOCALE = 'tvijo.uiLocale';
   const uiLocale = () => (context.globalState.get(UI_LOCALE) || vscode.env.language || 'en').toLowerCase().startsWith('ru') ? 'ru' : 'en';
   const L = (en, ru) => uiLocale() === 'ru' ? ru : en;
+  // Run output (trace, receipts, errors) follows the language the user writes in
+  // unless the panel language was chosen explicitly. Remote hosts often report an
+  // English editor while the user writes Russian (0.10.31 printed English receipts).
+  const REPLY_LOCALE = 'tvijo.replyLocale';
+  const replyLocale = () => { const explicit = context.globalState.get(UI_LOCALE); if (['en','ru'].includes(explicit)) return explicit; const stored = context.globalState.get(REPLY_LOCALE); return ['en','ru'].includes(stored) ? stored : uiLocale(); };
+  const noteReplyLocale = text => { const found = agentTrace.textLocale(text); if (found && found !== context.globalState.get(REPLY_LOCALE)) { try { void Promise.resolve(context.globalState.update(REPLY_LOCALE, found)).catch(() => {}); } catch { /* Locale memory is a convenience. */ } } return replyLocale(); };
   const localPreviewDocuments = new WeakSet();
   let pendingScopeUri = null;
   let rulesPreviewSecrets = [];
@@ -426,6 +438,7 @@ function activate(context) {
     }
     status.text = available ? packs.statusText(selection, accountSnapshot, uiLocale()) : auth ? '$(sparkle) Tvijo' : '$(account) Tvijo: sign in';
     status.tooltip = available ? L('Choose skill pack · remaining allowance today (USD)', 'Выбрать пакет навыков · остаток на сегодня (USD)') : auth ? L('Tvijo: account and credit', 'Tvijo: аккаунт и баланс') : L('Tvijo: sign in', 'Tvijo: войти');
+    status.tooltip += '\nTvijo ' + runtimeVersion + (vscode.env.remoteName === 'ssh-remote' ? ' · Remote SSH' : '');
     status.command = available ? 'tvijo.choosePack' : auth ? 'tvijo.account' : 'tvijo.signIn';
     status.accessibilityInformation = { label: status.text + '. ' + status.tooltip };
     status.show();
@@ -469,20 +482,82 @@ function activate(context) {
       if (data.length) catalogue = { at: Date.now(), base, data };
     } catch { /* Keep the static or previous verified list. */ }
   }
+  function agentConfiguration(folder = permissionFolder()) {
+    return vscode.workspace.getConfiguration('tvijo', folder?.uri);
+  }
+
+  function agentFlags(folder) {
+    const config = agentConfiguration(folder);
+    return { agentAutoApply: !!config.get('agentAutoApply', true), agentAutoRun: !!config.get('agentAutoRun', true) };
+  }
+
+  async function persistAgentFlags(folder, requested, check, commit) {
+    const keys = Object.keys(requested).sort((a, b) => Number(requested[a]) - Number(requested[b]));
+    const globalValue = key => agentConfiguration(folder).inspect(key)?.globalValue;
+    const set = (key, value) => agentConfiguration(folder).update(key, value, vscode.ConfigurationTarget.Global);
+    const changes = [];
+    await check();
+    const original = agentFlags(folder);
+    try {
+      for (const key of keys) {
+        const before = globalValue(key);
+        if (before === requested[key]) continue;
+        changes.push({ key, before });
+        await set(key, requested[key]);
+        await check();
+      }
+      const actual = agentFlags(folder);
+      const expected = { ...original, ...requested };
+      if (Object.keys(actual).some(key => actual[key] !== expected[key]) || keys.some(key => globalValue(key) !== requested[key])) {
+        throw new core.ServiceError('mode_update', L('VS Code kept a different effective permission. Check User, Remote and Workspace settings.', 'Действующее разрешение в VS Code отличается. Проверьте настройки пользователя, удалённого хоста и рабочей области.'));
+      }
+      return await commit();
+    } catch (error) {
+      for (const { key, before } of changes.reverse()) {
+        // Keep an external change; restore only a value this write could have set.
+        try { if (globalValue(key) === requested[key]) await set(key, before); }
+        catch { /* The effective configuration is still shown after a failed save. */ }
+      }
+      throw error;
+    }
+  }
+
+  function trackPermissionUpdate(run, update) {
+    if (run) {
+      run.pendingUpdates.add(update);
+      const remove = () => run.pendingUpdates.delete(update);
+      update.then(remove, remove);
+    }
+    return update;
+  }
+
+  async function checkLivePermissionRun(run) {
+    await run.check();
+    if (activeAgentPermissions !== run || !run.canUpdate()) {
+      throw new core.ServiceError('mode_update', L('The running task or its permissions changed. The settings were not applied.', 'Задача или её разрешения изменились. Настройки не применены.'));
+    }
+  }
+
+  function permissionSaved(current) {
+    return current ? L('Permissions updated for this run.', 'Разрешения обновлены для текущей задачи.')
+      : L('Permissions saved for the next Agent run.', 'Разрешения сохранены для следующей задачи Agent.');
+  }
+
   function chatOptions(auth, pack = null) {
     const configuration = vscode.workspace.getConfiguration('tvijo');
     const current = packs.packModel(configuration, 'model', 'ds41f', pack);
     const verified = catalogue.base === auth.api_base && catalogue.data.length ? catalogue.data : STATIC_MODELS;
     const models = [{ id: 'auto', name: 'Automatic' }, ...verified.map(item => ({ id: item.id, name: item.name || item.id }))];
     const agentModel = packs.packModel(configuration, 'agentModel', 'ds41f', pack);
+    const flags = agentFlags();
+    const grant = fullAccess.status(permissionFolder());
     for (const id of [current, agentModel]) if (!models.some(item => item.id === id)) models.push({ id, name: id });
     return {
       models,
       model: current,
       agentMode: configuration.get('agentMode', 'single'),
-      agentAutoApply: !!configuration.get('agentAutoApply', true),
-      agentAutoRun: !!configuration.get('agentAutoRun', true),
-      agentPreset: modePresets.presetFor(configuration.get('agentAutoApply', true), configuration.get('agentAutoRun', true),fullAccess.status(permissionFolder()).enabled,fullAccess.status(permissionFolder()).extra),
+      ...flags,
+      agentPreset: modePresets.presetFor(flags.agentAutoApply, flags.agentAutoRun, grant.enabled, grant.extra),
       agentModel,
       reasoningMethod: configuration.get('reasoningMethod', 'evidence-first'),
       contextMode: configuration.get('workspaceContext', 'ask'),
@@ -644,9 +719,16 @@ function activate(context) {
     const legacy = scope ? local.legacyPending(scope) : null;
     const recovery = !!(pending || (legacy && (!legacy.apiBase || legacy.apiBase === client().base)));
     const messages = history.map(item => {
-      const content = item.display || item.content;
-      const boundary = item.role === 'assistant' && typeof content === 'string' ? content.lastIndexOf('\n---\nTask ') : -1;
-      return boundary < 0 ? {role:item.role, content,agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined} : {role:item.role, content:content.slice(0,boundary), footer:content.slice(boundary + 5),agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined};
+      let content = item.display || item.content;
+      // Agent receipts stay in history (Open answer, export) but render as a
+      // collapsed block under the answer, with the work log above it.
+      const run = item.role === 'assistant' ? {
+        ...(Array.isArray(item.trace) && item.trace.length ? {trace:agentTrace.boundTrace(item.trace)} : {}),
+        ...(typeof item.receiptText === 'string' && typeof content === 'string' && content.endsWith(item.receiptText) ? {receipt:item.receiptText} : {})
+      } : {};
+      if (run.receipt) content = content.slice(0, -run.receipt.length).replace(/\s+$/, '');
+      const boundary = item.role === 'assistant' && !run.receipt && typeof content === 'string' ? content.lastIndexOf('\n---\nTask ') : -1;
+      return boundary < 0 ? {role:item.role, content,...run,agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined} : {role:item.role, content:content.slice(0,boundary), footer:content.slice(boundary + 5),...run,agentRequest:item.agentRequest,autoCommit:item.autoCommit?{hash:item.autoCommit.hash}:undefined};
     });
     messages.push(...rewindNotes.filter(note => note.root === permissionFolder()?.uri.fsPath).map(note => ({role:'assistant', content:note.text, note:true})));
     let options = null;
@@ -660,7 +742,10 @@ function activate(context) {
       try { options = chatOptions(auth, selection.pack); } catch { options = null; }
     } else updatePackStatus(null, null);
     if(view!==chatView || renderEpoch!==authAttempt || renderWorkspaceEpoch!==workspaceEpoch) return;
-    await view.webview.postMessage({ type: 'state', conversationEditable:!!scope && !shared.selection(scope), colorTheme:vscode.workspace.getConfiguration('tvijo').get('colorTheme','blue'), orchestration:{enabled:orchestration.enabled(),coordinator:'ds41f',policy:vscode.workspace.getConfiguration('tvijo').get('orchestration.workerPolicy','sol')}, autoCommit:vscode.workspace.getConfiguration('tvijo').get('autoCommit','afterTask'), loadedRules:projectRulesHost.loaded?.() || [],rulesScanTruncated:projectRulesHost.scanTruncated(), runtimeVersion:context.extension?.packageJSON?.version || require('./package.json').version, composerMode:scope ? composerMode({scope}) : null, workspacePath:permissionFolder()?.uri.fsPath || refusedCandidate?.fsPath || '', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, liveQuestion, liveFrom, botSetupNeeded, bridgeEnabled:vscode.workspace.getConfiguration('tvijo').get('bridge.enabled', false) === true, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length || !!(scope && local.history(scope).length), account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError || (projectRulesHost.scanTruncated() && !fullAccessState().enabled?{text:L('Rules scan truncated. Further commands require confirmation for this task.','Сканирование правил усечено. Следующие команды этой задачи требуют подтверждения.'),action:'rulesSettings'}:null) || ((projectRulesHost.loaded?.() || []).some(row=>row.quarantined)?{text:L('Rules changed outside an approved direct edit. Quarantined rules are excluded from future requests until you re-enable them in ⚙.','Правила изменены вне одобренной прямой правки. Правила в карантине исключены из следующих запросов до повторного включения в ⚙.'),action:'rulesSettings'}:null), authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : refusedCandidate ? path.basename(refusedCandidate.fsPath) : L('Choose project','Выбрать проект'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
+    const run = activeAgentPermissions;
+    const activePermissions = run?.scope === nextAgentScope && run.canUpdate()
+      ? { id:run.id, preset:modePresets.presetFor(run.flags.agentAutoApply, run.flags.agentAutoRun), rulesNote:run.rulesNote() } : null;
+    await view.webview.postMessage({ type: 'state', activePermissions, conversationEditable:!!scope && !shared.selection(scope), colorTheme:vscode.workspace.getConfiguration('tvijo').get('colorTheme','blue'), orchestration:{enabled:orchestration.enabled(),coordinator:'ds41f',policy:vscode.workspace.getConfiguration('tvijo').get('orchestration.workerPolicy','sol')}, autoCommit:vscode.workspace.getConfiguration('tvijo').get('autoCommit','afterTask'), loadedRules:projectRulesHost.loaded?.() || [],rulesScanTruncated:projectRulesHost.scanTruncated(), runtimeVersion:context.extension?.packageJSON?.version || require('./package.json').version, composerMode:scope ? composerMode({scope}) : null, workspacePath:permissionFolder()?.uri.fsPath || refusedCandidate?.fsPath || '', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, liveQuestion, liveFrom, botSetupNeeded, bridgeEnabled:vscode.workspace.getConfiguration('tvijo').get('bridge.enabled', false) === true, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length || !!(scope && local.history(scope).length), account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError || (projectRulesHost.scanTruncated() && !fullAccessState().enabled?{text:L('Rules scan truncated. Further commands require confirmation for this task.','Сканирование правил усечено. Следующие команды этой задачи требуют подтверждения.'),action:'rulesSettings'}:null) || ((projectRulesHost.loaded?.() || []).some(row=>row.quarantined)?{text:L('Rules changed outside an approved direct edit. Quarantined rules are excluded from future requests until you re-enable them in ⚙.','Правила изменены вне одобренной прямой правки. Правила в карантине исключены из следующих запросов до повторного включения в ⚙.'),action:'rulesSettings'}:null), authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : refusedCandidate ? path.basename(refusedCandidate.fsPath) : L('Choose project','Выбрать проект'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'ds41f') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
       status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
@@ -693,6 +778,22 @@ function activate(context) {
     if (!chatView) return;
     await chatView.webview.postMessage({ type: 'agent', scopeKey: auth?.viewScope || null, event });
   }
+  // Display rows for the transcript. Built from observed events only.
+  function traceEvent(rows, event, locale) {
+    if (!event || typeof event !== 'object') return event;
+    if (event.type === 'action' || event.type === 'result') {
+      const row = agentTrace.eventRow(event, locale);
+      const index = rows.findIndex(item => item.step === row.step && item.status === 'running');
+      if (event.type === 'result' && index >= 0) rows[index] = {...row, thought:rows[index].thought}; else rows.push(row);
+      if (rows.length > 120) rows.shift();
+      return {...event, view:row};
+    }
+    if (event.type === 'notice' && typeof event.text === 'string') {
+      const row = {kind:'notice', step:null, text:event.text.slice(0, 300)}; rows.push(row);
+      return {...event, view:row};
+    }
+    return event;
+  }
 
   async function showProposedWrite(relative, previous, content) {
     const before = await vscode.workspace.openTextDocument({ content: previous ?? '', language: 'plaintext' });
@@ -700,13 +801,15 @@ function activate(context) {
     await vscode.commands.executeCommand('vscode.diff', before.uri, after.uri, 'Tvijo agent: ' + relative);
   }
 
-  async function confirmAgentRun({ command, cwd }) {
+  async function confirmAgentRun({ command, cwd }, upgrade, ruleNote = '') {
     if (typeof vscode.window.showWarningMessage !== 'function') return false;
     const run = L('Run command', 'Выполнить команду');
+    const full = L('Full access for this folder…', 'Полный доступ для этой папки…');
     const answer = await vscode.window.showWarningMessage(
       L('Tvijo agent wants to run a command', 'Tvijo агент хочет выполнить команду') + ':\n' + command + '\n\n' + cwd,
-      { modal: true, detail: L('The command runs with your local permissions; output is captured and truncated.', 'Команда выполняется с вашими локальными правами; вывод захватывается и обрезается.') },
-      run);
+      { modal: true, detail: [ruleNote, L('The command runs with your local permissions; output is captured and truncated.', 'Команда выполняется с вашими локальными правами; вывод захватывается и обрезается.')].filter(Boolean).join('\n\n') },
+      run, ...(upgrade ? [full] : []));
+    if (upgrade && answer === full) return upgrade();
     return answer === run;
   }
 
@@ -757,9 +860,10 @@ function activate(context) {
     } finally {agentAbort=null;agentRunning=false;busy=false;await postActivity('done','');await postChatState();}
   }
 
-  async function runAgentFlow(goal, { planMode = false } = {}) {
+  async function runAgentFlow(goal, { planMode = false, budgetLimit = null, retryOf = null } = {}) {
     ensureIdle();
     if (!goal?.trim()) return;
+    const runLocale = noteReplyLocale(goal), traceRows = [];
     await requireWorkspace();
     const auth = await requireAuth();
     const attachmentScope = currentViewScope(auth.scope);
@@ -772,9 +876,10 @@ function activate(context) {
     const agentHistory = (shared.selection(auth.scope) ? [...historyFor(auth.scope), ...local.history(agentScope)] : historyFor(auth.scope)).filter(item => !item.localRecovery).slice(-40).map(item => ({...item, content:item.role === 'user' ? (item.display || item.content) : item.content}));
     const editor = vscode.window.activeTextEditor;
     const folder = await requireWorkspace();
+    ensureIdle();
     if (!folder) throw new core.ServiceError('no_workspace', L('Open a project folder before starting the agent.', 'Откройте папку проекта, прежде чем запускать агента.'));
     const baseGuard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
-    const fullGrant = planMode ? null : fullAccess.capture(folder);
+    let fullGrant = planMode ? null : fullAccess.capture(folder);
     let verifyAgentSavedFiles = () => {};
     const guard = async() => { await baseGuard(); if (fullGrant) fullAccess.assertCurrent(folder,fullGrant); verifyAgentSavedFiles(); };
     if (attachmentScope !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account or thread changed before the agent started.');
@@ -782,19 +887,29 @@ function activate(context) {
     const config = vscode.workspace.getConfiguration('tvijo');
     if (orchestration.enabled() && !fullGrant?.extra) return runHarnessFlow({goal,modelGoal,auth,folder,agentScope,planMode,guard,fullGrant,config});
     const maxSteps = config.get('agentMaxSteps', 60);
-    let budgetUsd = config.get('agentBudgetUsd', 2);
+    let budgetUsd = budgetLimit===null ? config.get('agentBudgetUsd', 2) : Math.min(config.get('agentBudgetUsd',2),budgetLimit);
     const taskBudget=require('./lib/task-limits').createTaskBudget(budgetUsd);
-    const autoRun = !!config.get('agentAutoRun', true);
-    const autoApply = !!config.get('agentAutoApply', true);
+    const flags = agentFlags(folder);
+    const { agentAutoRun:autoRun, agentAutoApply:autoApply } = flags;
     const startedAt = Date.now();
     const terminalCaptureEpoch = terminalCaptures.epoch;
     const abort = new AbortController();
     let diagnosticsTracker = null;
-    agentAbort = abort; agentRunning = true; busy = true; lastError = null; lastAgentOutcome = null;
+    agentAbort = abort; agentRunning = true; busy = true; lastError = null; lastAgentOutcome = null; retryAgentStep=null;
     const rulesTracker=projectRulesHost.beginTask(folder);
+    const trusted = vscode.workspace.isTrusted;
+    const rulesNote = () => rulesTracker.scanTruncated ? L(
+      'The project rules scan is incomplete. Auto requires confirmation for commands in this run. The scan stops at 1,024 directories or 20,000 entries, or may be incomplete after a read error.',
+      'Проверка правил проекта не завершена. В этой задаче Auto запрашивает подтверждение команд. Предел проверки — 1 024 каталога или 20 000 записей. Проверка также может быть неполной из-за ошибки чтения.'
+    ) : '';
     let taskRefsChanged=false;
-    const taskEffectsText=()=>[rulesTracker.scanTruncated && !fullGrant?L('Rules scan truncated; commands require confirmation for this task.','Сканирование правил усечено; команды этой задачи требуют подтверждения.'):'',taskRefsChanged?L('HEAD or Git refs changed during this task through a command or another writer. Auto-commit refused.','HEAD или ссылки Git изменились во время задачи командой или другим процессом. Автокоммит отклонён.'):'',rulesTracker.changed().length?L('Rules changed outside an approved direct edit and were quarantined: ','Правила изменены вне одобренной прямой правки и помещены в карантин: ')+rulesTracker.changed().map(row=>row.file).join(', '):''].filter(Boolean).join('\n');
+    const taskEffectsText=()=>[!fullGrant ? rulesNote() : '',taskRefsChanged?L('HEAD or Git refs changed during this task through a command or another writer. Auto-commit refused.','HEAD или ссылки Git изменились во время задачи командой или другим процессом. Автокоммит отклонён.'):'',rulesTracker.changed().length?L('Rules changed outside an approved direct edit and were quarantined: ','Правила изменены вне одобренной прямой правки и помещены в карантин: ')+rulesTracker.changed().map(row=>row.file).join(', '):''].filter(Boolean).join('\n');
     const localAgentRunId = randomUUID();
+    const permissionRun = activeAgentPermissions = {
+      id:localAgentRunId, scope:attachmentScope, flags, rulesNote, pendingUpdates:new Set(),
+      canUpdate:() => !planMode && !fullGrant && !abort.signal.aborted && vscode.workspace.isTrusted === trusted,
+      check:baseGuard
+    };
     const recoveryKey = recoveryScope(auth);
     const taskReceipt = createTaskReceipt({id:localAgentRunId,projectScope:recoveryKey,projectId:shared.selection(auth.scope)?.projectId || null,folder:folder.uri.fsPath,mode:planMode ? 'plan' : fullGrant?.extra ? 'extra' : fullGrant ? 'full' : 'agent',startedAt});
     beginMap(auth, goal.trim(), localAgentRunId);
@@ -831,7 +946,7 @@ function activate(context) {
         }
         const contextBytes = core.previewContextBytes(Math.min(60000, config.get('workspaceContextMaxBytes',200000)),freshAccount);
         if (enabled && contextBytes > 0) {
-          const collected = await projectRulesHost.collect({ folder:permissionFolder(), selectionForFolder:contextSelection.selected, knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: contextBytes });
+          const collected = await projectRulesHost.collect({ agentContext:true, folder:permissionFolder(), selectionForFolder:contextSelection.selected, knownSecrets: [auth.access_token, auth.refresh_token].filter(Boolean), knownPaths: knownAttachmentPaths(vscode.window.activeTextEditor?.document), document: editor?.document || null, maxBytes: contextBytes });
           tree = collected.text;agentRules=collected.rulesText;rulesSnapshotTaken=true;
           agentRuleGrants = collected.ruleGrants;
           lastContextSummary = collected.summary;
@@ -841,13 +956,35 @@ function activate(context) {
         }
       } else {lastContextSummary = null;projectRulesHost.snapshot({folder,contextMode:'off'});}
       if(contextMode !== 'off' && !rulesSnapshotTaken){const r=projectRulesHost.snapshot({folder,knownSecrets:[auth.access_token,auth.refresh_token].filter(Boolean)});agentRules=r.text;agentRuleGrants=agentRules?[{}]:[];}
-      await postAgentEvent(auth, { type: 'start', goal: goal.trim(), planMode, maxSteps, budgetUsd });
+      await postAgentEvent(auth, { type: 'start', goal: goal.trim(), planMode, maxSteps, budgetUsd, locale: runLocale });
       await guard();
       let agentSpent = 0;
       let firstAgentAnswer = null;
       const exchanges = [];
       const writeVersions = new Map();
-      const saveAgentEdits = !!fullGrant || (autoApply && autoRun);
+      let saveThisEdit = false;
+      let automaticApproval = null;
+      const awaitPermissionDecision = async () => {
+        // Persistence uses baseGuard. It must be able to settle while a tool waits here.
+        for (;;) {
+          await guard();
+          if (abort.signal.aborted) throw new core.ServiceError('agent_stopped', 'The agent was stopped.');
+          if (!permissionRun.pendingUpdates.size) return;
+          let stop;
+          const cancelled = new Promise(resolve => {
+            stop = resolve;
+            abort.signal.addEventListener('abort', stop, { once:true });
+          });
+          try { await Promise.race([Promise.allSettled(permissionRun.pendingUpdates), cancelled]); }
+          finally { abort.signal.removeEventListener('abort', stop); }
+          if (!abort.signal.aborted) await rulesTracker.check();
+        }
+      };
+      const toolGuard = async () => {
+        if (!automaticApproval) return guard();
+        await awaitPermissionDecision();
+        if (!automaticApproval()) throw new core.ServiceError('mode_update', L('Permissions changed before the action started.', 'Разрешения изменились до запуска действия.'));
+      };
       const savedWrites = new Map(), firstPrevious=new Map(), servedModels=new Set(), commitEvents=[];
       const autoCommit=require('./lib/auto-commit');
       const commitStart=await autoCommit.capture({root:folder.uri.fsPath,workspaceRoot:folder.owner?.canonicalRoot || folder.uri.fsPath,storageRoot:context.globalStorageUri?.fsPath,author:await require('./lib/commit-author').commitAuthor(config.get('commitIdentity','git'),context.globalState,auth.scope)});
@@ -863,41 +1000,63 @@ function activate(context) {
       const commandSession = mapSession(auth);
       const reviewer = createAgentReview({root:folder.uri.fsPath,guard,signal:abort.signal,enabled:!!fullGrant?.reviews,claudeEnabled:config.get('agentReview.claudeEnabled',false),maxCalls:2});
       const tools = createTools({
-        root: folder.uri.fsPath, allowShell: !!fullGrant, extraAccess: !!fullGrant?.extra, agentReview:reviewer, reviewEnabled:!!fullGrant?.reviews,
+        root: folder.uri.fsPath, rgPath: findRipgrep(vscode.env.appRoot), allowShell: () => !!fullGrant, extraAccess: !!fullGrant?.extra, agentReview:reviewer, reviewEnabled:!!fullGrant?.reviews,
         knowledge:require('./lib/knowledge-client').createKnowledgeTool({api,token:auth.access_token,guard}),
         codeIntelligence:(action,{signal}) => codeIntelligence.inspect({vscode,root:folder.uri.fsPath,action,guard,signal}),
-        planInspect:(operation,{signal}) => planInspection.inspect({vscode,root:folder.uri.fsPath,operation,guard,signal}), guard, signal:abort.signal,
+        planInspect:(operation,{signal}) => planInspection.inspect({vscode,root:folder.uri.fsPath,operation,guard,signal}), guard:toolGuard, signal:abort.signal,
         onCommandLifecycle: observeCommand(auth,commandSession),
         confirmRun: async info => {
           if (planMode) return false;
-          await guard();
+          await awaitPermissionDecision();
           const namesRule=(info.decision.operands || info.decision.args).some(arg=>require('./lib/project-rules').isRulesPath(arg.split('=').at(-1)));
-          // Full access is the user's standing approval: a truncated rules scan,
-          // quarantined rule edits and non-destructive Git no longer pause it.
-          // Hard denials, commands that name rules files and git push still do.
-          const approved = fullGrant ? (!namesRule && !info.decision.outward) || await confirmAgentRun(info) : !rulesTracker.approvalRequired && !namesRule && !info.decision.requiresApproval && autoRun && safeAutoCommand(info.command) ? true : await confirmAgentRun(info);
-          await guard(); return approved;
+          const ordinary = !namesRule && !info.decision.outward;
+          if (ordinary && fullGrant) return true;
+          if (ordinary && !rulesTracker.approvalRequired && !info.decision.requiresApproval && permissionRun.flags.agentAutoRun && safeAutoCommand(info.command)) {
+            automaticApproval = () => !rulesTracker.approvalRequired && permissionRun.flags.agentAutoRun;
+            return true;
+          }
+          const upgrade = ordinary && !fullGrant && fullAccess.status(folder).available ? async () => {
+            const upgradeGuard = async () => {
+              await guard();
+              if (abort.signal.aborted || info.signal?.aborted) throw new Error('The command was cancelled.');
+            };
+            if (!await fullAccess.enable(folder, { guard:upgradeGuard })) return false;
+            fullGrant = fullAccess.capture(folder);
+            await guard();
+            await postChatState();
+            return !!fullGrant;
+          } : undefined;
+          const approved = await confirmAgentRun(info, upgrade, !fullGrant ? rulesNote() : '');
+          await guard();
+          return approved;
         },
         confirmWrite: async info => {
           if (planMode) return false;
           await guard();
-          if (info.previous !== null) {
-            const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(info.absolute));
-            if (saveAgentEdits) agentSave.assertClean(doc,info.absolute,info.previous);
+          const doc = info.previous === null ? null : await vscode.workspace.openTextDocument(vscode.Uri.file(info.absolute));
+          await awaitPermissionDecision();
+          const { agentAutoRun:autoRun, agentAutoApply:autoApply } = permissionRun.flags;
+          saveThisEdit = !!fullGrant || (autoApply && autoRun);
+          if (doc) {
+            if (saveThisEdit) agentSave.assertClean(doc,info.absolute,info.previous);
             if (doc.getText() !== info.previous) throw new core.ServiceError('file_changed', 'Editor content changed.');
             writeVersions.set(info.absolute, doc.version);
           }
           const autoSafe = autoApply && autoRun && modePresets.autoWritePolicy(info.operation, info.previous, info.matchKind);
           const rulesWrite = require('./lib/project-rules').isRulesPath(info.path);
+          if (!rulesWrite && !fullGrant && (!info.matchKind || info.matchKind === 'exact')) {
+            if (autoSafe) automaticApproval = () => permissionRun.flags.agentAutoApply && permissionRun.flags.agentAutoRun;
+            else if (autoApply && !autoRun) automaticApproval = () => permissionRun.flags.agentAutoApply;
+          }
           const approved = rulesWrite ? await confirmAgentWrite(info) : fullGrant ? true : info.matchKind && info.matchKind !== 'exact' ? await confirmAgentWrite(info) : autoSafe ? true : autoRun ? await confirmAgentWrite(info) : autoApply ? (await showProposedWrite(info.path, info.previous, info.content), true) : await confirmAgentWrite(info);
           if(rulesWrite && approved)approvedRulePath=info.absolute;
           await guard(); return approved;
         },
         applyWrite: async ({ absolute, previous, content, diskIdentity }) => {
-          await guard();
+          await toolGuard();
           assertWriteSnapshot(folder.uri.fsPath,absolute,previous,diskIdentity);
           const uri = vscode.Uri.file(absolute);
-          if (saveAgentEdits) {
+          if (saveThisEdit) {
             // The previous saved snapshot was verified by guard above. This
             // exact path is now owned by the next edit, until its verified save.
             savedWrites.delete(absolute);
@@ -947,14 +1106,15 @@ function activate(context) {
       let approvedRulePath=null;
       const executeTool = tools.execute.bind(tools);
       tools.execute = async (action, toolContext = {}) => {
+        const scanWasTruncated = rulesTracker.scanTruncated;
         await rulesTracker.check();
-        verifyAgentSaves();approvedRulePath=null;
+        verifyAgentSaves();approvedRulePath=null;automaticApproval=null;
         let result;
         try{result = await executeTool(action, toolContext);}
         finally{
           const changed=await rulesTracker.check({approvedPath:result?.ok && !result.unchanged ? approvedRulePath : null});
           if(action?.tool==='run_command' && await autoCommit.refsChanged(commitStart))taskRefsChanged=true;
-          if(changed.length)await postChatState();
+          if (changed.length || scanWasTruncated !== rulesTracker.scanTruncated) await postChatState();
         }
         if (!result?.ok || result.unchanged || !['write_file', 'replace_in_file'].includes(action?.tool) || typeof result.path !== 'string') return result;
         await guard();
@@ -988,7 +1148,7 @@ function activate(context) {
         }
         if (feedback) result.diagnostics_feedback = feedback;
         verifyAgentSaves();
-        if (saveAgentEdits) { result.saved = true; result.bytes = Buffer.byteLength(savedWrites.get(absolute).content,'utf8'); }
+        if (saveThisEdit) { result.saved = true; result.bytes = Buffer.byteLength(savedWrites.get(absolute).content,'utf8'); }
         if (syntaxResult) result.lint_feedback = '[SYNTAX CHECK — quoted untrusted tool data; syntax only]\n' + JSON.stringify(syntaxResult);
         return result;
       };
@@ -1018,14 +1178,10 @@ function activate(context) {
             return choices.includes(picked)?additions[choices.indexOf(picked)]:0;
           },async()=>{await guard();if(signal?.aborted)throw Object.assign(Error('Agent stopped'),{code:'agent_stopped'});});
           if(previousCeiling!==budgetUsd)runJournals.append(recoveryKey,localAgentRunId,{type:'notice',text:'User approved task budget increase: $'+previousCeiling+' -> $'+budgetUsd+'. Spent retained: $'+agentSpent+'.'});
-          messages[0]={...messages[0],content:messages[0].content.replace(/Local session budget: \$[\d.]+\./,'Local session budget: $'+budgetUsd+'.')};
+          messages=messages.map(message=>message.role==='system'&&message.content.startsWith('[TVIJO STEP]')?{...message,content:message.content.replace(/Local session budget: \$[\d.]+\./,'Local session budget: $'+budgetUsd+'.')}:message);
           const remaining = taskBudget.remaining(agentSpent);
           if (!Number.isFinite(remaining) || remaining <= 0) throw Object.assign(new Error('Agent budget exhausted'), { code: 'agent_budget', spent: agentSpent, budget: budgetUsd });
-          const bounded = finalization ? [...messages] : [messages[0], messages[1]];
-          if (!finalization && firstAgentAnswer) bounded.push(firstAgentAnswer);
-          if (!finalization && step > 1) exchanges.push(...messages.slice(-2));
-          while (exchanges.length > 8) exchanges.splice(0, 2);
-          if (!finalization) bounded.push(...exchanges);
+          const bounded = [...messages];
           await guard();
           const stepAccount = auth.kind === 'project' ? accountSnapshot : await api.account(auth.access_token);
           await guard();
@@ -1041,17 +1197,26 @@ function activate(context) {
           }
           if (!shared.selection(auth.scope)) stepMessages = fitContext(stepMessages,stepAccount,{preserveFirstUser:true}).messages;
           core.validateMessages(stepMessages);
+          let finalIdempotencyKey;
+          const answer=await require('./lib/step-retry').askWithRetry({step,signal,
+            lookup:taskId=>api.failedReceipt(auth.access_token,taskId),
+            beforeRetry:async()=>{await guard();const fresh=auth.kind==='project'?accountSnapshot:await api.account(auth.access_token);await guard();if(auth.kind!=='project'&&fresh.tenant_id!==auth.tenant_id)throw new core.ServiceError('account_changed','The account changed.');accountSnapshot=fresh;if(taskBudget.remaining(agentSpent)<=0)throw Object.assign(Error('Agent budget exhausted'),{code:'agent_budget'});},
+            onAttempt:async attempt=>{taskReceipt.attempt(attempt);runJournals.append(recoveryKey,localAgentRunId,{type:'step_attempt',...attempt});if(attempt.spent_usd!==null)agentSpent+=attempt.spent_usd;},
+            invoke:async({attempt,retry_of})=>{
+          await guard();
+          const remaining=taskBudget.remaining(agentSpent);if(remaining<=0)throw Object.assign(Error('Agent budget exhausted'),{code:'agent_budget'});
           const idempotencyKey = randomUUID();
+          finalIdempotencyKey=idempotencyKey;
           await local.savePending(auth.scope, { idempotencyKey, apiBase: auth.api_base, tenantId: auth.tenant_id, createdAt: new Date().toISOString() });
           projectRulesHost.assertCurrent(agentRuleGrants);
           taskReceipt.request();
-          const answer = await api.ask({
+          return await api.ask({
             beforeChat:() => projectRulesHost.assertCurrent(agentRuleGrants),
             token: auth.access_token, messages: stepMessages, maxUsd: Math.min(1, Math.floor(remaining * 1e9) / 1e9), idempotencyKey,
             title: 'VS Code agent step ' + step + ': ' + goal.trim().slice(0, 50),
             // Devstral reasons at length and was cut off at 2048 (empty step); 4096 is the gateway ceiling.
             maxTokens: agentModel === 'devstral' ? 4096 : 2048, model: agentModel, mode: 'single', method: config.get('reasoningMethod', 'evidence-first'), signal,
-            onGrant: async grant => { taskReceipt.task(grant.id,grant.model); if(grant.model)servedModels.add(grant.model);runJournals.task(recoveryKey,localAgentRunId,grant.id); await mapTask(auth, grant.id, {...grant, title:'Agent step ' + step, model:grant.model || agentModel, status:'running', startedAt:Date.now()}); await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); projectRulesHost.assertCurrent(agentRuleGrants); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
+            onGrant: async grant => { taskReceipt.task(grant.id,grant.model); if(grant.model)servedModels.add(grant.model);runJournals.task(recoveryKey,localAgentRunId,grant.id);runJournals.append(recoveryKey,localAgentRunId,{type:'step_attempt_started',step,attempt:attempt+1,taskId:grant.id,retry_of:retry_of || retryOf}); await mapTask(auth, grant.id, {...grant, title:'Agent step ' + step, model:grant.model || agentModel, status:'running', startedAt:Date.now()}); await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); projectRulesHost.assertCurrent(agentRuleGrants); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
           }).catch(async error => {
             const pending = local.pending(auth.scope, idempotencyKey);
             if (error.definitiveGrantRefusal && !pending?.taskId) { await local.savePending(auth.scope, undefined, idempotencyKey); }
@@ -1060,7 +1225,11 @@ function activate(context) {
             }
             throw error;
           });
+            }
+          });
+          const idempotencyKey=finalIdempotencyKey;
           taskReceipt.answer(answer);
+          runJournals.append(recoveryKey,localAgentRunId,{type:'step_attempt',...answer.stepAttempt,prompt_cache_hit_tokens:answer.cache?.prompt_cache_hit_tokens ?? 'unknown',prompt_cache_miss_tokens:answer.cache?.prompt_cache_miss_tokens ?? 'unknown'});
           await mapAnswer(auth, answer);
           await guard();
           const cost = measuredCost(answer);
@@ -1083,47 +1252,50 @@ function activate(context) {
           if (terminalCaptureEpoch === terminalCaptures.epoch && event.type === 'result' && event.action?.tool === 'run_command' && event.result?.cwd) {
             void guard().then(() => terminalCaptures.recordDirect({ root: folder.uri.fsPath, cwd: event.result.cwd, output: [event.result.stdout, event.result.stderr].filter(Boolean).join('\n[stderr]\n'), source: 'Extension run_command output' })).catch(() => {});
           }
-          return postAgentEvent(auth, event);
+          return postAgentEvent(auth, traceEvent(traceRows, event, runLocale));
         }
       });
       await guard();
       await rulesTracker.check();if(await autoCommit.refsChanged(commitStart))taskRefsChanged=true;
       const committed=await autoCommit.commitTask({refChanged:taskRefsChanged,excludedPaths:projectRulesHost.quarantinedPaths(),start:commitStart,writes:savedWrites,result,signal:abort.signal,events:commitEvents,models:[...servedModels],taskId:localAgentRunId,guard,enabled:config.get('autoCommit','afterTask')==='afterTask'});
+      const RL=(en,ru)=>runLocale==='ru'?ru:en;
       let commitText='';const hasCommandEffects=commitEvents.some(e=>e.action?.tool==='run_command' && e.result?.ok);
       if(committed.ok){await context.globalState.update('tvijo.committedRun.'+rewindRunId,committed.hash);const key='tvijo.firstAutoCommit.'+createHash('sha256').update(committed.root).digest('hex'),first=!context.globalState.get(key);await context.globalState.update(key,true);
-        commitText=L('Tvijo committed ','Tvijo закоммитил ')+committed.hash.slice(0,12)+(first?L(' · turn off in ⚙',' · выключить в ⚙'):'');
-      }else if((savedWrites.size || hasCommandEffects) && committed.reason!=='off')commitText=L('No auto-commit: ','Без автокоммита: ')+autoCommit.describe(committed.reason,uiLocale());
-      if(committed.identityWarning)commitText=autoCommit.describe('commit_identity_unproven',uiLocale())+'\n'+L('Hashes: ','Хеши: ')+committed.observedHashes.join(', ');
-      if(committed.skipped.length)commitText+='\n'+committed.skipped.map(f=>f.path+': '+autoCommit.describe(f.reason,uiLocale())).join('\n');
-      if(savedWrites.size || hasCommandEffects)commitText+='\n'+L('Command side effects (rm/mv and other tool writes) are not tracked or committed.','Побочные эффекты команд (rm/mv и другие записи инструментов) не отслеживаются и не коммитятся.');
+        commitText=RL('Tvijo committed ','Tvijo закоммитил ')+committed.hash.slice(0,12)+(first?RL(' · turn off in ⚙',' · выключить в ⚙'):'');
+      }else if((savedWrites.size || hasCommandEffects) && committed.reason!=='off')commitText=RL('No auto-commit: ','Без автокоммита: ')+autoCommit.describe(committed.reason,runLocale);
+      if(committed.identityWarning)commitText=autoCommit.describe('commit_identity_unproven',runLocale)+'\n'+RL('Hashes: ','Хеши: ')+committed.observedHashes.join(', ');
+      if(committed.skipped.length)commitText+='\n'+committed.skipped.map(f=>f.path+': '+autoCommit.describe(f.reason,runLocale)).join('\n');
+      if(savedWrites.size || hasCommandEffects)commitText+='\n'+RL('Command side effects (rm/mv and other tool writes) are not tracked or committed.','Побочные эффекты команд (rm/mv и другие записи инструментов) не отслеживаются и не коммитятся.');
       if(taskEffectsText())commitText+='\n'+taskEffectsText();
-      if(committed.hookAddedPaths?.length)commitText+='\n'+(committed.withdrawn?L('Hook added files ','Хук добавил файлы ')+committed.hookAddedPaths.join(', ')+L(' — commit withdrawn; edits remain on disk. User index untouched.',' — коммит отозван, изменения остались на диске. Индекс пользователя не изменён.'):L('Hook added files; withdrawal could not safely complete. Review commit ','Хук добавил файлы; безопасный отзыв не выполнен. Проверьте коммит ')+committed.hash+': '+committed.hookAddedPaths.join(', '));
-      if(committed.ok && committed.cancelledAfterCommit)commitText+='\n'+L('Cancel arrived after the commit was created. The commit is shown above; use Undo commit to undo it.','Отмена пришла после создания коммита. Коммит показан выше; используйте «Отменить коммит».');
-      if(committed.unverifiedHead)commitText+='\n'+L('Git HEAD changed during cancellation; review commit ','HEAD Git изменился при отмене; проверьте коммит ')+committed.unverifiedHead;
-      if(committed.indexWarning)commitText+='\n'+L('Commit created; check the Git index before continuing.','Коммит создан; проверьте индекс Git перед продолжением.');
+      if(committed.hookAddedPaths?.length)commitText+='\n'+(committed.withdrawn?RL('Hook added files ','Хук добавил файлы ')+committed.hookAddedPaths.join(', ')+RL(' — commit withdrawn; edits remain on disk. User index untouched.',' — коммит отозван, изменения остались на диске. Индекс пользователя не изменён.'):RL('Hook added files; withdrawal could not safely complete. Review commit ','Хук добавил файлы; безопасный отзыв не выполнен. Проверьте коммит ')+committed.hash+': '+committed.hookAddedPaths.join(', '));
+      if(committed.ok && committed.cancelledAfterCommit)commitText+='\n'+RL('Cancel arrived after the commit was created. The commit is shown above; use Undo commit to undo it.','Отмена пришла после создания коммита. Коммит показан выше; используйте «Отменить коммит».');
+      if(committed.unverifiedHead)commitText+='\n'+RL('Git HEAD changed during cancellation; review commit ','HEAD Git изменился при отмене; проверьте коммит ')+committed.unverifiedHead;
+      if(committed.indexWarning)commitText+='\n'+RL('Commit created; check the Git index before continuing.','Коммит создан; проверьте индекс Git перед продолжением.');
       const outcome=outcomeOf(result), receipt=taskReceipt.finish({result});
       receipt.usage.settlement = local.pending(auth.scope) ? 'pending_reconciliation' : 'terminal_receipts_observed';
       runJournals.receipt(recoveryKey,localAgentRunId,receipt);
-      const finalText=result.text+(commitText?'\n\n'+commitText:'')+'\n\n'+formatReceipt(receipt,uiLocale());
+      const receiptText=formatReceipt(receipt,runLocale);
+      const finalText=result.text+(commitText?'\n\n'+commitText:'')+'\n\n'+receiptText;
       await finishMap(auth, outcome === 'done' ? 'completed' : outcome);
       const history = local.history(agentScope);
-      await local.saveHistory(agentScope, [...history, { role: 'user', content: goal.trim(), display: goal.trim(), recoveryRunId:localAgentRunId }, { role: 'assistant', content: result.text, display: finalText, outcome, receiptId:localAgentRunId, autoCommit:committed.ok?{hash:committed.hash,root:committed.root,workspaceRoot:committed.workspaceRoot,identity:committed.identity}:undefined, recoveryRunId:localAgentRunId, taskIds:receipt.provider_tasks }].slice(-40));
+      await local.saveHistory(agentScope, [...history, { role: 'user', content: goal.trim(), display: goal.trim(), recoveryRunId:localAgentRunId }, { role: 'assistant', content: result.text, display: finalText, receiptText, trace:agentTrace.boundTrace(traceRows), outcome, receiptId:localAgentRunId, autoCommit:committed.ok?{hash:committed.hash,root:committed.root,workspaceRoot:committed.workspaceRoot,identity:committed.identity}:undefined, recoveryRunId:localAgentRunId, taskIds:receipt.provider_tasks }].slice(-40));
       runJournals.finish(recoveryKey,localAgentRunId,outcome);
       await metrics.record({ event: 'agent', outcome: outcome === 'done' ? 'completed' : outcome, mode: planMode ? 'plan' : 'agent', model: agentModel, steps: result.steps, cost_usd: result.spent, duration_ms: Date.now() - startedAt });
-      lastAgentOutcome = { scope: currentViewScope(auth.scope), outcome, text: outcome === 'done' ? L('Agent execution finished in ' + result.steps + ' steps. See the task receipt for observed checks.', 'Агент завершил выполнение за ' + result.steps + ' шагов. Наблюдаемые проверки указаны в квитанции.') : outcome === 'partial' ? (result.reason === 'step_limit' ? L('Step limit reached ('+result.steps+'). Partial result: review the task receipt before continuing.','Лимит шагов достигнут ('+result.steps+'). Частичный результат: перед продолжением проверьте квитанцию.') : L('Partial result. Review the task receipt before continuing.', 'Частичный результат. Перед продолжением проверьте квитанцию задачи.')) : L('Agent blocked. Completed local work and remaining requirements are in the task receipt.', 'Агент заблокирован. Выполненная локальная работа и оставшиеся требования указаны в квитанции.') };
+      lastAgentOutcome = { scope: currentViewScope(auth.scope), outcome, text: outcome === 'done' ? RL('Agent execution finished in ' + result.steps + ' steps. See the task receipt for observed checks.', 'Агент завершил выполнение за ' + result.steps + ' шагов. Наблюдаемые проверки указаны в квитанции.') : outcome === 'partial' ? (result.reason === 'step_limit' ? RL('Step limit reached ('+result.steps+'). Partial result: review the task receipt before continuing.','Лимит шагов достигнут ('+result.steps+'). Частичный результат: перед продолжением проверьте квитанцию.') : RL('Partial result. Review the task receipt before continuing.', 'Частичный результат. Перед продолжением проверьте квитанцию задачи.')) : RL('Agent blocked. Completed local work and remaining requirements are in the task receipt.', 'Агент заблокирован. Выполненная локальная работа и оставшиеся требования указаны в квитанции.') };
       await postChatState(lastAgentOutcome.text);
       return {outcome,receiptId:localAgentRunId};
     } catch (error) {
+      if(error.retryAllowed===true&&taskBudget.remaining(agentSpent)>0)retryAgentStep={goal,planMode,budgetLimit:taskBudget.remaining(agentSpent),retryOf:error.taskId,scope:currentViewScope(auth.scope),workspaceEpoch};
       if(taskEffectsText())error.tvijoAgentEffects=taskEffectsText();
       const receipt=taskReceipt.finish({error,cancelled:abort.signal.aborted});
       receipt.usage.settlement = local.pending(auth.scope) ? 'pending_reconciliation' : 'no_pending_record';
-      try {runJournals.receipt(recoveryKey,localAgentRunId,receipt);error.tvijoReceipt=formatReceipt(receipt,uiLocale());} catch { /* Original failure and pending financial record must survive receipt I/O errors. */ }
+      try {runJournals.receipt(recoveryKey,localAgentRunId,receipt);error.tvijoReceipt=formatReceipt(receipt,runLocale);} catch { /* Original failure and pending financial record must survive receipt I/O errors. */ }
       try {
         if (error.tvijoReceipt && await isCurrentAuth(auth)) {
           const history=local.history(agentScope);
           if (!history.some(item=>item.recoveryRunId===localAgentRunId)) {
-            const text=abort.signal.aborted ? L('Agent stopped.','Агент остановлен.') : localizedMessage(error,false);
-            await local.saveHistory(agentScope,[...history,{role:'user',content:goal.trim(),recoveryRunId:localAgentRunId},{role:'assistant',content:text,display:text+'\n\n'+error.tvijoReceipt,outcome:receipt.execution.outcome,receiptId:localAgentRunId,recoveryRunId:localAgentRunId,taskIds:receipt.provider_tasks}].slice(-40));
+            const text=abort.signal.aborted ? (runLocale==='ru'?'Агент остановлен.':'Agent stopped.') : localizedMessage(error,false,runLocale);
+            await local.saveHistory(agentScope,[...history,{role:'user',content:goal.trim(),recoveryRunId:localAgentRunId},{role:'assistant',content:text,display:text+'\n\n'+error.tvijoReceipt,receiptText:error.tvijoReceipt,trace:agentTrace.boundTrace(traceRows),outcome:receipt.execution.outcome,receiptId:localAgentRunId,recoveryRunId:localAgentRunId,taskIds:receipt.provider_tasks}].slice(-40));
           }
         }
       } catch { /* Preserve the original failure if local history cannot be saved. */ }
@@ -1136,11 +1308,12 @@ function activate(context) {
         return {outcome:'cancelled',receiptId:localAgentRunId};
       }
       await metrics.record({ event: 'agent', outcome: 'error', mode: planMode ? 'plan' : 'agent', model: vscode.workspace.getConfiguration('tvijo').get('agentModel', 'ds41f'), error_code: error?.code || 'unknown', duration_ms: Date.now() - startedAt });
-      lastError = { text: localizedMessage(error), action: typeof error?.code === 'string' && error.code.startsWith('context_budget') ? 'context' : null };
+      lastError = { text: localizedMessage(error,true,runLocale), action: typeof error?.code === 'string' && error.code.startsWith('context_budget') ? 'context' : null };
       throw error;
     } finally {
       diagnosticsTracker?.dispose();
       activeJournals.delete(localAgentRunId);
+      activeAgentPermissions = null;
       agentAbort = null; agentRunning = false; busy = false;
       await postActivity('done', '');
       await postChatState();
@@ -1194,11 +1367,15 @@ function activate(context) {
     } finally { if (activeAbort === abort) activeAbort = null; busy = false; await postActivity('done', ''); await postChatState(); }
   }
 
-  function localizedMessage(error,includeEffects=true) {
-    if(includeEffects && (error?.tvijoAgentEffects || error?.tvijoReceipt))return localizedMessage(error,false)+'\n'+[error.tvijoAgentEffects,error.tvijoReceipt].filter(Boolean).join('\n');
-    const runtimeNotice=require('./lib/runtime-errors').notice(error?.code,uiLocale());
+  function localizedMessage(error,includeEffects=true,locale=replyLocale()) {
+    // The full receipt is already in the transcript (collapsed); repeating it in
+    // the notice bar printed task ids and journal lines twice (0.10.31).
+    const L=(en,ru)=>locale==='ru'?ru:en;
+    if(includeEffects && error?.tvijoAgentEffects)return localizedMessage(error,false,locale)+'\n'+error.tvijoAgentEffects;
+    if(error?.retryDisposition)return require('./lib/step-retry').retryNotice(error,locale);
+    const runtimeNotice=require('./lib/runtime-errors').notice(error?.code,locale);
     if(runtimeNotice)return runtimeNotice;
-    const scopeNotice=require('./lib/scope-notices').notice(error?.code,uiLocale());
+    const scopeNotice=require('./lib/scope-notices').notice(error?.code,locale);
     if(scopeNotice){if(error.scopeUri)pendingScopeUri=error.scopeUri;return scopeNotice.text;}
     const code = error?.serverCode || (typeof error?.code === 'string' ? error.code : '');
     if (error?.code === 'command_policy') return L('Command refused. Use one executable with literal arguments; unsafe commands and shell syntax are blocked.', 'Команда отклонена. Используйте одну программу с буквальными аргументами; опасные команды и синтаксис оболочки заблокированы.');
@@ -1212,12 +1389,20 @@ function activate(context) {
         const budget = error.budget === undefined ? '?' : error.budget;
         return L('Agent budget exhausted ($' + spent + ' of $' + budget + '). Raise tvijo.agentBudgetUsd or finish the goal in fewer steps.', 'Бюджет агента исчерпан ($' + spent + ' из $' + budget + '). Увеличьте tvijo.agentBudgetUsd или сократите задачу.');
       }
+      // A bare fallback hid the real reason (and blamed the selected file for
+      // permission, path and transport failures). Report what actually failed.
+      if (code === 'ENOENT') return L('The selected path does not exist on this host. Pick the file again.', 'Выбранного пути нет на этом сервере. Выберите файл заново.');
+      if (code === 'EACCES' || code === 'EPERM') return L('The selected file cannot be read (permission denied). Choose a file this host can read.', 'Нет доступа к выбранному файлу. Выберите файл, который сервер может прочитать.');
+      if (code === 'EISDIR') return L('That path is a folder, not a file. Choose a file.', 'Это папка, а не файл. Выберите файл.');
+      if (code === 'ELOOP') return L('That path is a symbolic link loop and cannot be read.', 'Путь образует петлю символических ссылок, прочитать нельзя.');
+      const detail = typeof error?.message === 'string' ? error.message.trim() : '';
+      if (detail) return L('Action failed: ' + detail, 'Не удалось выполнить действие: ' + detail);
       return L('Action failed. Check the selected workspace file and try again.', 'Не удалось выполнить действие. Проверьте выбранный файл проекта и повторите.');
     }
     if (code.startsWith('context_budget')) {
       return L('The project context is too large for this model. Preview the context and turn it off, or start a new conversation.', 'Контекст проекта слишком велик для этой модели. Просмотрите контекст и отключите его либо начните новый диалог.');
     }
-    if (uiLocale() === 'ru') {
+    if (locale === 'ru') {
       const map = {
         preview_context_limit: 'Оставшейся квоты токенов аккаунта недостаточно для запроса и ответа после удаления автоконтекста. Проверьте расходы. Черновик и полная история сохранены.',
         context_limit: 'Задание и обязательные результаты инструментов превышают предел размера запроса сервиса. Автоконтекст и старые сообщения уже сокращены. Разделите задание или терминальный лог; черновик и полная история сохранены.',
@@ -1233,7 +1418,24 @@ function activate(context) {
         project_required: 'Сначала выберите общий проект: Команды → Choose shared project. Затем откройте подключения.',
         account_changed: 'Аккаунт, проект или ветка изменились. Повторите действие в текущем аккаунте.',
         unreachable: 'Сервис недоступен. Проверьте соединение и повторите запрос; платная задача не создана.',
-        timeout: 'Сервис не ответил вовремя. Повторите запрос; неизвестный расход не считается нулевым.'
+        timeout: 'Сервис не ответил вовремя. Повторите запрос; неизвестный расход не считается нулевым.',
+        attachment_size: 'Файл не помещается во вложение. Текст — до 64 КиБ, изображение — до 2 МиБ. Приложите меньший файл или фрагмент.',
+        attachment_name: 'Слишком длинное имя файла или в нём управляющие символы. Переименуйте файл.',
+        attachment_count: 'К одному вопросу можно приложить не более 4 файлов.',
+        attachment_total: 'Вложения вместе ограничены 4 МиБ.',
+        attachment_context: 'Текст вложений ограничен 80 КиБ. Приложите меньший файл или фрагмент.',
+        attachment_path: 'Приложите обычный файл рабочей области: без символических ссылок и путей вне её.',
+        outside_workspace: 'Файл вне открытой рабочей области. Откройте папку проекта или используйте «Прикрепить» для файла на своём компьютере.',
+        no_workspace: 'Сначала откройте рабочую область: файл вне проекта приложить нельзя.',
+        rules_context: 'Файлы правил прикладываются через «Просмотр контекста проекта» или список в настройках.',
+        image_format: 'Поддерживаются только PNG и JPG.',
+        image_no_text: 'Нет читаемого текста или текстовой миниатюры. Обрежьте скриншот или проверьте FFmpeg на хосте расширения.',
+        image_dimensions: 'Изображение больше 8 мегапикселей или 8192 точек по стороне. Обрежьте его.',
+        ocr_unavailable: 'Для распознавания текста на этом хосте нужен Tesseract с настроенными языками.',
+        ocr_timeout: 'Распознавание текста заняло больше 20 секунд. Обрежьте скриншот и приложите снова.',
+        ocr_too_large: 'На изображении слишком много текста. Обрежьте его или приложите меньшее изображение.',
+        ocr_failed: 'Не удалось распознать текст. Используйте корректный PNG/JPG или проверьте tvijo.ocrLanguages.',
+        ocr_languages: 'Некорректные языки OCR в настройках. Используйте eng или eng+rus.'
       };
       if (map[code]) return map[code];
     }
@@ -1241,6 +1443,7 @@ function activate(context) {
   }
 
   function errorAction(error) {
+    if(error?.retryAllowed===true&&retryAgentStep)return 'retryStep';
     const scopeNotice=require('./lib/scope-notices').notice(error?.code,uiLocale());if(scopeNotice)return scopeNotice.action;
     if (error?.code === 'preview_context_limit' || error?.code?.startsWith('context_budget')) return 'context';
     if (error?.code === 'unauthorized') return 'account';
@@ -1261,12 +1464,18 @@ function activate(context) {
     const usage = L('View usage', 'Открыть расходы');
     const credit = L('Credit', 'Кредит');
     const resolve = L('Resolve task', 'Проверить задачу');
+    const retry=L('Retry step','Повторить шаг');
     const preview = L('Preview context', 'Просмотреть контекст');
     const overflow = error?.code === 'preview_context_limit' || (typeof error?.code === 'string' && error.code.startsWith('context_budget'));
     const unresolved = ['pending_task','charge_pending','usage_unknown','usage_recovery_unavailable','usage_reconciliation_required','model_request_failed'].includes(error?.code);
-    const actions = (error?.serverCode || error?.code) === 'free_preview_exhausted' ? [credit] : error?.code === 'unauthorized' ? [signIn] : error?.code === 'insufficient_credit' ? [usage] : unresolved ? [resolve] : overflow ? [preview] : [];
-    vscode.window.showErrorMessage(`Tvijo: ${message}`, ...actions).then((pick) => { if (pick === credit) vscode.env.openExternal(vscode.Uri.parse('https://dsh.tvijo.com/billing')); if (pick === signIn) vscode.commands.executeCommand('tvijo.signIn'); if (pick === usage) vscode.commands.executeCommand('tvijo.account'); if (pick === resolve) vscode.commands.executeCommand('tvijo.cancelPending'); if (pick === preview) vscode.commands.executeCommand('tvijo.contextPreview'); });
+    const actions = error?.retryAllowed===true&&retryAgentStep ? [retry] : (error?.serverCode || error?.code) === 'free_preview_exhausted' ? [credit] : error?.code === 'unauthorized' ? [signIn] : error?.code === 'insufficient_credit' ? [usage] : unresolved ? [resolve] : overflow ? [preview] : [];
+    vscode.window.showErrorMessage(`Tvijo: ${message}`, ...actions).then((pick) => { if(pick===retry)vscode.commands.executeCommand('tvijo.retryStep');if (pick === credit) vscode.env.openExternal(vscode.Uri.parse('https://dsh.tvijo.com/billing')); if (pick === signIn) vscode.commands.executeCommand('tvijo.signIn'); if (pick === usage) vscode.commands.executeCommand('tvijo.account'); if (pick === resolve) vscode.commands.executeCommand('tvijo.cancelPending'); if (pick === preview) vscode.commands.executeCommand('tvijo.contextPreview'); });
   }
+  command('tvijo.retryStep',async()=>{
+    ensureIdle();const retry=retryAgentStep;const auth=await requireAuth();
+    if(!retry||retry.scope!==currentViewScope(auth.scope)||retry.workspaceEpoch!==workspaceEpoch)throw new core.ServiceError('account_changed','The retry scope changed.');
+    await clearPending(auth);retryAgentStep=null;await runAgentFlow(retry.goal,retry);
+  });
 
   function command(id, fn) {
     handlers.set(id, fn);
@@ -1801,8 +2010,10 @@ function activate(context) {
   function settingsValues() {
     const config = vscode.workspace.getConfiguration('tvijo');
     const values = {};
+    const flags = agentFlags();
     for (const [key, property] of Object.entries(settingProperties())) {
-      values[key] = config.get(key.slice('tvijo.'.length), property.default);
+      const name = key.slice('tvijo.'.length);
+      values[key] = Object.hasOwn(flags, name) ? flags[name] : config.get(name, property.default);
     }
     // A custom URL may contain user info or query credentials; never embed them.
     try { const url = new URL(values['tvijo.apiBase']); url.username = ''; url.password = ''; url.search = ''; url.hash = ''; values['tvijo.apiBase'] = url.toString(); }
@@ -1834,10 +2045,37 @@ function activate(context) {
       try {
         if(message?.type==='locale' && ['en','ru'].includes(message.value)){await context.globalState.update(UI_LOCALE,message.value);await postChatState();}
         else if (message?.type === 'saveSetting') {
-          await sync.save(message.key,message.requestId,async()=>{
-            ensureIdle();
+          const permissionSetting = ['tvijo.agentAutoRun','tvijo.agentAutoApply'].includes(message.key);
+          const run = activeAgentPermissions;
+          const applyHere = run?.canUpdate() === true;
+          const capturedAbort = agentAbort;
+          const epoch = workspaceEpoch;
+          const accountEpoch = authAttempt;
+          const capturedIdentity = identity;
+          let permissionMessage;
+          const update = sync.save(message.key,message.requestId,async()=>{
+            if (!permissionSetting || !capturedAbort) ensureIdle();
+            else if (modeUpdatePending || rewindBusy || attaching) throw new core.ServiceError('busy','Wait for the current permission update to finish.');
             let value;
             try{value=require('./lib/settings-controls').validateSetting(message.key,message.value);}catch{throw Error(L('Cannot save this value. Check its type, allowed choices and range.','Не удалось сохранить значение. Проверьте тип, допустимые варианты и диапазон.'));}
+            if (permissionSetting) {
+              const requested = { [message.key.slice('tvijo.'.length)]: value };
+              const check = async () => {
+                if (applyHere) await checkLivePermissionRun(run);
+                else if (run) await run.check();
+                if (epoch !== workspaceEpoch || accountEpoch !== authAttempt || capturedIdentity !== identity || capturedAbort !== agentAbort || capturedAbort?.signal.aborted) {
+                  throw new core.ServiceError('mode_update', L('The account, folder or task changed. Save the setting again.', 'Аккаунт, папка или задача изменились. Сохраните настройку повторно.'));
+                }
+              };
+              modeUpdatePending = true;
+              try {
+                await persistAgentFlags(permissionFolder(), requested, check, () => {
+                  if (applyHere) run.flags = { ...run.flags, ...requested };
+                });
+                permissionMessage = permissionSaved(applyHere);
+              } finally { modeUpdatePending = false; }
+              return;
+            }
             if(message.key==='tvijo.pack' && !['','none'].includes(value) && !(identity && settingsPackCatalogue && settingsPackCatalogue.base===identity.base && settingsPackCatalogue.token===identity.token && settingsPackCatalogue.data.some(pack=>pack.id===value)))throw Error(L('Choose a pack from the loaded catalog. The saved ID is preserved.','Выберите пакет из загруженного каталога. Сохранённый ID сохранён.'));
             if(message.key==='tvijo.service' && !(identity && settingsServiceCatalogue && settingsServiceCatalogue.base===identity.base && settingsServiceCatalogue.token===identity.token && settingsServiceCatalogue.data.some(item=>item.id===value)))throw Error(L('Load the shared-project services with the chat workflow picker first.','Сначала загрузите сервисы общего проекта через выбор процесса в чате.'));
             if(message.key==='tvijo.telegram.enabled') {
@@ -1854,8 +2092,9 @@ function activate(context) {
               await cfg.update(message.key.slice(6),value,vscode.ConfigurationTarget.Global);
             }
           });
+          await trackPermissionUpdate(permissionSetting && applyHere ? run : null, update);
           await refresh();
-          await postChatState();
+          await postChatState(permissionMessage);
         } else if (message?.type === 'openSetting' && typeof message.key === 'string' && Object.hasOwn(settingProperties(), message.key)) {
           await vscode.commands.executeCommand(vscode.env.remoteName && settingProperties()[message.key].scope==='machine' ? 'workbench.action.openRemoteSettings' : 'workbench.action.openSettings', '@id:' + message.key);
         } else if (message?.type === 'guideAction' && typeof message.id === 'string' && Object.hasOwn(GUIDE_ACTIONS, message.id)) {
@@ -1933,6 +2172,7 @@ function activate(context) {
   }
   command('tvijo.usage', async () => {
     const auth = await requireAuth();
+    if (chatView) await chatView.webview.postMessage({type:'openUsage',scopeKey:auth.viewScope});
     const selected = shared.selection(auth.scope);
     const usage = selected ? await workspaceClient(client(), auth.access_token).usage(selected.projectId) : await client().request('/workspace/usage', { token: auth.access_token });
     if (!await isCurrentAuth(auth)) return;
@@ -2046,9 +2286,28 @@ function activate(context) {
     await vscode.window.showTextDocument(doc, { preview: false, ...options });
   }
   command('tvijo.status', async () => {
-    const api = client();
-    const health = await api.request('/health');
-    await showDocument('json', JSON.stringify({ runtime_version:context.extension?.packageJSON?.version || require('./package.json').version, reload_command:'Tvijo: Reload window', service: api.base, health, image_mode: 'local OCR text, not visual reasoning', sends_on: 'Ask only', max_task_usd: '1' }, null, 2));
+    const obsolete = await packageObsolete();
+    let service = null;
+    let health = { status: 'unavailable' };
+    try {
+      const api = client();
+      service = api.base;
+      const response = await api.request('/health', { timeoutMs: 3000 });
+      if (response && typeof response.status === 'string') health = response;
+    } catch { /* The running package identity remains available offline. */ }
+    await showDocument('json', JSON.stringify({
+      runtime_version: runtimeVersion, build_commit: buildCommit(),
+      remote_connection: vscode.env.remoteName || null, extension_host_platform: process.platform,
+      running_package_marked_obsolete: obsolete, reload_command: 'Tvijo: Reload window',
+      gateway_version: health.version || 'unknown', service, health,
+      image_mode: 'local OCR and optional grayscale text thumbnail', sends_on: 'Ask only', max_task_usd: '1'
+    }, null, 2));
+    if (obsolete === true) {
+      const reload = L('Reload this window', 'Перезагрузить это окно');
+      const choice = await vscode.window.showInformationMessage(
+        L('VS Code has retired the Tvijo version running in this window.', 'VS Code пометил работающую в этом окне версию Tvijo устаревшей.'), reload);
+      if (choice === reload) await vscode.commands.executeCommand('tvijo.reloadWindow');
+    }
   });
   command('tvijo.tasks', async () => {
     const auth = await requireAuth();
@@ -2069,7 +2328,7 @@ function activate(context) {
     const knownSecrets = [auth.access_token, auth.refresh_token, storageUri?.fsPath, storageUri?.toString?.()].filter(Boolean);
     await showPrivateDocument('markdown', conversationExport.exportConversation(history, { knownSecrets }), auth);
   });
-  command('tvijo.help', () => showDocument('markdown', '# Tvijo DSHREM ' + (context.extension?.packageJSON?.version || require('./package.json').version) + '\n\n' + L('If an update still shows old behavior, use **Tvijo: Reload window**. Right-click a folder in Explorer → **Work in Tvijo**, or use the folder button in chat. Agent mode reads, edits and tests in that folder with confirmations; Full access requires explicit approval. Chat answers without tools.','Если после обновления поведение не изменилось, выполните **Tvijo: Reload window**. Нажмите правой кнопкой по папке в Explorer → **Work in Tvijo** или выберите папку кнопкой в чате. Агент читает, правит и тестирует с подтверждениями; полный доступ требует явного согласия. Чат отвечает без инструментов.') + '\n\nClick **Attach** to choose a file on your computer, paste a PNG/JPG screenshot, or drop a file into the chat. Use **Workspace** or `/attach path/to/file` for files on the SSH host. Select code and click **Selection** to attach only those lines.\n\nImages use local text extraction (OCR); the model does not see visual layout. Files are context for the next question. Knowledge-base uploads are a separate, confirmed action. Nothing is sent to the model until **Ask**. Each question has a $1 cap. Chat answers questions and suggests changes. Use Create isolated coding task to explicitly upload selected source and immutable tests, run a bounded offline test profile, review concrete diffs and explicitly apply unchanged targets.\n\n' + L('Use **Tvijo: Data & privacy** for read-only server preferences and **Tvijo: Resources** for verified public links. Both are in Settings and how it works and All commands.','Используйте **Tvijo: Data & privacy** для просмотра настроек сервера и **Tvijo: Resources** для проверенных ссылок. Обе команды доступны в настройках и списке всех команд.') + '\n\n' + ACTIONS.map(([, label, detail]) => `- **${label}**${detail ? ` — ${detail}` : ''}`).join('\n')));
+  command('tvijo.help', () => showDocument('markdown', '# Tvijo DSHREM ' + (context.extension?.packageJSON?.version || require('./package.json').version) + '\n\n' + L('If an update still shows old behavior, use **Tvijo: Reload window**. Right-click a folder in Explorer → **Work in Tvijo**, or use the folder button in chat. Agent mode reads, edits and tests in that folder with confirmations; Full access requires explicit approval. Chat answers without tools.','Если после обновления поведение не изменилось, выполните **Tvijo: Reload window**. Нажмите правой кнопкой по папке в Explorer → **Work in Tvijo** или выберите папку кнопкой в чате. Агент читает, правит и тестирует с подтверждениями; полный доступ требует явного согласия. Чат отвечает без инструментов.') + '\n\nClick **Attach** to choose a file on your computer, paste a PNG/JPG screenshot, or drop a file into the chat. Use **Workspace** or `/attach path/to/file` for files on the SSH host. Select code and click **Selection** to attach only those lines.\n\nImages use local text extraction (OCR) and, with FFmpeg on the extension host, a small grayscale text thumbnail. The service receives those text representations. Files are context for the next question. Knowledge-base uploads are a separate, confirmed action. Nothing is sent to the model until **Ask**. Each question has a $1 cap. Chat answers questions and suggests changes. Use Create isolated coding task to explicitly upload selected source and immutable tests, run a bounded offline test profile, review concrete diffs and explicitly apply unchanged targets.\n\n' + L('Use **Tvijo: Data & privacy** for read-only server preferences and **Tvijo: Resources** for verified public links. Both are in Settings and how it works and All commands.','Используйте **Tvijo: Data & privacy** для просмотра настроек сервера и **Tvijo: Resources** для проверенных ссылок. Обе команды доступны в настройках и списке всех команд.') + '\n\n' + ACTIONS.map(([, label, detail]) => `- **${label}**${detail ? ` — ${detail}` : ''}`).join('\n')));
 
   command('tvijo.openLearningGuide', async () => {
     // Only the packaged, reviewed guide is executable here. No task path,
@@ -2110,7 +2369,7 @@ function activate(context) {
       (_progress, token) => {
         const abort = new AbortController();
         token.onCancellationRequested(() => abort.abort());
-        return api.pollDeviceLogin(device, { signal: abort.signal });
+        return api.pollDeviceLogin(device, { signal: abort.signal, rememberDevice: true });
       });
     assertAuthAttempt(attempt, api.base);
     await commitAuthentication(attempt, api.base, async check => {
@@ -2394,6 +2653,7 @@ function activate(context) {
   async function askQuestion(question, { showEditor = false, includeSelection = false } = {}) {
     ensureIdle();
     if (!question?.trim()) return;
+    noteReplyLocale(question);
     if (vscode.workspace.workspaceFolders?.length) await requireWorkspace();
     const startedAt = Date.now();
     busy = true;
@@ -2767,7 +3027,7 @@ function activate(context) {
       view.webview.html = chatHtml(view.webview);
       const listener = view.webview.onDidReceiveMessage(async (message) => {
         try {
-          if (['ask', 'attach', 'removeAttachment', 'previewAttachment', 'copy', 'openAnswer', 'new', 'cancel', 'workspace', 'selection', 'path', 'clearAttachments', 'tasks', 'history', 'contextSelect', 'usage', 'workflow', 'setOption', 'agentPreset', 'quickEdit', 'choosePack', 'copyCode', 'openExternal', 'agentMap'].includes(message?.type) && message.scopeKey !== undefined) {
+          if (['ask', 'attach', 'removeAttachment', 'previewAttachment', 'copy', 'openAnswer', 'new', 'cancel', 'workspace', 'selection', 'path', 'clearAttachments', 'tasks', 'history', 'contextSelect', 'usage', 'workflow', 'setOption', 'quickEdit', 'choosePack', 'copyCode', 'openExternal', 'agentMap'].includes(message?.type) && message.scopeKey !== undefined) {
             const auth = await requireAuth();
             if (message.scopeKey !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account changed. This action was not sent.');
           }
@@ -2897,90 +3157,58 @@ function activate(context) {
             await postChatState();
             if (!persisted) throw new core.ServiceError('permission_storage','Full access stopped for this session, but its saved permission could not be removed.');
           } else if (message?.type === 'agentPreset') {
-            const settings = modePresets.PRESETS[message.preset];
-            if (!settings || !['manual', 'edit', 'plan', 'auto', 'full', 'extra'].includes(message.preset)) throw new core.ServiceError('invalid_option', 'Unknown agent preset.');
+            const preset = message.preset;
+            const settings = modePresets.PRESETS[preset];
+            if (!settings || !['manual', 'edit', 'plan', 'auto', 'full', 'extra'].includes(preset)) throw new core.ServiceError('invalid_option', 'Unknown agent preset.');
             const scope = message.scopeKey;
             const epoch = workspaceEpoch;
-            let validScope = false;
-            let ownsModeLock = false;
-            let presetAuth = null;
-            const written = new Map();
-            let originals = null;
-            const assertCurrent = async (auth) => {
-              const authCurrent = await isCurrentAuth(auth);
-              if (!authCurrent || epoch !== workspaceEpoch || scope !== currentViewScope(auth.scope)) {
-                throw new core.ServiceError('account_changed', 'The account or workspace changed. This mode was not applied.');
-              }
+            const ordinary = ['manual','edit','auto'].includes(preset);
+            const run = ordinary && activeAgentPermissions?.id === message.runId ? activeAgentPermissions : null;
+            let result;
+            const changePreset = async () => {
+              const auth = await requireAuth();
+              if (scope !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account changed. This mode was not applied.');
+              result = { type:'presetResult', scopeKey:scope, requestId:message.requestId, preset, ok:false };
+              const check = async () => {
+                if (run) await checkLivePermissionRun(run);
+                if (!await isCurrentAuth(auth) || epoch !== workspaceEpoch || scope !== currentViewScope(auth.scope) || run && (activeAgentPermissions !== run || !run.canUpdate())) {
+                  throw new core.ServiceError('account_changed', 'The account or workspace changed. This mode was not applied.');
+                }
+              };
+              if (modeUpdatePending) throw new core.ServiceError('busy', 'Wait for the current permission update to finish.');
+              await settingsWriteQueue(async () => {
+                if (message.runId !== undefined && !run) {
+                  throw new core.ServiceError('mode_update', 'This mode cannot be applied to the running task.');
+                }
+                await check();
+                if (modeUpdatePending || rewindBusy || attaching || busy && !run) throw new core.ServiceError('busy', 'Wait for the current question, attachment or mode update to finish.');
+                modeUpdatePending = true;
+                try {
+                  const folder = run ? permissionFolder() : await requireWorkspace();
+                  if (run) {
+                    await persistAgentFlags(folder, settings, check, () => { run.flags = { ...settings }; });
+                    result.appliesTo = 'current';
+                    result.ok = true;
+                  } else if (['full','extra'].includes(preset)) {
+                    result.ok = !!(folder && await fullAccess.enable(folder,{guard:check,extra:preset === 'extra'}));
+                    if (result.ok) await context.globalState.update(composerModeKey(auth),'agent');
+                  } else {
+                    const grant = fullAccess.status(folder);
+                    if ((grant.enabled || grant.blockedReason) && !await fullAccess.disable(folder)) throw new core.ServiceError('permission_storage','Full access could not be revoked durably.');
+                    await persistAgentFlags(folder, settings, check, () => context.globalState.update(composerModeKey(auth),preset === 'plan' ? 'plan' : 'agent'));
+                    result.ok = true;
+                  }
+                } finally { modeUpdatePending = false; }
+              });
             };
             try {
-              const auth = presetAuth = await requireAuth();
-              if (scope !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account changed. This mode was not applied.');
-              validScope = true;
-              await assertCurrent(auth);
-              if (modeUpdatePending || rewindBusy || busy || attaching) throw new core.ServiceError('busy', 'Wait for the current question, attachment or mode update to finish.');
-              modeUpdatePending = true;
-              ownsModeLock = true;
-              const folder = await requireWorkspace();
-              if (['full','extra'].includes(message.preset)) {
-                const enabled = folder && await fullAccess.enable(folder,{guard:() => assertCurrent(auth),extra:message.preset === 'extra'});
-                if (enabled) await context.globalState.update(composerModeKey(auth),'agent');
-                await postChatState();
-                await assertCurrent(auth);
-                await view.webview.postMessage({type:'presetResult',scopeKey:scope,requestId:message.requestId,preset:message.preset,ok:!!enabled});
-                return;
+              await trackPermissionUpdate(run, changePreset());
+            } finally {
+              if (result) {
+                try { await postChatState(result.appliesTo === 'current' && result.ok ? permissionSaved(true) : undefined); }
+                finally { await view.webview.postMessage(result); }
               }
-              if ((fullAccess.status(folder).enabled || fullAccess.status(folder).blockedReason) && !await fullAccess.disable(folder)) throw new core.ServiceError('permission_storage','Full access could not be revoked durably.');
-              const target = vscode.ConfigurationTarget.Global;
-              const keys = ['agentAutoApply', 'agentAutoRun'];
-              const inspect = () => {
-                const config = vscode.workspace.getConfiguration('tvijo');
-                return Object.fromEntries(keys.map(key => [key, config.inspect(key)?.globalValue]));
-              };
-              originals = inspect();
-              const orderedKeys = keys.slice().sort((a, b) => Number(settings[a]) - Number(settings[b]));
-              for (const key of orderedKeys) {
-                if (originals[key] === settings[key]) continue;
-                const beforeUpdate = inspect()[key];
-                try {
-                  await vscode.workspace.getConfiguration('tvijo').update(key, settings[key], target);
-                  written.set(key, settings[key]);
-                } catch (error) {
-                  if (beforeUpdate !== settings[key] && inspect()[key] === settings[key]) written.set(key, settings[key]);
-                  throw error;
-                }
-                await assertCurrent(auth);
-              }
-              await assertCurrent(auth);
-              const effective = vscode.workspace.getConfiguration('tvijo');
-              const actual = { agentAutoApply: !!effective.get('agentAutoApply', true), agentAutoRun: !!effective.get('agentAutoRun', true) };
-              const globalActual = inspect();
-              if (actual.agentAutoApply !== settings.agentAutoApply || actual.agentAutoRun !== settings.agentAutoRun ||
-                  globalActual.agentAutoApply !== settings.agentAutoApply || globalActual.agentAutoRun !== settings.agentAutoRun) {
-                throw new core.ServiceError('mode_update', 'The effective settings did not match this preset.');
-              }
-              await context.globalState.update(composerModeKey(auth),message.preset === 'plan' ? 'plan' : 'agent');
-              await postChatState();
-              await assertCurrent(auth);
-              await view.webview.postMessage({ type: 'presetResult', scopeKey: scope, requestId: message.requestId, preset: message.preset, ok: true });
-            } catch (error) {
-              if (originals) {
-                for (const key of ['agentAutoRun', 'agentAutoApply']) {
-                  if (!written.has(key)) continue;
-                  try {
-                    const current = vscode.workspace.getConfiguration('tvijo').inspect(key)?.globalValue;
-                    if (current === written.get(key)) {
-                      await vscode.workspace.getConfiguration('tvijo').update(key, originals[key], vscode.ConfigurationTarget.Global);
-                      if (presetAuth) await assertCurrent(presetAuth);
-                    }
-                  } catch { /* Keep the effective setting and report the observed state below. */ }
-                }
-              }
-              if (validScope) {
-                try { await postChatState(); } catch { /* The scoped failure result still releases the webview lock. */ }
-                await view.webview.postMessage({ type: 'presetResult', scopeKey: scope, requestId: message.requestId, preset: message.preset, ok: false });
-              }
-              throw error;
-            } finally { if (ownsModeLock) modeUpdatePending = false; }
+            }
           } else if (message?.type === 'ready') {
             await refreshStatus({reconcile:true});
             if (pendingRewind && pendingRewind.workspaceKey === rewindWorkspace().key) await view.webview.postMessage(pendingRewind);
@@ -2999,7 +3227,10 @@ function activate(context) {
           } else if (message?.type === 'previewAttachment') {
             const auth = await requireAuth();
             const item = attachments.find((item) => item.id === message.id);
-            if (item) await showPrivateDocument('plaintext', item.name + '\n\n' + item.text, auth);
+            if (item) {
+              const preview = item.sketch?.trim() ? files.questionWithAttachments('', [item]).trimStart() : item.name + '\n\n' + item.text;
+              await showPrivateDocument('plaintext', preview, auth);
+            }
           } else if (message?.type === 'copy' || message?.type === 'openAnswer') {
             const auth = await requireAuth();
             const history = historyFor(auth.scope);
@@ -3013,9 +3244,9 @@ function activate(context) {
             const auth = await readAuth();
             const live = auth?.access_token && auth.api_base === client().base && !(auth.expires_at && Date.now() >= Date.parse(auth.expires_at));
             await vscode.commands.executeCommand(live && authState !== 'error' ? 'tvijo.account' : 'tvijo.signIn');
-          } else if (['new', 'cancel', 'commands', 'workspace', 'selection', 'path', 'help', 'bot', 'workflow', 'credit', 'terminal', 'settings', 'clearAttachments', 'usage', 'connections', 'productGuide', 'tasks', 'history', 'contextSelect', 'contextPreview', 'quickEdit'].includes(message?.type)) {
+          } else if (['retryStep', 'new', 'cancel', 'commands', 'workspace', 'selection', 'path', 'help', 'bot', 'workflow', 'credit', 'terminal', 'settings', 'clearAttachments', 'usage', 'connections', 'productGuide', 'tasks', 'history', 'contextSelect', 'contextPreview', 'quickEdit'].includes(message?.type)) {
             if (message.type === 'cancel' && agentRunning) { agentAbort?.abort(); return; }
-            const id = { new: 'tvijo.newConversation', cancel: 'tvijo.cancelPending', commands: 'tvijo.commands', workspace: 'tvijo.attachFile', selection: 'tvijo.attachSelection', path: 'tvijo.attachPath', help: 'tvijo.help', bot: 'tvijo.botGuide', workflow: 'tvijo.chooseWorkflow', credit: 'tvijo.buyCredit', terminal: 'tvijo.terminal', learn: 'tvijo.learn', feedback: 'tvijo.feedback', settings: 'tvijo.settings', clearAttachments: 'tvijo.clearAttachments', usage: 'tvijo.usage', connections: 'tvijo.connections', productGuide: 'tvijo.productGuide', tasks: 'tvijo.tasks', history: 'tvijo.chooseThread', contextSelect: 'tvijo.contextSelect', contextPreview: 'tvijo.contextPreview', quickEdit: 'tvijo.quickEdit' }[message.type];
+            const id = { retryStep: 'tvijo.retryStep', new: 'tvijo.newConversation', cancel: 'tvijo.cancelPending', commands: 'tvijo.commands', workspace: 'tvijo.attachFile', selection: 'tvijo.attachSelection', path: 'tvijo.attachPath', help: 'tvijo.help', bot: 'tvijo.botGuide', workflow: 'tvijo.chooseWorkflow', credit: 'tvijo.buyCredit', terminal: 'tvijo.terminal', learn: 'tvijo.learn', feedback: 'tvijo.feedback', settings: 'tvijo.settings', clearAttachments: 'tvijo.clearAttachments', usage: 'tvijo.usage', connections: 'tvijo.connections', productGuide: 'tvijo.productGuide', tasks: 'tvijo.tasks', history: 'tvijo.chooseThread', contextSelect: 'tvijo.contextSelect', contextPreview: 'tvijo.contextPreview', quickEdit: 'tvijo.quickEdit' }[message.type];
             await handlers.get(id)(); await refreshStatus();
           } else if (message?.type === 'botSetup') {
             await handlers.get('tvijo.configureBot')(); await postChatState();
@@ -3154,7 +3385,9 @@ function activate(context) {
   const storage = context.globalStorageUri?.fsPath;
   const bridgeDelivery = createBridgeDelivery({
     inbox: () => bridgeInbox, view: () => chatView, enabled: bridgeEnabled,
-    runtimeVersion: () => context.extension?.packageJSON?.version || require('./package.json').version,
+    runtimeVersion: () => runtimeVersion,
+    packageObsolete,
+    buildCommit,
     health: signal => client().request('/health', {signal, timeoutMs:3000}),
     focus: () => vscode.commands.executeCommand('tvijo.chat.focus')
   });

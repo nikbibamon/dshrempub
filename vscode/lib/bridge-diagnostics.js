@@ -2,7 +2,7 @@
 
 // Diagnostics never enter the chat/task pipeline. Durable inbox statuses still
 // own replay and reload recovery; a failed status write cannot start any work.
-function createBridgeDelivery({ inbox, view, enabled, runtimeVersion, health, focus, timeoutMs = 3000 }) {
+function createBridgeDelivery({ inbox, view, enabled, runtimeVersion, health, focus, buildCommit = ()=>'unknown', packageObsolete, timeoutMs = 3000 }) {
   const completions = new Map();
   const controllers = new Set();
   let focusFlight = null;
@@ -21,7 +21,7 @@ function createBridgeDelivery({ inbox, view, enabled, runtimeVersion, health, fo
     controllers.add(controller);
     let timer;
     let timedOut = false;
-    let healthState;
+    let healthState,gatewayVersion='unknown';
     try {
       const response = await Promise.race([
         Promise.resolve().then(() => health(controller.signal)),
@@ -32,6 +32,7 @@ function createBridgeDelivery({ inbox, view, enabled, runtimeVersion, health, fo
       healthState = response?.status === 'ok' && response?.service === 'dshrem'
         ? { status: 'ok' }
         : { status: 'unavailable', reason: 'invalid_response' };
+      if(healthState.status==='ok'&&typeof response.version==='string'&&/^\d+\.\d+\.\d+$/.test(response.version))gatewayVersion=response.version;
     } catch {
       // Never serialize provider responses, URLs, tokens or exception messages.
       healthState = { status: 'unavailable', reason: timedOut ? 'timeout' : 'unavailable' };
@@ -39,13 +40,16 @@ function createBridgeDelivery({ inbox, view, enabled, runtimeVersion, health, fo
       clearTimeout(timer);
       controllers.delete(controller);
     }
+    const obsolete = packageObsolete ? await Promise.resolve().then(packageObsolete).catch(() => null) : null;
     if (disposed) return;
     const version = runtimeVersion();
     const answer = JSON.stringify({
       runtimeVersion: typeof version === 'string' && version.length <= 64 && /^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version) ? version : 'unknown',
       bridgeEnabled: enabled() === true,
       viewResolved: !!view(),
+      runningPackageMarkedObsolete: typeof obsolete === 'boolean' ? obsolete : null,
       health: healthState
+      ,gatewayVersion,buildCommit:/^[a-f0-9]{40}$/.test(buildCommit())?buildCommit():'unknown'
     });
     completions.set(id, { answer, outcome: 'diagnostic' });
     flush();

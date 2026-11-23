@@ -11,7 +11,10 @@ test('root Extra is visibly unavailable while Full and explicit account-review t
  const view=sidebar({}, {signedIn:true,scopeKey:'tenant-a',workspaceSelected:true,composerMode:'agent',fullAccess:{available:true,enabled:true,extra:false,extraAvailable:false,extraUnavailableReason:'Extra unavailable on privileged root; choose Full or non-root.',reviews:false,scopeKey:'full-scope'},options:{agentPreset:'full'}});
  view.emit('mode:click',{});
  const extra=view.created.filter(n=>n.getAttribute?.('data-mode')==='extra').at(-1);const full=view.created.filter(n=>n.getAttribute?.('data-mode')==='full').at(-1);
- assert.equal(extra.disabled,true);assert.equal(full.disabled,false);
+ assert.equal(extra.getAttribute('aria-disabled'),'true');assert.equal(full.getAttribute('aria-disabled'),'false');
+ const before = view.outgoing.length; extra.click();
+ assert.equal(view.outgoing.length,before,'an unavailable but focusable mode cannot request a grant');
+ assert.match(extra.getAttribute('data-help'),/non-root.*Remote SSH|Remote SSH.*ordinary server account/);
  const review=view.created.filter(n=>n.getAttribute?.('data-mode')==='account-reviews').at(-1);assert.ok(review);review.click();
  assert.deepEqual({...view.outgoing.at(-1)},{type:'accountReviews',fullAccessScope:'full-scope',enabled:true,scopeKey:'tenant-a'});
 });
@@ -331,7 +334,7 @@ test('mode menu supports keyboard navigation and Shift+Tab remains ordinary focu
   const menu=view.element('mode-menu'), before=view.document.activeElement;
   assert.equal(before.attributes['data-mode'],'chat');
   view.emit('mode-menu:keydown',{key:'End',preventDefault(){}});
-  assert.equal(view.document.activeElement.attributes['data-mode'],'auto');
+  assert.equal(view.document.activeElement.attributes['data-mode'],'access-info');
   view.emit('mode-menu:keydown',{key:'Home',preventDefault(){}});
   assert.equal(view.document.activeElement.attributes['data-mode'],'chat');
   view.emit('mode-menu:keydown',{key:'Escape',preventDefault(){}});
@@ -360,7 +363,9 @@ test('0.10.8 Full access is host-gated with revoke in its menu and no path banne
   view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',signedIn:true,options}});
   view.element('mode').click();
   let full=view.element('mode-menu').children.find(item=>item.attributes['data-mode']==='full');
-  assert.equal(full.disabled,true);
+  assert.equal(full.getAttribute('aria-disabled'),'true');
+  const before = view.outgoing.length; full.click();
+  assert.equal(view.outgoing.length,before,'a missing project grant cannot be selected');
   view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',signedIn:true,options,fullAccess:{available:true,enabled:false,folder:'/work',scopeKey:'a'.repeat(64),active:[]}}});
   view.element('mode').click();
   full=view.element('mode-menu').children.find(item=>item.attributes['data-mode']==='full');
@@ -580,6 +585,60 @@ test('expired cached drafts cannot outlive the seven-day disk recovery window',(
   assert.equal(view.outgoing.at(-1).composerScope,'workspace-a');
 });
 
+
+test('settings sections retain navigation and return to the conversation with the draft intact', () => {
+  const view = sidebar();
+  view.element('question').value = 'Keep this project question';
+  view.emit('settings:click',{});
+  for (const tab of ['context','usage','terminal']) {
+    view.emit('tab-' + tab + ':click',{});
+    assert.equal(view.element('settings-drawer').hidden,false);
+    assert.equal(view.element('drawer-back').hidden,false);
+    assert.equal(view.element('settings-home').hidden,true);
+    assert.equal(view.element('tab-' + tab).getAttribute('aria-selected'),'true');
+    assert.equal(view.element('context-summary').hidden,tab !== 'context');
+    view.emit('drawer-back:click',{});
+    assert.equal(view.element('settings-drawer').hidden,false);
+    assert.equal(view.element('settings-home').hidden,false);
+    assert.equal(view.element('drawer-back').hidden,true);
+  }
+  view.emit('tab-context:click',{});
+  view.emit('settings-tabs:keydown',{key:'ArrowRight',target:{id:'tab-context'},preventDefault(){}});
+  assert.equal(view.element('tab-usage').getAttribute('aria-selected'),'true');
+  view.emit('drawer-close:click',{});
+  assert.equal(view.element('settings-drawer').hidden,true);
+  assert.equal(view.element('messages').hidden,false);
+  assert.equal(view.document.activeElement,view.element('settings'));
+  assert.equal(view.element('question').value,'Keep this project question');
+});
+
+test('a delayed usage response updates data without reopening a closed panel', () => {
+  const view = sidebar();
+  view.emit('tab-usage:click',{});
+  view.emit('window:message',{data:{type:'openUsage',scopeKey:'tenant-a'}});
+  view.emit('drawer-close:click',{});
+  view.emit('window:message',{data:{type:'usage',scopeKey:'tenant-a',usage:{tasks:[],account:{},scope:{}}}});
+  assert.equal(view.element('settings-drawer').hidden,true);
+  assert.equal(view.element('messages').hidden,false);
+  view.emit('window:message',{data:{type:'openUsage',scopeKey:'tenant-b'}});
+  assert.equal(view.element('settings-drawer').hidden,true,'another account cannot open this panel');
+});
+
+test('mode help explains project approvals, service credits and account reviews in both languages', () => {
+  const view = sidebar({}, {fullAccess:{available:true,enabled:true,extra:false,reviews:false},options:{agentPreset:'full'}});
+  const menu=view.element('mode-menu');
+  for (const mode of ['chat','manual','edit','plan','auto','full','extra','account-reviews']) {
+    const node=menu.children.find(item=>item.getAttribute('data-mode')===mode);
+    assert.ok(node.getAttribute('data-help').length > 100,mode);
+  }
+  const review=menu.children.find(item=>item.getAttribute('data-mode')==='account-reviews');
+  assert.match(review.getAttribute('data-help'),/180 seconds.*service model and credits/);
+  assert.match(view.element('workflow').getAttribute('data-help'),/GPT-6.1 Sol.*Tvijo API credits/);
+  view.emit('lang:click',{});
+  assert.match(view.element('drawer-close').getAttribute('aria-label'),/диалогу/);
+  assert.match(view.element('settings').getAttribute('data-help'),/Черновик|черновика/);
+  assert.match(menu.children.find(item=>item.getAttribute('data-mode')==='extra').getAttribute('data-help'),/пользователя сервера.*dsh.tvijo.com\/billing/);
+});
 
 test('compact settings preserve host controls and persist engineering preference without losing draft', () => {
   const view = sidebar();

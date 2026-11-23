@@ -59,7 +59,7 @@ function host(options = {}) {
   function fireDiagnostics(uris) { for (const listener of diagnosticsChangeListeners) listener({ uris }); }
   const root = options.root || path.resolve(__dirname, '../..');
   const storage = options.storage || require('node:fs').mkdtempSync(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'rewind-host-'));
-  const settings = new Map(options.defaultAuto ? [] : [['agentAutoApply',false],['agentAutoRun',false]]);
+  const settings = options.settings || new Map(options.defaultAuto ? [] : [['agentAutoApply',false],['agentAutoRun',false]]);
   const status = { show() {} };
   class Uri { constructor(fsPath) { this.fsPath = fsPath; this.scheme = 'file'; } static file(value) { return new Uri(value); } static parse(value) { return new Uri(value); } static joinPath(base, ...parts) { return new Uri(path.join(base.fsPath, ...parts)); } }
   class Position { constructor(line, character) { this.line = line; this.character = character; } }
@@ -72,6 +72,7 @@ function host(options = {}) {
     deleteFile(uri) { this.operations.push({kind:'delete',uri}); }
   }
   const context = {
+    extensionPath: options.extensionPath,
     subscriptions: [], globalStorageUri: Uri.file(storage), globalState: options.globalState || memory(), workspaceState: options.workspaceState || memory(),
     secrets: options.secrets || memory({ 'tvijo.auth': JSON.stringify({ access_token: 'test-token', api_base: base }) })
   };
@@ -190,6 +191,41 @@ function host(options = {}) {
 
 // Deliberately meaningless catalogue: no product pack content belongs in tests.
 const syntheticPacks = { schema: 'tvijo.skill_packs/v1', packs: [{ id: 'engineer', title: { en: 'TEST PACK', ru: 'ТЕСТ ПАКЕТ' }, summary: { en: 'Synthetic summary', ru: 'Тестовое описание' }, model: 'synthetic-model', markers: [], instructions: 'SYNTHETIC_PACK_SENTINEL', checklist: { en: [], ru: [] } }] };
+
+test('Remote SSH shows the running package offline and offers a reload only for its own retired directory', async () => {
+  const root = await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(), 'tvijo-remote-status-'));
+  const version = require('../package.json').version;
+  const directory = 'tvijo.tvijo-dshrem-' + version;
+  const marker = path.join(root, '.obsolete');
+  await fs.mkdir(path.join(root, directory));
+  let accept = false;
+  const app = host({ extensionPath: path.join(root, directory),
+    onInfo: (_message, action) => accept ? action : undefined });
+  app.vscode.env.remoteName = 'ssh-remote';
+  const check = async () => {
+    await app.commands.get('tvijo.status')();
+    return JSON.parse(app.docs.at(-1).content);
+  };
+  try {
+    assert.equal((await check()).running_package_marked_obsolete, false);
+    await fs.writeFile(marker, JSON.stringify({ 'tvijo.tvijo-dshrem-0.0.1': true }));
+    assert.equal((await check()).running_package_marked_obsolete, false);
+    await fs.writeFile(marker, '{broken');
+    assert.equal((await check()).running_package_marked_obsolete, null);
+    await fs.writeFile(marker, JSON.stringify({ [directory]: true }));
+    const report = await check(); // This fixture deliberately has no gateway health route.
+    assert.equal(report.running_package_marked_obsolete, true);
+    assert.equal(report.remote_connection, 'ssh-remote');
+    assert.equal(report.runtime_version, version);
+    assert.equal(report.extension_host_platform, process.platform);
+    assert.equal(report.health.status, 'unavailable');
+    assert.ok(app.infos.some(args => args.includes('Reload this window')));
+    assert.ok(!app.executed.some(cmd => cmd.id === 'workbench.action.reloadWindow'));
+    accept = true;
+    await check();
+    assert.equal(app.executed.filter(cmd => cmd.id === 'workbench.action.reloadWindow').length, 1);
+  } finally { app.close(); }
+});
 
 test('Markdown host actions validate URLs, code bounds and exact account scope', async () => {
   const app = host();
@@ -1999,7 +2035,8 @@ test('each agent result is durable before the next dispatch and recovery data ne
   app=host({root,chatSequence:['{"tool":"read_file","path":"evidence.txt"}','{"tool":"finish","answer":"done"}'],onRequest:req=>{
     if (!req.url.endsWith('/chat')) return;
     const run=journalFor(app).list(recoveryKeyFor(app)).runs[0];
-    assert.equal(run.events.at(-1).type,'step');
+    assert.ok(run.events.some(e=>e.type==='step'));
+    assert.equal(run.events.at(-1).type,'step_attempt_started');
     if (++chats===2) {
       assert.equal(run.events.filter(e=>e.type==='result').length,1);
       assert.equal(run.events.find(e=>e.type==='result').result.content,'synthetic tool evidence');
@@ -2735,7 +2772,7 @@ async function savedAgentFixture(options={}) {
  }
  const changed=options.content??'agent changed';
  const actions=options.actions??[{tool:'write_file',path:relative,content:changed},{tool:'read_file',path:relative},{tool:'run_command',command:'cat '+relative},{tool:'finish',answer:'Disk verified'}];
- app=host({root,defaultAuto:options.defaultAuto,account:options.account,grantModel:options.grantModel,checkpointFailure:options.checkpointFailure,chatSequence:actions.map(JSON.stringify),onRequest:options.onRequest,
+ app=host({root,defaultAuto:options.defaultAuto,account:options.account,grantModel:options.grantModel,checkpointFailure:options.checkpointFailure,chatSequence:actions.map(JSON.stringify),onRequest:options.onRequest,configurationUpdate:options.configurationUpdate,
   onWarning:async(_message,_opts,button)=>{if(options.auto && !options.denyApproval)app.warning(button);},
   documentFor,syntaxHost:{newRun:()=>({}),check:async()=>null,dispose(){},invalidate(){},cancelActive(){}},
   applyEdit:async edit=>{
@@ -3038,6 +3075,50 @@ test('0.10.16 scan truncation does not pause Full access; the settings note stil
  }finally{x.close();}
 });
 
+test('command confirmation can save Full access and resume this truncated Auto run', async () => {
+  const root = await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(), 'full-in-run-'));
+  await Promise.all(Array.from({length:1030}, (_, i) => fs.mkdir(path.join(root, 'scan-' + i))));
+  const actions = [
+    {tool:'run_command', command:'printf first'},
+    {tool:'run_command', command:'printf second && printf chained'},
+    {tool:'run_command', command:'git push origin HEAD'},
+    {tool:'run_command', command:'git clean -ffdx'},
+    {tool:'finish', status:'done', answer:'Finished'}
+  ];
+  let app;
+  app = host({
+    root, defaultAuto:true, chatSequence:actions.map(JSON.stringify),
+    onWarning:async (message, _opts, run, upgrade) => {
+      if (message.includes('printf first')) {
+        assert.equal(upgrade, 'Full access for this folder…');
+        app.warning(upgrade);
+      } else if (message.startsWith('Enable Full access')) app.warning(run);
+      else {
+        assert.match(message, /git push origin HEAD/);
+        assert.equal(upgrade, undefined);
+        app.warning('Cancel');
+      }
+    }
+  });
+  try {
+    app.settings.set('workspaceContext','off');
+    app.settings.set('agentMaxSteps',actions.length);
+    await app.receive({type:'ready'});
+    await app.receive({type:'ask',question:'Perform the checks',agent:true});
+    const results = app.posts.filter(row => row.type === 'agent' && row.event?.type === 'result').map(row => row.event.result);
+    assert.equal(results[0].stdout, 'first');
+    assert.equal(results[1].stdout, 'secondchained');
+    assert.equal(results[2].refused, true);
+    assert.equal(results[3].ok, false);
+    assert.equal(app.warnings.length, 3);
+    const next = host({root,storage:app.storage,globalState:app.context.globalState,secrets:app.context.secrets});
+    try {
+      await next.receive({type:'ready'});
+      assert.equal(next.posts.filter(row => row.type === 'state').at(-1).fullAccess.enabled, true);
+    } finally { next.close(); }
+  } finally { app.close(); }
+});
+
 async function nativeCommitHost(hook='pre-commit',script){
  const {execFileSync}=require('node:child_process'),{createHash}=require('node:crypto');
  const base=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(),'orchestration-commit-cancel-'));
@@ -3130,6 +3211,273 @@ test('settings panel saves validated values on host and reports failures without
   await panel.receive({type:'guideAction',id:'configExample'});assert.ok(app.docs.some(d=>d.language==='jsonc'&&d.content.includes('tvijo.agentBudgetUsd')));
   assert.equal(app.requests.filter(r=>r.url.endsWith('/tasks')&&r.method==='POST').length,0);
  }finally{app.close();}
+});
+
+function permissionState(app) {
+  return app.posts.findLast(row => row.type === 'state');
+}
+
+async function permissionProject() {
+  const root = await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || require('node:os').tmpdir(), 'live-auto-'));
+  await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({scripts:{test:`node -e "console.log('live-auto-fixture')"`}}));
+  return root;
+}
+
+async function pausePermissionRun(app, plan = false) {
+  app.settings.set('workspaceContext','off');
+  await app.receive({type:'ready'});
+  app.blockResponse('/tasks/task-test/chat','POST');
+  const running = app.receive({type:'ask',question:'Verify the project',agent:true,plan});
+  for (let i=0; i<200 && !app.responseWaiting(); i++) await new Promise(resolve => setTimeout(resolve,5));
+  assert.equal(app.responseWaiting(),true);
+  return {running};
+}
+
+function sendActivePreset(app, preset, requestId = preset) {
+  const {scopeKey, activePermissions} = permissionState(app);
+  return app.receive({type:'agentPreset',scopeKey,runId:activePermissions.id,preset,requestId});
+}
+
+const verificationCommand = {tool:'run_command',command:'npm test'};
+const verifiedAnswer = {tool:'finish',status:'done',answer:'Finished'};
+const permissionGrants = app => app.requests.filter(row => row.url.endsWith('/tasks') && row.method === 'POST').length;
+const permissionResults = app => app.posts.filter(row => row.type === 'agent' && row.event?.type === 'result').map(row => row.event.result);
+
+test('live Auto mode renders and runs the next allowlisted command without a fresh grant', async () => {
+  const root = await permissionProject();
+  const app = host({root,chatSequence:[verificationCommand,verifiedAnswer].map(JSON.stringify)});
+  let running;
+  try {
+    ({running} = await pausePermissionRun(app));
+    const {sidebar} = require('./helpers/sidebar');
+    const view = sidebar({},permissionState(app));
+    const modeItem = id => view.element('mode-menu').children.find(row => row.attributes['data-mode'] === id);
+    assert.equal(view.element('mode').textContent,'Manual');
+    assert.equal(view.element('mode').disabled,false);
+    view.element('mode').click();
+    assert.equal(modeItem('auto').disabled,false);
+    assert.equal(modeItem('full').disabled,true);
+    assert.equal(modeItem('plan').disabled,true);
+    const postsBefore = app.posts.length;
+    modeItem('auto').click();
+    await app.receive(view.outgoing.findLast(row => row.type === 'agentPreset'));
+    for (const data of app.posts.slice(postsBefore)) view.emit('window:message',{data});
+    assert.equal(view.element('mode').textContent,'Auto');
+    assert.equal(permissionState(app).fullAccess.enabled,false);
+    assert.equal(permissionState(app).status,'Permissions updated for this run.');
+    assert.equal(permissionGrants(app),1);
+    app.releaseResponse();
+    await running;
+    assert.equal(permissionResults(app)[0].exitCode,0);
+    assert.match(permissionResults(app)[0].stdout,/live-auto-fixture/);
+    assert.equal(app.warnings.length,0);
+    assert.equal(permissionGrants(app),2);
+    const reopened = host({root,settings:app.settings,storage:app.storage,globalState:app.context.globalState,secrets:app.context.secrets});
+    try {
+      await reopened.receive({type:'ready'});
+      assert.equal(permissionState(reopened).options.agentPreset,'auto');
+      assert.equal(permissionState(reopened).activePermissions,null);
+    } finally { reopened.close(); }
+  } finally { app.releaseResponse(); await running; app.close(); }
+});
+
+test('live Auto checkboxes apply and save an eligible edit in the same run', async () => {
+  const x = await savedAgentFixture({auto:true,denyApproval:true,actions:[
+    {tool:'replace_in_file',path:'code.txt',old:'original',new:'new content'}, verifiedAnswer
+  ]});
+  const {app} = x;
+  let running;
+  try {
+    app.settings.set('agentAutoApply',false);
+    app.settings.set('agentAutoRun',false);
+    ({running} = await pausePermissionRun(app));
+    await app.commands.get('tvijo.settings')();
+    for (const key of ['agentAutoApply','agentAutoRun']) {
+      await app.panels[0].receive({type:'saveSetting',key:'tvijo.'+key,value:true,requestId:1});
+      const response = app.posts.findLast(row => row.type === 'settingsSaved' && row.key === 'tvijo.'+key);
+      assert.equal(response.value,true);
+      assert.equal(response.error,undefined);
+    }
+    assert.equal(permissionState(app).status,'Permissions updated for this run.');
+    assert.equal(permissionGrants(app),1);
+    app.releaseResponse();
+    await running;
+    assert.equal(x.results()[0].saved,true);
+    assert.equal(await fs.readFile(x.file,'utf8'),'new content');
+    assert.equal(app.warnings.length,0);
+  } finally { app.releaseResponse(); await running; x.close(); }
+});
+
+test('live Auto can be turned off before the next command', async () => {
+  const root = await permissionProject();
+  const app = host({root,chatSequence:[verificationCommand,verifiedAnswer].map(JSON.stringify)});
+  let running;
+  try {
+    ({running} = await pausePermissionRun(app));
+    await sendActivePreset(app,'auto');
+    await app.commands.get('tvijo.settings')();
+    await app.panels[0].receive({type:'saveSetting',key:'tvijo.agentAutoRun',value:false,requestId:1});
+    assert.equal(permissionState(app).activePermissions.preset,'edit');
+    app.warning('Cancel');
+    app.releaseResponse();
+    await running;
+    assert.equal(permissionResults(app)[0].refused,true);
+    assert.equal(app.warnings.length,1);
+    assert.equal(permissionState(app).options.agentPreset,'edit');
+  } finally { app.releaseResponse(); await running; app.close(); }
+});
+
+for (const {tool, enable, method} of [
+  {tool:'command', enable:false, method:'checkbox'},
+  {tool:'command', enable:true, method:'preset'},
+  {tool:'edit', enable:false, method:'preset'},
+  {tool:'edit', enable:true, method:'checkbox'}
+]) {
+  test(`live Auto waits before ${tool === 'edit' ? 'an edit' : 'a command'} while ${method} ${enable ? 'enablement' : 'revocation'} is pending`, async () => {
+    let began, finish;
+    const started = new Promise(resolve => { began = resolve; });
+    const deferred = new Promise(resolve => { finish = resolve; });
+    const configurationUpdate = async (key,value,settings) => {
+      settings.set(key,value);
+      if (key === 'agentAutoRun' && value === enable) { began(); await deferred; }
+    };
+    const edit = tool === 'edit' ? await savedAgentFixture({auto:true,denyApproval:true,configurationUpdate,actions:[
+      {tool:'replace_in_file',path:'code.txt',old:'original',new:'new content'},verifiedAnswer
+    ]}) : null;
+    const app = edit?.app || host({root:await permissionProject(),configurationUpdate,
+      chatSequence:[verificationCommand,verifiedAnswer].map(JSON.stringify)});
+    let running, updating;
+    try {
+      app.settings.set('agentAutoApply',!!edit || !enable);
+      app.settings.set('agentAutoRun',!enable);
+      ({running} = await pausePermissionRun(app));
+      if (method === 'checkbox') await app.commands.get('tvijo.settings')();
+      const action = () => app.posts.some(row => row.type === 'agent' && row.event?.type === 'action');
+      updating = method === 'checkbox'
+        ? app.panels[0].receive({type:'saveSetting',key:'tvijo.agentAutoRun',value:enable,requestId:1})
+        : sendActivePreset(app,enable ? 'auto' : 'manual');
+      await started;
+      app.warning('Cancel');
+      app.releaseResponse();
+      for (let i=0; i<100 && !action(); i++) await new Promise(resolve => setTimeout(resolve,5));
+      assert.ok(action(),'the released model response delivered an action');
+      await new Promise(resolve => setTimeout(resolve,500));
+      assert.equal(permissionResults(app).length,0,'the action waits for the unresolved permission save');
+      assert.equal(app.warnings.length,0,'the action must not make a decision using the old mode');
+      if (edit) assert.equal(await fs.readFile(edit.file,'utf8'),'original');
+      assert.equal(permissionGrants(app),1);
+      finish();
+      await updating;
+      await running;
+      const [result] = permissionResults(app);
+      assert.equal(result.ok,enable);
+      assert.equal(app.warnings.length,enable ? 0 : 1);
+      if (edit) assert.equal(await fs.readFile(edit.file,'utf8'),enable ? 'new content' : 'original');
+      else if (enable) assert.match(result.stdout,/live-auto-fixture/);
+    } finally {
+      finish(); app.releaseResponse();
+      await Promise.allSettled([running,updating]);
+      app.close();
+    }
+  });
+}
+
+for (const failure of ['partial save','effective override','account change','workspace change','cancel']) {
+  test('live Auto preserves effective permissions on '+failure, async () => {
+    const root = await permissionProject();
+    let began, finish;
+    const started = new Promise(resolve => { began = resolve; });
+    const deferred = new Promise(resolve => { finish = resolve; });
+    const app = host({root,chatSequence:[verificationCommand,verifiedAnswer].map(JSON.stringify),
+      configurationUpdate:async (key,value,settings) => {
+        settings.set(key,value);
+        if (key !== 'agentAutoRun' || value !== true) return;
+        if (failure === 'partial save') throw Error('Synthetic persistence failure');
+        if (['account change','workspace change','cancel'].includes(failure)) { began(); await deferred; }
+      }});
+    if (failure === 'effective override') {
+      const read = app.vscode.workspace.getConfiguration;
+      app.vscode.workspace.getConfiguration = (...args) => {
+        const config = read(...args);
+        return {...config,get:(key,fallback) => key === 'agentAutoRun' ? false : config.get(key,fallback)};
+      };
+    }
+    let running;
+    try {
+      ({running} = await pausePermissionRun(app));
+      const update = sendActivePreset(app,'auto');
+      if (['account change','workspace change','cancel'].includes(failure)) {
+        await started;
+        if (failure === 'cancel') {
+          app.releaseResponse();
+          for (let i=0; i<100 && !app.posts.some(row => row.type === 'agent' && row.event?.type === 'action'); i++) {
+            await new Promise(resolve => setTimeout(resolve,5));
+          }
+          assert.ok(app.posts.some(row => row.type === 'agent' && row.event?.type === 'action'));
+          await app.receive({type:'cancel'});
+          let deadline;
+          try {
+            const stopped = await Promise.race([running.then(() => true), new Promise(resolve => { deadline = setTimeout(() => resolve(false), 1500); })]);
+            assert.equal(stopped,true,'cancelling the task releases its tool without waiting for VS Code to finish saving');
+          } finally { clearTimeout(deadline); }
+        }
+        if (failure === 'workspace change') app.workspaceChanged();
+        if (failure === 'account change') await app.context.secrets.store('tvijo.auth',JSON.stringify({access_token:'account-b',api_base:app.base}));
+        finish();
+      }
+      await update;
+      assert.equal(app.posts.findLast(row => row.type === 'presetResult').ok,false);
+      assert.equal(app.settings.get('agentAutoRun'),false);
+      assert.equal(app.settings.get('agentAutoApply'),false);
+      assert.equal(permissionGrants(app),1);
+      app.warning('Cancel');
+      app.releaseResponse();
+      await running;
+      assert.ok(permissionResults(app).every(result => result.exitCode === undefined));
+      if (['partial save','effective override'].includes(failure)) assert.equal(permissionResults(app)[0].refused,true);
+    } finally { finish(); app.releaseResponse(); await running; app.close(); }
+  });
+}
+
+test('live Auto keeps an incomplete rules scan, literal parser and hard denials in force', async () => {
+  const root = await permissionProject();
+  await Promise.all(Array.from({length:1030}, (_, i) => fs.mkdir(path.join(root,'scan-'+i))));
+  const actions = [verificationCommand,{tool:'run_command',command:'printf a && printf b'},
+    {tool:'run_command',command:'sudo true'},verifiedAnswer];
+  const app = host({root,chatSequence:actions.map(JSON.stringify)});
+  let running;
+  try {
+    ({running} = await pausePermissionRun(app));
+    await sendActivePreset(app,'auto');
+    assert.match(permissionState(app).activePermissions.rulesNote,/1,024 directories or 20,000 entries/);
+    app.warning('Cancel');
+    app.releaseResponse();
+    await running;
+    const [scan, shell, hard] = permissionResults(app);
+    assert.equal(scan.refused,true);
+    assert.match(shell.error,/shell operators/i);
+    assert.equal(hard.ok,false);
+    assert.equal(app.warnings.length,1);
+    assert.match(app.warnings[0][1].detail,/rules scan is incomplete/);
+    assert.equal(permissionState(app).fullAccess.enabled,false);
+  } finally { app.releaseResponse(); await running; app.close(); }
+});
+
+test('Plan checkbox saves apply to the next Agent run and keep the current Plan read-only', async () => {
+  const root = await permissionProject();
+  const app = host({root,chatSequence:[verificationCommand,verifiedAnswer].map(JSON.stringify)});
+  let running;
+  try {
+    ({running} = await pausePermissionRun(app,true));
+    assert.equal(permissionState(app).activePermissions,null);
+    await app.commands.get('tvijo.settings')();
+    await app.panels[0].receive({type:'saveSetting',key:'tvijo.agentAutoRun',value:true,requestId:1});
+    assert.equal(permissionState(app).status,'Permissions saved for the next Agent run.');
+    app.releaseResponse();
+    await running;
+    assert.equal(permissionResults(app)[0].ok,false);
+    assert.equal(app.warnings.length,0);
+  } finally { app.releaseResponse(); await running; app.close(); }
 });
 
 test('host budget warning adds only the chosen increment to this run and preserves cost receipts',async()=>{
@@ -3428,5 +3776,64 @@ test('root Extra remains disabled after upgrade and refuses before any paid gran
   await app.receive({type:'ready'});state=app.posts.filter(p=>p.type==='state').at(-1);assert.equal(state.fullAccess.enabled,false);assert.equal(state.fullAccess.extraAvailable,false);
   await app.receive({type:'ask',question:'Try old root Extra',agent:true});assert.equal(app.requests.filter(r=>r.method==='POST'&&r.url.endsWith('/tasks')).length,0);assert.match(app.feedback.at(-1),/privileged root/);assert.equal(app.context.globalState.get(key).level,'extra');
   await enableFullAccess(app);await app.receive({type:'ask',question:'Use supported Full',agent:true});assert.ok(app.requests.some(r=>r.url.endsWith('/chat')));
+ }finally{app.close();}
+});
+
+
+test('chat retryStep reaches the host command and refuses a missing failed-step scope without a paid task',async()=>{
+ const app=host();
+ try{
+  await app.receive({type:'ready'});const scopeKey=app.posts.filter(x=>x.type==='state').at(-1).scopeKey;
+  const before=app.feedback.length;await app.receive({type:'retryStep',scopeKey});
+  assert.ok(app.feedback.length>before,'host must report the missing retry scope');
+  assert.ok(!app.requests.some(x=>x.method==='POST'&&x.url.endsWith('/tasks')));
+ }finally{app.close();}
+});
+
+test('attachment refusals explain the real reason instead of blaming the selected file', async () => {
+  const root = path.join(process.env.TVIJO_TEST_ARTIFACTS, 'attachment-reason-workspace');
+  await fs.mkdir(root, { recursive: true });
+  const big = path.join(root, 'notes.txt'); await fs.writeFile(big, 'A'.repeat(70 * 1024));
+  const archive = path.join(root, 'tvijo-dshrem-0.10.30.vsix'); await fs.writeFile(archive, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x01]));
+  const app = host({ root });
+  try {
+    await app.receive({ type: 'ready' });
+    await app.commands.get('tvijo.attachFile')(app.Uri.file(big));
+    assert.match(app.feedback.at(-1), /64 KiB/);
+    assert.doesNotMatch(app.feedback.at(-1), /Check the selected workspace file/);
+    await app.commands.get('tvijo.attachFile')(app.Uri.file(archive));
+    assert.match(app.feedback.at(-1), /Archives and binary files cannot be attached/);
+    assert.doesNotMatch(app.feedback.at(-1), /Check the selected workspace file/);
+    assert.equal(app.posts.filter(item => item.type === 'state').at(-1).attachments.length, 0);
+  } finally { app.close(); }
+});
+
+test('an unrecognised host failure reports its own reason instead of the generic file hint', async () => {
+  const root = path.join(process.env.TVIJO_TEST_ARTIFACTS, 'attachment-enoent-workspace');
+  await fs.mkdir(root, { recursive: true });
+  const file = path.join(root, 'gone.txt'); await fs.writeFile(file, 'text');
+  const app = host({ root, prepareAttachment: async () => { throw Object.assign(new Error('ENOENT: no such file or directory, open /tmp/gone'), { code: 'ENOENT' }); } });
+  try {
+    await app.receive({ type: 'ready' });
+    await app.commands.get('tvijo.attachFile')(app.Uri.file(file));
+    assert.match(app.feedback.at(-1), /does not exist on this host/);
+    assert.doesNotMatch(app.feedback.at(-1), /Check the selected workspace file/);
+  } finally { app.close(); }
+});
+
+test('0.10.32 a Russian request gets a Russian receipt, kept out of the answer body and shown with the work log',async()=>{
+ const root=await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS,'trace-host-'));
+ const app=host({root,chatSequence:[JSON.stringify({tool:'run_command',command:'printf TRACE_OBSERVED',thought:'Проверяю, что команда выполняется.'}),JSON.stringify({tool:'finish',status:'done',answer:'Проверка выполнена.'})]});
+ try{
+  app.settings.set('workspaceContext','off');app.settings.set('agentMaxSteps',3);await enableFullAccess(app);
+  await app.receive({type:'ask',question:'Проверь, что команда работает',agent:true});
+  const history=app.local.history(app.scope('tenant-a')),answer=history.at(-1);
+  assert.match(answer.receiptText,/^Квитанция задачи /);assert.match(answer.display,/Квитанция задачи /,'Open answer keeps the full record');
+  assert.equal(answer.trace[0].thought,'Проверяю, что команда выполняется.');assert.equal(answer.trace[0].title,'Выполняю');assert.match(answer.trace[0].result,/код 0/);
+  const state=app.posts.filter(p=>p.type==='state').at(-1),shown=state.messages.at(-1);
+  assert.match(shown.content,/^Проверка выполнена\./);assert.doesNotMatch(shown.content,/Квитанция|Task receipt|Service tasks/);
+  assert.equal(shown.receipt,answer.receiptText);assert.equal(shown.trace.length,1);
+  const live=app.posts.filter(p=>p.type==='agent'&&p.event?.type==='action').at(-1);assert.equal(live.event.view.title,'Выполняю');
+  assert.equal(app.posts.find(p=>p.type==='agent'&&p.event?.type==='start').event.locale,'ru');
  }finally{app.close();}
 });

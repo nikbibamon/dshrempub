@@ -60,10 +60,15 @@ function guide(options={}) {
 }
 test('search, bilingual controls, contextual actions and native snapshots work without refresh',()=>{
  const app=guide();assert.equal(app.cards().length,Object.keys(properties).length);
+ const autoHelp=()=>app.card('tvijo.agentAutoRun').children.find(node=>node.tagName==='P').textContent;
+ assert.match(autoHelp(),/literal allowlisted[\s\S]*current Agent run[\s\S]*Plan refuses[\s\S]*chains require separate, saved Full access/);
+ assert.doesNotMatch(autoHelp(),/without pauses|cd app &&/);
  assert.equal(app.get('advanced').open,undefined);
  app.get('search').value='ocrLanguages';app.get('search').handlers.input();
  assert.equal(app.cards().filter(c=>!c.hidden).length,1);
  app.get('language').handlers.click();assert.equal(app.document.documentElement.lang,'ru');
+ assert.match(autoHelp(),/буквальные команды[\s\S]*текущей задачи[\s\S]*Plan запрещает[\s\S]*цепочек команд нужно отдельно сохранить/);
+ assert.doesNotMatch(autoHelp(),/без пауз|cd app &&/);
  const native=app.card('tvijo.model').children.find(c=>c.tagName==='DETAILS').children.find(c=>c.tagName==='BUTTON');native.handlers.click();assert.equal(app.messages.at(-1).key,'tvijo.model');
  app.receive({type:'settingsValues',revision:1,values:{'tvijo.orchestration.enabled':true,'tvijo.agentMaxSteps':90,'tvijo.apiBase':'https://name:secret@host.test/path?token=secret'}});
  assert.equal(app.input('tvijo.orchestration.enabled').checked,true);
