@@ -1,10 +1,10 @@
 <!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
-## What's new in 0.10.35 — 2026-11-23
+## What's new in 0.10.36 — 2026-11-23 (unreleased local VSIX candidate)
 
-- Enable and save Full access for a trusted folder from a command confirmation. The current Agent run continues with the new permission.
-- Save the Auto checkboxes in Settings while an Agent task is active. The next run reads the saved values.
-- Editor device login requests a seven-day session from a compatible gateway.
-- Image context includes a local grayscale text thumbnail when FFmpeg is available. Preview text shows both the thumbnail and OCR.
+- **Auto applies to the current Agent task.** A saved Manual, Edit or Auto change takes effect at the next eligible operation. Incomplete project rules still require confirmation for Auto commands, and Full access still requires separate consent.
+- **Reconnect a saved session.** If account verification fails temporarily, choose **Reconnect** to retry with the saved session. History, attachments and sending become available after verification. An expired or rejected session requires sign-in.
+- **Image context uses text.** Screenshots contribute OCR text and can include a grayscale text thumbnail when FFmpeg is available.
+- **Gateway session lifetime.** The deployed gateway still issues 24-hour device sessions. The server-side lifetime change is tracked separately.
 
 Earlier versions: the **Changelog** tab.
 <!-- changelog-latest:end -->
@@ -62,7 +62,7 @@ Choose **Configuration file example** in the help section or run **Tvijo: Open c
 
 # Tvijo DSHREM for VS Code
 
-Version 0.10.35. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.36. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 

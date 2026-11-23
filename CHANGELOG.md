@@ -1,3 +1,10 @@
+## 0.10.36 — 2026-11-23 (unreleased local VSIX candidate)
+
+- **Auto applies to the current Agent task.** A saved Manual, Edit or Auto change takes effect at the next eligible operation. Incomplete project rules still require confirmation for Auto commands, and Full access still requires separate consent.
+- **Reconnect a saved session.** If account verification fails temporarily, choose **Reconnect** to retry with the saved session. History, attachments and sending become available after verification. An expired or rejected session requires sign-in.
+- **Image context uses text.** Screenshots contribute OCR text and can include a grayscale text thumbnail when FFmpeg is available.
+- **Gateway session lifetime.** The deployed gateway still issues 24-hour device sessions. The server-side lifetime change is tracked separately.
+
 ## 0.10.35 — 2026-11-23
 
 - Enable and save Full access for a trusted folder from a command confirmation. The current Agent run continues with the new permission.
