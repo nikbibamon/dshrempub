@@ -6,12 +6,28 @@ workspace automatically. A file chosen, pasted or dropped from your computer is 
 transferred to the VS Code extension host (the SSH server in a Remote SSH window).
 Tesseract extracts text there. FFmpeg, when installed, generates a small grayscale
 text thumbnail for layout. Both run on the extension host. When you press **Ask**,
-the service receives the previewed text and thumbnail. Original image bytes stay
-on the extension host.
+the service receives the previewed text and thumbnail. The original image file
+stays on the extension host.
+
+**Send pixels to Codex for analysis** is a separate action for one PNG or JPEG.
+FFmpeg prepares one color PNG without source metadata. The verified Codex CLI
+sends that frame directly to ChatGPT under the CLI account's subscription. The
+image request carries a fixed observation prompt and a generic attachment label.
+Draft text, chat history, project files and rules are outside the request. The
+CLI runs with an isolated filesystem and a tool-free profile on supported Linux
+x64 extension hosts. This action uses the account's Codex allowance.
+
+Tvijo writes the normalized frame and invocation state to a private temporary
+directory under its extension-host storage for this action and removes it
+when the helper returns. The observation stays in the composer until dismissed,
+superseded, or explicitly included in a local DS41F Chat message. Inclusion
+sends quoted observation text as part of that ordinary Tvijo request. OpenAI's
+processing of the separate image request follows the ChatGPT account's data
+controls and terms.
 Avoid selecting credentials or private data you are not authorized to send.
 
 Unsubmitted attachments and image previews remain in extension-host memory until sent,
-removed, or the host reloads. They are not written to temporary files by this extension.
+removed, or the host reloads.
 Submitted file text, OCR and thumbnails can enter conversation history. The composer
 draft is kept in VS Code webview state. A separate
 **Add file to my knowledge base** command requires confirmation and stores the file's

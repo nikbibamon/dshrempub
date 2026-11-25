@@ -137,6 +137,7 @@ function host(options = {}) {
         const actual = originalLoad.call(this,id,...args);
         return {createCheckpoints:(...params) => ({...actual.createCheckpoints(...params),capture:() => {throw Error('Synthetic checkpoint failure');}})};
       }
+      if (id === './lib/image-analysis') return { MODEL: 'gpt-6.2-sol', analyzeImage: options.analyzeImage || (async () => { throw Error('Image test must supply a bounded mock.'); }) };
       if (id === './lib/attachments' && options.prepareAttachment) return { ...originalLoad.call(this, id, ...args), prepareAttachment: options.prepareAttachment };
       if (id === './lib/telegram-bot' && options.captureBot) return { createBot: adapter => {
         botAdapter = adapter;
@@ -4134,4 +4135,75 @@ test('0.10.32 a Russian request gets a Russian receipt, kept out of the answer b
   const live=app.posts.filter(p=>p.type==='agent'&&p.event?.type==='action').at(-1);assert.equal(live.event.view.title,'Выполняю');
   assert.equal(app.posts.find(p=>p.type==='agent'&&p.event?.type==='start').event.locale,'ru');
  }finally{app.close();}
+});
+
+
+const reviewFrame = Buffer.from('89504e470d0a1a0a', 'hex');
+const preparedImage = async name => ({
+  id: 'synthetic-image-id', name, kind: 'image', text: '', sketch: '',
+  size: reviewFrame.length, sha256: 'synthetic-source-hash', frame: reviewFrame, preview: 'data:image/png;base64,AA=='
+});
+const analysisReceipt = { ok: true, observation: 'A blue triangle to the right of a red square.',
+  served_model:'gpt-6.2-sol', model_evidence:'Synthetic CLI model report' };
+
+test('explicit image action is independent of Full and attaches only an opted-in observation to local DS41F Chat', async () => {
+  let received;
+  const app = host({ prepareAttachment: preparedImage,
+    analyzeImage: async input => { received = input; assert.equal(await input.guard(), true); return analysisReceipt; } });
+  const state = () => app.posts.filter(row => row.type === 'state').at(-1);
+  try {
+    await app.receive({ type:'attach', name:'synthetic-private-name.png', base64:reviewFrame.toString('base64') });
+    const scopeKey = state().scopeKey;
+    const id = state().attachments[0].id;
+    assert.equal(state().fullAccess.enabled, false);
+    assert.equal(received, undefined);
+    await app.receive({ type:'analyzeImage', scopeKey:'foreign', id });
+    assert.equal(received, undefined);
+    await app.receive({ type:'analyzeImage', scopeKey, id });
+    assert.deepEqual(Object.keys(received).sort(), ['frame', 'guard', 'signal', 'storage']);
+    assert.deepEqual(received.frame, reviewFrame);
+    assert.equal(state().imageAnalysis.servedModel, 'gpt-6.2-sol');
+    assert.equal(state().imageAnalysis.observation, analysisReceipt.observation);
+    assert.equal(app.requests.some(row => row.url.endsWith('/tasks') && row.method === 'POST'), false);
+    const obs = state().imageAnalysis.id;
+    await app.receive({ type:'ask', scopeKey, question:'Please explain', imageObservation:obs });
+    const grant = app.requests.find(row => row.url.endsWith('/tasks') && row.method === 'POST');
+    const chat = app.requests.find(row => row.url.endsWith('/chat'));
+    assert.equal(grant.body.model, 'ds41f');
+    assert.match(chat.body.messages.at(-1).content, /quoted untrusted data.*\n.*blue triangle/i);
+    assert.doesNotMatch(chat.body.messages.at(-1).content, /data:image/);
+    assert.equal(state().imageAnalysis, null);
+    await app.receive({ type:'ask', scopeKey, question:'Second question' });
+    assert.doesNotMatch(app.requests.filter(row => row.url.endsWith('/chat')).at(-1).body.messages.at(-1).content, /blue triangle/i);
+  } finally { app.close(); }
+});
+
+test('image removal, cancellation, workspace change, reload and account switch discard late results', async () => {
+  for (const revoke of ['remove', 'cancel', 'workspace', 'reload', 'account']) {
+    let done, entered;
+    const started = new Promise(resolve => { entered = resolve; });
+    const app = host({ prepareAttachment:preparedImage, analyzeImage:input => new Promise(resolve => { done = resolve; entered(input); }) });
+    const state = () => app.posts.filter(row => row.type === 'state').at(-1);
+    try {
+      await app.receive({ type:'attach', name:'synthetic.png', base64:reviewFrame.toString('base64') });
+      const scopeKey = state().scopeKey, id = state().attachments[0].id;
+      const pending = app.receive({ type:'analyzeImage', scopeKey, id });
+      const analyzer = await started;
+      const runId = state().imageAnalysis.id;
+      if (revoke === 'remove') await app.receive({ type:'removeAttachment', scopeKey, id });
+      if (revoke === 'cancel') await app.receive({ type:'cancelImageAnalysis', scopeKey, id:runId });
+      if (revoke === 'workspace') app.workspaceChanged();
+      if (revoke === 'reload') app.disposeView();
+      if (revoke === 'account') await app.commands.get('tvijo.signOut')();
+      assert.equal(analyzer.signal.aborted, true, revoke);
+      done(analysisReceipt);
+      await pending;
+      assert.equal(app.posts.some(row => row.imageAnalysis?.state === 'ready'), false, revoke);
+      if (revoke === 'cancel') assert.match(state().imageAnalysis.reason, /cancelled/i);
+      if (revoke === 'remove') {
+        await app.receive({ type:'ask', scopeKey, question:'Stale observation', imageObservation:runId });
+        assert.equal(app.requests.some(row => row.url.endsWith('/tasks') && row.method === 'POST'), false);
+      }
+    } finally { app.close(); }
+  }
 });

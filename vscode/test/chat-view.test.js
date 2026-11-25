@@ -855,3 +855,33 @@ test('individual steps disclose their own untrusted events and retain state unti
   view.emit('window:message',{data:{type:'agent',scopeKey:'tenant-b',event:{type:'step',step:1,maxSteps:1}}});
   assert.notEqual(view.element('agent-log').children.at(-1),section);assert.notEqual(view.element('agent-log').children.at(-1).open,true);
 });
+
+
+test('image pixels need an explicit sidebar action and the observation is a one-time Chat opt-in', () => {
+  const image = { id:'image-1', name:'synthetic.png', kind:'image', size:1024, canAnalyze:true };
+  const data = { type:'state', signedIn:true, scopeKey:'tenant-a', composerMode:'chat', messages:[], attachments:[image], imageCanInclude:true };
+  const view = sidebar({}, data);
+  const box = view.element('image-analysis');
+  const button = text => box.children.find(node => node.tag === 'button' && node.textContent.startsWith(text));
+  assert.equal(view.outgoing.some(row => row.type === 'analyzeImage'), false);
+  assert.ok(box.children.some(node => /ChatGPT subscription/.test(node.textContent)));
+  button('Send pixels').click();
+  assert.deepEqual({...view.outgoing.at(-1)}, { type:'analyzeImage', id:'image-1', scopeKey:'tenant-a' });
+  const running = { id:'analysis-1', attachmentId:image.id, state:'running' };
+  view.emit('window:message', { data:{...data, imageAnalysis:running} });
+  button('Cancel analysis').click();
+  assert.equal(view.outgoing.at(-1).id, running.id);
+  const ready = { ...running, state:'ready', requestedModel:'gpt-6.2-sol', servedModel:'gpt-6.2-sol', evidence:'Server model report', observation:'<img src=x> Blue triangle' };
+  view.emit('window:message', { data:{...data, imageAnalysis:ready} });
+  assert.ok(box.children.some(node => node.tag === 'p' && node.textContent === ready.observation && !node.children.length));
+  const include = button('Include observation');
+  assert.equal(include.getAttribute('aria-pressed'), 'false');
+  include.click();
+  assert.equal(include.getAttribute('aria-pressed'), 'true');
+  view.element('question').value = 'What do you see?';
+  view.emit('form:submit', { preventDefault() {} });
+  assert.equal(view.outgoing.at(-1).imageObservation, ready.id);
+  assert.equal(JSON.stringify(view.state()).includes('Blue triangle'), false);
+  view.emit('window:message', { data:{...data, scopeKey:'tenant-b', attachments:[], imageAnalysis:null} });
+  assert.equal(box.hidden, true);
+});

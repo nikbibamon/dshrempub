@@ -13,6 +13,7 @@ const sessionChips = require('./lib/session-chips');
 const { safeExternalUrl } = require('./lib/markdown');
 const { settingsHtml, GUIDE_ACTIONS } = require('./lib/settings-guide');
 const files = require('./lib/attachments');
+const { analyzeImage, MODEL: IMAGE_MODEL } = require('./lib/image-analysis');
 const { ACTIONS, ACTION_BY_ID, PLUS_ACTIONS, slashAction, fileReference } = require('./lib/actions');
 const { createBot } = require('./lib/telegram-bot');
 const { scopeKey, tenantState } = require('./lib/tenant-state');
@@ -193,6 +194,7 @@ function activate(context) {
   let modeUpdatePending = false;
   let attaching = false;
   let attachments = [];
+  let imageAnalysis = null, imagePending = false;
   let activeAbort = null;
   let codingReview = null;
   const byokSelection = customerConnection.createSelection();
@@ -232,7 +234,7 @@ function activate(context) {
     }));
   }
   const customCommands = new Map();
-  if (vscode.workspace.onDidChangeWorkspaceFolders) context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { if(pendingScopeUri && vscode.workspace.workspaceFolders.some(f=>f.uri.fsPath===pendingScopeUri.fsPath)){const uri=pendingScopeUri;pendingScopeUri=null;void activeWorkspace.select(uri).then(()=>{lastError=null;return postChatState();}).catch(report);} workspaceEpoch++; void orchestration.invalidate().catch(()=>{}); fullAccess.invalidate(); syntaxChecks.invalidate(); terminalCaptures.invalidate(); codingReview = null; agentMaps.clear(); refreshStatus(); }));
+  if (vscode.workspace.onDidChangeWorkspaceFolders) context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => { if(pendingScopeUri && vscode.workspace.workspaceFolders.some(f=>f.uri.fsPath===pendingScopeUri.fsPath)){const uri=pendingScopeUri;pendingScopeUri=null;void activeWorkspace.select(uri).then(()=>{lastError=null;return postChatState();}).catch(report);} workspaceEpoch++; revokeImageAnalysis(); void orchestration.invalidate().catch(()=>{}); fullAccess.invalidate(); syntaxChecks.invalidate(); terminalCaptures.invalidate(); codingReview = null; agentMaps.clear(); refreshStatus(); }));
   const handlers = new Map();
   let customerBot = null;
   let accountSnapshot = null;
@@ -270,7 +272,7 @@ function activate(context) {
   const fullAccess = createFullAccess({vscode,state:context.globalState,scope:folder=>{ const key=projectRulesHost.scope(folder); return key && identity?.scope ? createHash('sha256').update(JSON.stringify([identity.scope,key])).digest('hex') : null; },L,
     onRevoke:() => { agentAbort?.abort(); activeAbort?.abort(); }});
   const activeWorkspace = createActiveWorkspace({vscode,state:context.workspaceState || context.globalState,L,isBusy:()=>busy || attaching,onChange:() => {
-    flushDrafts(); workspaceEpoch++; fullAccess.invalidate(); syntaxChecks.invalidate(); terminalCaptures.invalidate();
+    flushDrafts(); workspaceEpoch++; revokeImageAnalysis(); fullAccess.invalidate(); syntaxChecks.invalidate(); terminalCaptures.invalidate();
     lastContextSummary = null; codingReview = null; attachments = [];
   }});
   function permissionFolder() { return activeWorkspace.current(); }
@@ -286,7 +288,7 @@ function activate(context) {
     await vscode.commands.executeCommand('tvijo.chat.focus');
   });
   command('tvijo.openChatSettings', async () => { await vscode.commands.executeCommand('tvijo.chat.focus'); await chatView?.webview.postMessage({type:'openSettings'}); });
-  command('tvijo.reloadWindow', () => vscode.commands.executeCommand('workbench.action.reloadWindow'));
+  command('tvijo.reloadWindow', () => { revokeImageAnalysis(); return vscode.commands.executeCommand('workbench.action.reloadWindow'); });
   command('tvijo.chooseWorkspace', async () => { ensureIdle(); await activeWorkspace.choose(); await postChatState(); });
   function fullAccessState() {
     const status = fullAccess.status(permissionFolder());
@@ -304,7 +306,7 @@ function activate(context) {
     if (!document || localPreviewDocuments.has(document) || (document.uri?.scheme === 'file' && document.uri.fsPath.split(/[\\/]/).includes('.tvijo'))) throw new core.ServiceError('rules_context', L('Use project context preview or the loaded rules list in Settings.', 'Используйте просмотр контекста или список загруженных правил в настройках.'));
   }
 
-  const selectShared = async (...args) => { attachments = []; return shared.select(...args); };
+  const selectShared = async (...args) => { revokeImageAnalysis(); attachments = []; return shared.select(...args); };
   // The answer of THIS run: history grows by an assistant row, or its last row changes. An
   // older answer must never be reported as the result of a run that produced none.
   function answerSnapshot() {
@@ -348,6 +350,7 @@ function activate(context) {
   }
   async function restoreJournal(message) {
     ensureIdle();
+    revokeImageAnalysis();
     const epoch = workspaceEpoch;
     const auth = await requireAuth();
     if (message.scopeKey !== currentViewScope(auth.scope) || epoch !== workspaceEpoch) throw new core.ServiceError('account_changed', 'The account or workspace changed.');
@@ -398,6 +401,7 @@ function activate(context) {
   }
   async function fetchJournal(message) {
     ensureIdle();
+    revokeImageAnalysis();
     const epoch = workspaceEpoch, auth = await requireAuth();
     const assertScope = async () => {
       if (epoch !== workspaceEpoch || message.scopeKey !== currentViewScope(auth.scope) || !await isCurrentAuth(auth)) throw new core.ServiceError('account_changed','The account or workspace changed.');
@@ -644,6 +648,7 @@ function activate(context) {
   }
 
   function nextAuthAttempt() {
+    revokeImageAnalysis();
     cancelSavedAuthCheck();
     deviceLoginError = '';
     return ++authAttempt;
@@ -732,6 +737,7 @@ function activate(context) {
     // A successful read of the same credential refreshes accountSnapshot only.
     if (identity && next && identity.scope === next.scope && identity.tenant === next.tenant &&
         sameCredential(identity.credential, next.credential)) return;
+    revokeImageAnalysis();
     if (identity?.scope !== next?.scope || identity?.token !== next?.token) {
       if (identity) tenantAttachments.set(currentViewScope(identity.scope), attachments);
       if (identity) void orchestration.invalidate().catch(()=>{});
@@ -846,7 +852,10 @@ function activate(context) {
       ? { id:run.id, preset:modePresets.presetFor(run.flags.agentAutoApply, run.flags.agentAutoRun), rulesNote:run.rulesNote() } : null;
     await view.webview.postMessage({ type: 'state', activePermissions, conversationEditable:!!scope && !shared.selection(scope), colorTheme:vscode.workspace.getConfiguration('tvijo').get('colorTheme','blue'), orchestration:{enabled:orchestration.enabled(),coordinator:'ds41f',policy:vscode.workspace.getConfiguration('tvijo').get('orchestration.workerPolicy','sol')}, autoCommit:vscode.workspace.getConfiguration('tvijo').get('autoCommit','afterTask'), loadedRules:projectRulesHost.loaded?.() || [],rulesScanTruncated:projectRulesHost.scanTruncated(), runtimeVersion:context.extension?.packageJSON?.version || require('./package.json').version, composerMode:scope ? composerMode({scope}) : null, workspacePath:permissionFolder()?.uri.fsPath || refusedCandidate?.fsPath || '', fullAccess:fullAccessState(), scopeKey: scope ? currentViewScope(scope) : null, composerScope:scope ? recoveryScope({scope}) : null, messages, signedIn, pack, interrupted:journalState.runs, recoveryNotes:journalState.notes, composerDraft:journalState.draft, liveQuestion:signedIn ? liveQuestion : null, liveFrom:signedIn ? liveFrom : '', botSetupNeeded, bridgeEnabled:vscode.workspace.getConfiguration('tvijo').get('bridge.enabled', false) === true, agentMap:scope ? buildAgentMap(agentMaps.get(currentViewScope(scope))) : buildAgentMap(), runSession:scope ? sessionChips.viewState(agentMaps.get(currentViewScope(scope))) : sessionChips.viewState(null), sharedThreadUrl: scope ? sharedThreadUrl(shared.selection(scope)) : null, busy, attaching, pending: recovery, legacyHistory: !!local.legacyHistory().length || !!(scope && local.history(scope).length), account: signedIn ? accountSnapshot : null, locale: uiLocale(), options, error: error && error.text ? error : lastError || (projectRulesHost.scanTruncated() && !fullAccessState().enabled?{text:L('Rules scan truncated. Further commands require confirmation for this task.','Сканирование правил усечено. Следующие команды этой задачи требуют подтверждения.'),action:'rulesSettings'}:null) || ((projectRulesHost.loaded?.() || []).some(row=>row.quarantined)?{text:L('Rules changed outside an approved direct edit. Quarantined rules are excluded from future requests until you re-enable them in ⚙.','Правила изменены вне одобренной прямой правки. Правила в карантине исключены из следующих запросов до повторного включения в ⚙.'),action:'rulesSettings'}:null), authState, authError, workspaceSelected:!!permissionFolder(), projectLabel:permissionFolder() ? (permissionFolder().name || path.basename(permissionFolder().uri.fsPath)) : refusedCandidate ? path.basename(refusedCandidate.fsPath) : L('Choose project','Выбрать проект'), context: { mode: vscode.workspace.getConfiguration('tvijo').get('workspaceContext', 'ask'), last: lastContextSummary }, activity: lastActivity,
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'ds41f') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
-      attachments: signedIn ? attachments.map(files.attachmentSummary) : [], botRunning: !!customerBot?.running,
+      attachments: signedIn ? attachments.map(files.attachmentSummary) : [],
+      imageAnalysis: signedIn ? imagePresentation(view) : null,
+      imageCanInclude: signedIn && !shared.selection(scope) && options?.model === 'ds41f',
+      botRunning: !!customerBot?.running,
       status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : authStatus || L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
   }
 
@@ -961,6 +970,7 @@ function activate(context) {
 
   async function runAgentFlow(goal, { planMode = false, budgetLimit = null, retryOf = null } = {}) {
     ensureIdle();
+    revokeImageAnalysis();
     if (!goal?.trim()) return;
     const runLocale = noteReplyLocale(goal), traceRows = [];
     await requireWorkspace();
@@ -1425,6 +1435,7 @@ function activate(context) {
 
   async function runUserShell(command) {
     ensureIdle();
+    revokeImageAnalysis();
     const folder = await requireWorkspace();
     if (!folder) throw new core.ServiceError('no_workspace', L('Open a project folder first.', 'Сначала откройте папку проекта.'));
     const commandDecision = analyzeCommand(command,{shell:fullAccess.status(folder).enabled,extra:fullAccess.status(folder).extra});
@@ -1714,7 +1725,90 @@ function activate(context) {
     if (workspaceFile) item.workspaceFile = workspaceFile;
     const next = [...attachments, item];
     files.checkAttachmentSet(next);
+    revokeImageAnalysis();
     attachments = next;
+  }
+
+  function revokeImageAnalysis() {
+    imageAnalysis?.controller.abort();
+    imageAnalysis = null;
+  }
+
+  function imageOwnerCurrent(run) {
+    return !authDisposed && run.view === chatView && run.epoch === workspaceEpoch && run.attempt === authAttempt &&
+      identity?.scope === run.scope && currentViewScope(run.scope) === run.viewScope &&
+      attachments.length === 1 && attachments[0] === run.item;
+  }
+
+  function imagePresentation(view) {
+    const run = imageAnalysis;
+    if (!run || run.view !== view || !imageOwnerCurrent(run)) return null;
+    const result = run.result;
+    return {
+      id: run.id, attachmentId: run.item.id, state: result ? (result.ok ? 'ready' : 'unavailable') : 'running',
+      requestedModel: IMAGE_MODEL, ...(result?.ok ? { servedModel: result.served_model,
+        evidence: result.model_evidence, observation: result.observation } : {}),
+      ...(result && !result.ok ? { reason: imageFailure(result.reason) } : {})
+    };
+  }
+
+  function imageFailure(reason) {
+    const messages = {
+      cancelled: ['Image analysis cancelled.', 'Анализ изображения отменён.'],
+      subscription_limit: ['Codex subscription limit reached.', 'Достигнут лимит подписки Codex.'],
+      chatgpt_login_required: ['Sign in to Codex with a supported personal ChatGPT account on this extension host.', 'Войдите в Codex через поддерживаемый личный аккаунт ChatGPT на хосте расширения.'],
+      unsupported_codex_installation: ['This extension host needs the verified Linux x64 Codex CLI 0.171.0.', 'Хосту расширения нужен проверенный Codex CLI 0.171.0 для Linux x64.'],
+      unsupported_codex_binary: ['This installed Codex build has not passed the image analysis checks.', 'Эта сборка Codex не прошла проверку анализа изображений.'],
+      unverified_cli_configuration: ['The Codex configuration could not be verified for this action.', 'Конфигурация Codex для этого действия не подтверждена.'],
+      model_route_changed: ['Codex reported a different model route.', 'Codex сообщил о смене маршрута модели.'],
+      model_receipt_missing: ['Codex did not confirm the model that served the image request.', 'Codex не подтвердил модель, обработавшую изображение.'],
+      timeout: ['Codex image analysis timed out.', 'Время анализа изображения в Codex истекло.'],
+      chatgpt_account_changed: ['The Codex or Tvijo account changed during analysis.', 'Аккаунт Codex или Tvijo изменился во время анализа.'],
+      transport_interrupted: ['The Codex connection was interrupted.', 'Соединение с Codex прервано.'],
+      sandbox_unavailable: ['Image analysis needs Bubblewrap isolation on the extension host.', 'Для анализа нужна изоляция Bubblewrap на хосте расширения.'],
+      output_limit: ['Codex exceeded the image observation size limit.', 'Codex превысил ограничение размера описания.']
+    };
+    return L(...(messages[reason] || ['Codex image analysis is unavailable for this request.', 'Анализ изображения в Codex для этого запроса недоступен.']));
+  }
+
+  async function startImageAnalysis(view, message) {
+    ensureIdle();
+    if (imagePending || !identity || view !== chatView || message.scopeKey !== currentViewScope(identity.scope) ||
+        attachments.length !== 1 || attachments[0].id !== message.id || !attachments[0].frame) return;
+    const run = {
+      id: randomUUID(), item: attachments[0], view, scope: identity.scope, viewScope: message.scopeKey,
+      epoch: workspaceEpoch, attempt: authAttempt, controller: new AbortController(), result: null
+    };
+    imageAnalysis = run;
+    imagePending = true;
+    const signal = run.controller.signal;
+    try {
+      const auth = await requireAuth();
+      const guard = async () => {
+        if (!await isCurrentAuth(auth) || !imageOwnerCurrent(run) || imageAnalysis !== run || busy || attaching) {
+          run.controller.abort();
+          return false;
+        }
+        return !signal.aborted;
+      };
+      if (!await guard()) return;
+      await postChatState();
+      if (!await guard()) return;
+      const storage = context.globalStorageUri?.scheme === 'file' ? path.join(context.globalStorageUri.fsPath, 'image-analysis') : null;
+      const result = await analyzeImage({ frame: run.item.frame, storage, signal, guard });
+      if (!imageOwnerCurrent(run) || imageAnalysis !== run || !await isCurrentAuth(auth)) return;
+      if (signal.aborted) run.result = { ok: false, reason: 'cancelled' };
+      else if (result.ok && core.checkKnowledgeFile('image-observation.txt', Buffer.from(result.observation))) run.result = { ok: false, reason: 'invalid_observation' };
+      else run.result = { ...result, image_sha256: createHash('sha256').update(run.item.frame).digest('hex') };
+    } finally {
+      imagePending = false;
+      if (imageAnalysis === run) {
+        if (imageOwnerCurrent(run)) {
+          run.result ||= { ok: false, reason: signal.aborted ? 'cancelled' : 'image_helper_unavailable' };
+          await postChatState();
+        } else revokeImageAnalysis();
+      }
+    }
   }
 
   async function attachBytes(name, bytes, expectedWorkspaceEpoch = workspaceEpoch) {
@@ -1866,6 +1960,7 @@ function activate(context) {
   }
   async function restoreRewind(message) {
     ensureIdle();
+    revokeImageAnalysis();
     const {root,key} = rewindWorkspace(), epoch = workspaceEpoch;
     if (message.workspaceKey !== key || typeof message.runId !== 'string' || !Number.isInteger(message.step)) throw new Error('The Rewind workspace changed. Open Rewind again.');
     const committedHash=context.globalState.get('tvijo.committedRun.'+message.runId);
@@ -1910,6 +2005,7 @@ function activate(context) {
 
   command('tvijo.quickEdit', async () => {
     ensureIdle();
+    revokeImageAnalysis();
     const auth = await requireAuth();
     const api = core.createClient({ base: auth.api_base });
     const editor = vscode.window.activeTextEditor;
@@ -2017,7 +2113,7 @@ function activate(context) {
       await postChatState();
     }
   });
-  command('tvijo.clearAttachments', async () => { ensureIdle(); attachments = []; await postChatState(); });
+  command('tvijo.clearAttachments', async () => { ensureIdle(); revokeImageAnalysis(); attachments = []; await postChatState(); });
   command('tvijo.mentionFile', async () => {
     ensureIdle();
     const picked = await vscode.window.showOpenDialog({ canSelectMany: false, canSelectFolders: false, openLabel: L('Attach referenced file', 'Прикрепить файл') });
@@ -2519,6 +2615,7 @@ function activate(context) {
 
   command('tvijo.newConversation', async () => {
     ensureIdle();
+    revokeImageAnalysis();
     const auth = await requireAuth();
     lastError = null; lastAgentOutcome = null;
     if (shared.selection(auth.scope)) return createSharedThread(auth);
@@ -2574,6 +2671,7 @@ function activate(context) {
   let restoreUndo = null;
   async function branchConversation(message, kind) {
     ensureIdle();
+    revokeImageAnalysis();
     const auth = await requireAuth();
     if (message.scopeKey !== currentViewScope(auth.scope)) return;
     if (shared.selection(auth.scope)) throw new core.ServiceError('conversation_shared', L('A shared server thread cannot be rewound: its messages live on the service. Start a new thread, or work in a local workspace conversation.', 'Общий серверный тред нельзя откатить: его сообщения хранятся на сервисе. Начните новый тред или работайте в локальном диалоге рабочей области.'));
@@ -2758,8 +2856,9 @@ function activate(context) {
     throw new core.ServiceError('pending_task', L('More task journals need reconciliation. Use Resolve task before another question.', 'Остались неразобранные заявки. Нажмите «Проверить задачу», прежде чем задавать новый вопрос.'));
   }
 
-  async function askQuestion(question, { showEditor = false, includeSelection = false } = {}) {
+  async function askQuestion(question, { showEditor = false, includeSelection = false, imageObservation = null } = {}) {
     ensureIdle();
+    revokeImageAnalysis();
     if (!question?.trim()) return;
     noteReplyLocale(question);
     if (vscode.workspace.workspaceFolders?.length) await requireWorkspace();
@@ -2840,10 +2939,15 @@ function activate(context) {
     if (!await isCurrentAuth(auth)) throw new core.ServiceError('account_changed', 'The account changed. Submit again from the intended account.');
     const history = historyFor(auth.scope);
     const sentAttachments = attachments.slice();
-    const explicitContent = files.questionWithAttachments(core.questionWithSelection(question.trim(), selection), sentAttachments);
-    let content = contextBlock + explicitContent;
     const { pack } = await currentPack(auth);
     if (!await isCurrentAuth(auth)) throw new core.ServiceError('account_changed', 'The account changed. Submit again from the intended account.');
+    const model = packs.packModel(config, 'model', 'ds41f', pack);
+    const imageCurrent = () => imageObservation && imageOwnerCurrent(imageObservation) && auth.scope === imageObservation.scope;
+    if (imageObservation && (!imageCurrent() || selectionState || model !== 'ds41f')) {
+      throw new core.ServiceError('image_observation_scope', 'The image observation is available only for a current local DS41F Chat message.');
+    }
+    const explicitContent = files.questionWithAttachments(core.questionWithSelection(question.trim(), selection), sentAttachments, imageObservation?.result);
+    let content = contextBlock + explicitContent;
     let messages = packs.packMessages([...(selectionState ? [] : history.filter(item => !item.localRecovery).map((item) => ({ role: item.role, content:item.role === 'user' ? (item.display || item.content) : item.content }))), { role: 'user', content }], pack);
     if (!selectionState && (!core.previewFits(messages, freshAccount) || core.gatewayMessageBytes(messages)>90000) && contextBlock) {
       content = explicitContent;
@@ -2860,7 +2964,7 @@ function activate(context) {
     core.validateMessages(messages);
     const payer = selectionState ? byokSelection.get(auth,selectionState.projectId) : null;
     const idempotencyKey = chatJournal.id;
-    const grantRequest = { title: `VS Code: ${question.trim().slice(0, 80)}`, max_usd: selectionState ? sharedTaskCap(auth) : '1', model: packs.packModel(config, 'model', 'ds41f', pack), mode: config.get('agentMode', 'single'), method: config.get('reasoningMethod', 'evidence-first'), idempotency_key: idempotencyKey, ...(selectionState ? { project_id: selectionState.projectId, thread_id: selectionState.threadId } : {}) };
+    const grantRequest = { title: `VS Code: ${question.trim().slice(0, 80)}`, max_usd: selectionState ? sharedTaskCap(auth) : '1', model, mode: config.get('agentMode', 'single'), method: config.get('reasoningMethod', 'evidence-first'), idempotency_key: idempotencyKey, ...(selectionState ? { project_id: selectionState.projectId, thread_id: selectionState.threadId } : {}) };
     if (selectionState) { delete grantRequest.model; delete grantRequest.mode; delete grantRequest.max_usd; grantRequest.service_id = config.get('service', 'standard'); grantRequest.max_micro_tvijo = sharedTaskMicroCap(auth); }
     await local.savePending(auth.scope, { idempotencyKey, request: grantRequest, apiBase: auth.api_base, tenantId: auth.tenant_id, projectId: selectionState?.projectId, threadId: selectionState?.threadId, createdAt: new Date().toISOString() });
       let answer;
@@ -2878,15 +2982,18 @@ function activate(context) {
         projectRulesHost.assertCurrent(chatRuleGrants);
         grantStarted = true;
         return runner({
-          beforeChat:() => projectRulesHost.assertCurrent(chatRuleGrants),
+          beforeChat:() => {
+            projectRulesHost.assertCurrent(chatRuleGrants);
+            if (imageObservation && !imageCurrent()) throw new core.ServiceError('image_observation_scope', 'The image observation expired before sending.');
+          },
           serviceId: grantRequest.service_id, maxMicroTvijo: grantRequest.max_micro_tvijo, payer,
-          beforeGrant: async () => { projectRulesHost.assertCurrent(chatRuleGrants); if (!await isCurrentAuth(auth) || (selectionState && byokSelection.get(auth,selectionState.projectId) !== payer)) throw new core.ServiceError('account_changed', 'The account, project or thread changed before reservation.'); },
+          beforeGrant: async () => { projectRulesHost.assertCurrent(chatRuleGrants); if (!await isCurrentAuth(auth) || (imageObservation && !imageCurrent()) || (selectionState && byokSelection.get(auth,selectionState.projectId) !== payer)) throw new core.ServiceError('account_changed', 'The account, project or thread changed before reservation.'); },
           onQuote: async quote => { await confirmByok(auth,selectionState?.projectId,payer,quote); await postActivity('quote', L('Quote reserved; waiting for the model…', 'Цена зарезервирована; жду модель…')); grantRequest.quote_id = quote.quote_id; grantRequest.tariff_version = quote.tariff_version; await local.savePending(auth.scope, { idempotencyKey, request: grantRequest, apiBase: auth.api_base, tenantId: auth.tenant_id, projectId: selectionState?.projectId, threadId: selectionState?.threadId, createdAt: new Date().toISOString() }); if (chatView) await chatView.webview.postMessage({ type: 'quote', scopeKey: auth.viewScope, quote: { quote_id: quote.quote_id, ceiling_micro_tvijo: quote.ceiling_micro_tvijo, estimated_max_micro_tvijo: quote.estimated_max_micro_tvijo, tariff_version: quote.tariff_version } }); },
           projectId: selectionState?.projectId, threadId: selectionState?.threadId, maxUsd: grantRequest.max_usd,
           token: auth.access_token, messages, idempotencyKey, signal: abort.signal,
           model: grantRequest.model, mode: grantRequest.mode, method: grantRequest.method,
           title: `VS Code: ${question.trim().slice(0, 80)}`,
-          onGrant: async (grant) => { taskId = grant.id; runJournals.task(chatJournal.scope,chatJournal.id,grant.id); projectRulesHost.assertCurrent(chatRuleGrants); await mapTask(auth, grant.id, {...grant, title:question.trim().slice(0,100), model:grant.model || grantRequest.model, status:'running', startedAt:Date.now()}); await postActivity('model', L('Model is working…', 'Модель работает…')); await local.savePending(auth.scope, { idempotencyKey, request: grantRequest, apiBase: auth.api_base, tenantId: auth.tenant_id, projectId: selectionState?.projectId, threadId: selectionState?.threadId, taskId: grant.id, createdAt: new Date().toISOString() }); }
+          onGrant: async (grant) => { taskId = grant.id; runJournals.task(chatJournal.scope,chatJournal.id,grant.id); projectRulesHost.assertCurrent(chatRuleGrants); if (imageObservation && !await isCurrentAuth(auth)) throw new core.ServiceError('image_observation_scope', 'The image observation expired before sending.'); await mapTask(auth, grant.id, {...grant, title:question.trim().slice(0,100), model:grant.model || grantRequest.model, status:'running', startedAt:Date.now()}); await postActivity('model', L('Model is working…', 'Модель работает…')); await local.savePending(auth.scope, { idempotencyKey, request: grantRequest, apiBase: auth.api_base, tenantId: auth.tenant_id, projectId: selectionState?.projectId, threadId: selectionState?.threadId, taskId: grant.id, createdAt: new Date().toISOString() }); }
         });
       }); } catch (error) {
         const pending = local.pending(auth.scope, idempotencyKey);
@@ -3021,6 +3128,7 @@ function activate(context) {
   }
   command('tvijo.codingTask', async () => {
     ensureIdle();
+    revokeImageAnalysis();
     const auth = await requireAuth();
     const selected = shared.selection(auth.scope);
     if (!selected?.threadId) throw new core.ServiceError('coding_refused', 'Choose a shared project and thread before creating a coding task.');
@@ -3129,6 +3237,7 @@ function activate(context) {
 
   context.subscriptions.push(vscode.window.registerWebviewViewProvider('tvijo.chat', {
     resolveWebviewView(view) {
+      revokeImageAnalysis();
       chatView = view;
       bridgeInbox?.reset();
       view.webview.options = { enableScripts: true };
@@ -3330,8 +3439,13 @@ function activate(context) {
             const bytes = Buffer.from(message.base64, 'base64');
             if (bytes.toString('base64') !== message.base64) throw new core.ServiceError('attachment_data', 'The attachment could not be read. Attach it again.');
             await attachBytes(message.name, bytes);
+          } else if (message?.type === 'analyzeImage') {
+            await startImageAnalysis(view, message);
+          } else if (message?.type === 'cancelImageAnalysis') {
+            if (imageAnalysis?.id === message.id && !imageAnalysis.result && imageAnalysis.view === view &&
+                message.scopeKey === imageAnalysis.viewScope && imageOwnerCurrent(imageAnalysis)) imageAnalysis.controller.abort();
           } else if (message?.type === 'removeAttachment') {
-            ensureIdle(); attachments = attachments.filter((item) => item.id !== message.id); await postChatState();
+            ensureIdle(); revokeImageAnalysis(); attachments = attachments.filter((item) => item.id !== message.id); await postChatState();
           } else if (message?.type === 'previewAttachment') {
             const auth = await requireAuth();
             const item = attachments.find((item) => item.id === message.id);
@@ -3438,7 +3552,15 @@ function activate(context) {
                 await runUserShell(message.question.trim().slice(1).trim());
               } else if (message.agent) {
                 executionOutcome = await runAgentFlow(question, { planMode: !!message.plan });
-              } else await askQuestion(question);
+              } else {
+                const image = message.imageObservation === undefined ? null : imageAnalysis;
+                if (message.imageObservation !== undefined &&
+                    (!image?.result?.ok || image.id !== message.imageObservation || image.view !== view ||
+                    image.viewScope !== message.scopeKey || bridgeId || message.from || !imageOwnerCurrent(image))) {
+                  throw new core.ServiceError('image_observation_scope', 'The image observation expired. Analyze the current attachment again.');
+                }
+                await askQuestion(question, { imageObservation: image });
+              }
               await view.webview.postMessage({ type: 'submission', scopeKey: message.scopeKey, ok: true, question: message.question });
               if (bridgeId && ownsLiveQuestion) {
                 if (lastRunStopped) bridgeStatus(() => bridgeInbox.finish(bridgeId, 'cancelled', {outcome:'cancelled',receiptId:executionOutcome?.receiptId,error:'stopped_by_user'}));
@@ -3466,7 +3588,7 @@ function activate(context) {
         finally { if (message?.type === 'attach') await view.webview.postMessage({ type: 'attachmentDone' }); }
       });
       context.subscriptions.push(listener);
-      view.onDidDispose(() => { flushDrafts(); listener.dispose(); if (chatView === view) chatView = null; });
+      view.onDidDispose(() => { flushDrafts(); listener.dispose(); if (chatView === view) { revokeImageAnalysis(); chatView = null; } });
     }
   }, { webviewOptions: { retainContextWhenHidden: true } }));
 
@@ -3488,6 +3610,9 @@ function activate(context) {
     vscode.window.showInformationMessage(`Tvijo: ${label} added to your knowledge base.`);
   });
 
+  if (context.secrets.onDidChange) context.subscriptions.push(context.secrets.onDidChange(({ key }) => {
+    if ([AUTH_KEY, PROJECT_AUTH_KEY].includes(key) && imageAnalysis) { revokeImageAnalysis(); void postChatState(); }
+  }));
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration('tvijo.colorTheme') || e.affectsConfiguration('tvijo.pack')) refreshStatus(); if (e.affectsConfiguration('tvijo.model') || e.affectsConfiguration('tvijo.agentModel') || e.affectsConfiguration('tvijo.agentAutoApply') || e.affectsConfiguration('tvijo.agentAutoRun')) postChatState(); if (e.affectsConfiguration('tvijo.apiBase')) { nextAuthAttempt(); switchIdentity(null); } if (e.affectsConfiguration('tvijo.apiBase') || e.affectsConfiguration('tvijo.telegram.ownerId') || e.affectsConfiguration('tvijo.telegram.allowedServices') || (e.affectsConfiguration('tvijo.telegram.enabled') && !vscode.workspace.getConfiguration('tvijo').get('telegram.enabled', false))) { customerBot?.stop(); customerBot = null; refreshStatus(); } }));
   if (vscode.window.onDidChangeWindowState) context.subscriptions.push(vscode.window.onDidChangeWindowState(event => { if (event.focused && !busy) void refreshStatus({reconcile:true}); }));
   const reconnectTimer = setInterval(() => { if (chatView?.visible !== false && !busy && !deviceLoginActive) void refreshStatus({reconcile:true, background:true}); },30000);

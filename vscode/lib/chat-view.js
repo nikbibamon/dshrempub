@@ -25,6 +25,10 @@ ${REWIND_CSS}
 ${PALETTE_CSS}
 #recovery{flex-shrink:0;max-height:260px;overflow:auto;padding:8px 12px;border-top:1px solid var(--border)}#recovery summary{font-size:12px;cursor:pointer;padding:4px 0}.recovery-card{padding:8px;margin:6px 0;border:1px solid var(--border);border-radius:6px}.recovery-card p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 6px}.recovery-actions{display:flex;flex-wrap:wrap;gap:6px}.recovery-actions button{font-size:11px}#recovery-notes{font-size:11px;overflow-wrap:anywhere}
 nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(--vscode-contrastBorder,var(--border));border-radius:999px;background:var(--surface);color:var(--text)}#elapsed-chip{white-space:nowrap}#agent-map-button{white-space:nowrap}#pack-picker{max-width:min(150px,100%);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--vscode-button-secondaryBackground,var(--surface));color:var(--vscode-button-secondaryForeground,var(--text));border:1px solid var(--vscode-contrastBorder,var(--border));font-size:11px;padding:3px 6px}#pack-picker:focus-visible{outline:1px solid var(--vscode-focusBorder,var(--accent));outline-offset:2px}
+#image-analysis { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:4px 0; min-width:0; }
+#image-analysis[hidden] { display:none; }
+#image-analysis p { white-space:pre-wrap; overflow-wrap:anywhere; max-height:8rem; overflow:auto; flex-basis:100%; margin:0; }
+#image-analysis button[aria-pressed="true"] { border-color:var(--vscode-focusBorder); }
 </style></head><body>
 <section id="folder-browser" aria-labelledby="folder-title" hidden><div class="drawer-heading"><strong id="folder-title"></strong><button id="folder-close" type="button">×</button></div><div class="drawer-tools"><button id="folder-active" type="button"></button><button id="folder-recent" type="button"></button></div><p id="folder-hint"></p><div id="folder-rows"></div></section>
 <aside id="settings-drawer" aria-label="Chat settings" hidden><div id="drawer-header"><div class="drawer-heading"><button id="drawer-back" class="icon" type="button" aria-label="Back to settings" hidden>←</button><strong id="drawer-title">Chat settings</strong><button id="drawer-close" class="icon" type="button" aria-label="Back to conversation">×</button></div>
@@ -39,7 +43,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
 <section id="rewind" aria-labelledby="rewind-title" hidden><div id="rewind-heading"><h2 id="rewind-title">Rewind</h2><button id="rewind-close" type="button">Back to chat</button></div><p id="rewind-hint"></p><p id="rewind-status" role="status"></p><div id="rewind-list"></div></section><main id="messages" aria-live="polite"></main><section id="agent-map" aria-labelledby="map-title" hidden><div id="agent-map-heading"><h2 id="map-title">Agent map</h2><button id="map-close" type="button">Back to chat</button></div><p id="map-hint"></p><div id="map-canvas" tabindex="0" role="region" aria-label="Agent map"></div><section id="map-details" aria-live="polite"></section></section><div id="state" role="status">Connecting…</div>
 <div id="activity" role="status" aria-live="polite"><span id="activity-spin" class="spin">✻</span><span id="activity-label" class="label"></span><span id="activity-detail" class="detail"></span><span id="activity-time" class="time"></span></div>
 <section id="agent-details" hidden aria-label="Agent details"><div id="agent-resize" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Resize agent details" aria-controls="agent-log"></div><div id="agent-heading"><strong id="agent-heading-title">Agent details</strong><span id="agent-status" role="status"></span><button id="agent-toggle" type="button" aria-controls="agent-log" aria-expanded="true">Collapse</button></div><div id="agent-log" role="log" aria-live="polite"></div></section>
-<form id="form"><button id="composer-signin" type="button">Sign in</button><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><div id="followups" hidden></div><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="workspace-choice" type="button">Choose project…</button><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode" aria-haspopup="menu" aria-controls="mode-menu" aria-expanded="false">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="settings-drawer">⚙</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
+<form id="form"><button id="composer-signin" type="button">Sign in</button><div id="attachments" aria-label="Attached context"></div><p id="ocrnote" hidden></p><div id="image-analysis" aria-label="Image analysis" hidden></div><div id="followups" hidden></div><textarea id="question" aria-label="Ask Tvijo" placeholder="Ask about your project…" maxlength="20000"></textarea><input id="file" type="file" multiple hidden><div class="composer-actions"><button id="workspace-choice" type="button">Choose project…</button><button id="plus" class="icon" type="button" title="Add context" aria-label="Add context" aria-haspopup="menu" aria-expanded="false">＋</button><button id="mode" class="mini-select" type="button" title="Mode" aria-haspopup="menu" aria-controls="mode-menu" aria-expanded="false">Chat</button><button id="workflow" class="mini-select" type="button" title="Model and method" aria-haspopup="menu" aria-expanded="false"><span>◆</span><span id="workflow-label">Model &amp; method</span></button><span class="spacer"></span><button id="cancel" class="mini-select" type="button" title="Cancel task" hidden>Cancel</button><button id="settings" class="icon" type="button" title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="settings-drawer">⚙</button><button id="send" type="submit" title="Send message" aria-label="Send message">➤</button></div></form>
 <div id="plus-menu" role="menu" aria-label="Actions"><button id="attach" data-action-id="tvijo.attachFile" type="button" role="menuitem">Attach file…</button><button id="mention-file" data-action-id="tvijo.mentionFile" type="button" role="menuitem">Mention file…</button><button id="attach-problems" data-action-id="tvijo.attachProblems" type="button" role="menuitem">@problems</button><button id="attach-terminal" data-action-id="tvijo.attachTerminal" type="button" role="menuitem">@terminal</button><button id="workspace" type="button" role="menuitem">Choose workspace file…</button><button id="selection" type="button" role="menuitem">Use editor selection</button><button id="path" type="button" role="menuitem">Paste workspace path…</button><button id="clear-conversation" data-action-id="tvijo.newConversation" type="button" role="menuitem">Clear conversation</button><button id="rewind-action" data-action-id="tvijo.rewind" type="button" role="menuitem">Rewind…</button><button id="export-conversation" data-action-id="tvijo.export" type="button" role="menuitem">Export conversation as Markdown</button><button id="switch-model" data-action-id="tvijo.chooseWorkflow" type="button" role="menuitem">Switch model</button><button id="all-actions" type="button" role="menuitem">All commands…</button></div>
 <div id="mode-menu" role="menu" aria-label="Mode" hidden></div><div id="options-menu" role="menu" aria-label="Model and method"></div>
 <div id="notice" role="alert"><p id="notice-text"></p><button id="notice-action" type="button">Resolve task</button><button id="notice-close" class="icon" type="button" aria-label="Dismiss">×</button></div>
@@ -785,12 +789,12 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     if (optionState) renderOptions(optionState);
     if (lastContext) renderContext(lastContext);
     updateThemeButton();
-    document.getElementById('ocrnote').textContent = t('imageNote');
+    document.getElementById('ocrnote').textContent = imageCopy('Chat receives attachment text and any grayscale layout preview.', 'В чат отправляются текст вложения и доступная чёрно-белая схема.');
     document.getElementById('context-panel').setAttribute('aria-label', t('context'));
     if (!running && !preparing && !submitting) state.textContent = lastStatus || t('ready');
     const previous = lastMessages ? JSON.parse(lastMessages) : [];
     lastMessages = null; render(previous); renderBudget(lastAccount);
-    renderAttachments(lastAttachments);
+    renderAttachments(lastAttachments); renderImageControls();
     if(lastQuote) drawQuote(lastQuote);
     refreshControlHelp();
     saveState();
@@ -798,6 +802,8 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   let lastSignedIn = false;
   let lastStatus = '';
   let lastAttachments = [];
+  let imageReview = null, imageCanInclude = false, includedImage = null;
+  const imageCopy = (en, ru) => locale === 'ru' ? ru : en;
   let lastAccount = null;
   let lastAuthState = 'loading', lastAuthError = '', activeWorkspaceLabel = '';
   function accountActionLabel() {
@@ -925,11 +931,11 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       row.append(remove); box.append(row);
     }
   }
-  function submitText(text, mode, from = '', bridgeId = null) {
+  function submitText(text, mode, from = '', bridgeId = null, imageObservation = null) {
     submitting = true; liveQuestion = text; lastSubmitted = text; liveFrom = from; submittedBridgeId = bridgeId; controls();
     // Clear the composer at once; a refused request puts the text back.
     if (question.value.trim() === text) { question.value = ''; saveDraft(); }
-    post({type:'ask', question:text, agent: mode !== 'chat', plan: mode === 'plan', ...(from ? {from} : {}), ...(bridgeId ? {bridgeId} : {})});
+    post({type:'ask', question:text, agent: mode !== 'chat', plan: mode === 'plan', ...(from ? {from} : {}), ...(bridgeId ? {bridgeId} : {}), ...(imageObservation ? {imageObservation} : {})});
     render(lastItems);
   }
   function drainFollowUps() {
@@ -951,6 +957,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     document.getElementById('cancel').title = running ? (uiMode !== 'chat' ? t('agentStop') : t('cancel')) : t('resolvePending');
     document.getElementById('clear-context').disabled = blocked;
     for (const button of attached.querySelectorAll('button')) button.disabled = blocked;
+    renderImageControls();
     renderModeMenu();
   }
   let lastItems = [];
@@ -1037,7 +1044,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
         const preview = document.createElement('img'); preview.src = item.preview; preview.alt = item.name; row.append(preview);
       }
       const label = document.createElement('div'); label.className = 'label'; label.textContent = item.name;
-      const detail = document.createElement('small'); detail.textContent = (item.kind === 'image' ? t(item.layout ? 'imageLayout' : 'ocr') : t('fileContext')) + ' · ' + Math.ceil(item.size / 1024) + ' KiB'; label.append(detail);
+      const detail = document.createElement('small'); detail.textContent = (item.kind === 'image' ? item.layout ? imageCopy(item.hasOcr ? 'OCR and grayscale layout' : 'Grayscale layout', item.hasOcr ? 'OCR и чёрно-белая схема' : 'Чёрно-белая схема') : item.hasOcr ? 'OCR' : imageCopy('Image preview', 'Предпросмотр изображения') : t('fileContext')) + ' · ' + Math.ceil(item.size / 1024) + ' KiB'; label.append(detail);
       const inspect = document.createElement('button'); inspect.type = 'button'; inspect.textContent = t('preview'); inspect.disabled = running || submitting || preparing;
       inspect.addEventListener('click', () => post({type:'previewAttachment',id:item.id})); label.append(inspect);
       const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.title = 'Remove ' + item.name; remove.setAttribute('aria-label', remove.title); remove.disabled = running || submitting || preparing;
@@ -1047,6 +1054,52 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       const contextLabel = document.createElement('span'); contextLabel.textContent = item.name;
       const removeContext = document.createElement('button'); removeContext.type = 'button'; removeContext.textContent = '×'; removeContext.title = t('remove'); removeContext.setAttribute('aria-label', t('remove') + ' ' + item.name); removeContext.addEventListener('click', () => post({type:'removeAttachment',id:item.id}));
       contextRow.append(contextLabel, removeContext); contextItems.append(contextRow);
+    }
+  }
+  function renderImageControls() {
+    const box = document.getElementById('image-analysis');
+    const item = lastAttachments.length === 1 && lastAttachments[0].kind === 'image' ? lastAttachments[0] : null;
+    box.replaceChildren();
+    box.hidden = !item;
+    const mayInclude = uiMode === 'chat' && imageCanInclude;
+    if (!mayInclude) includedImage = null;
+    if (!item) return;
+    const review = imageReview?.attachmentId === item.id ? imageReview : null;
+    const disabled = running || submitting || preparing || uploading;
+    const label = (text, tag = 'small') => {
+      const element = document.createElement(tag);
+      element.textContent = text;
+      box.append(element);
+    };
+    const button = (text, action, blocked = disabled) => {
+      const element = document.createElement('button');
+      element.type = 'button';
+      element.textContent = text;
+      element.disabled = blocked;
+      element.addEventListener('click', action);
+      box.append(element);
+      return element;
+    };
+    if (review?.state === 'running') {
+      label(imageCopy('Codex is analyzing this image…', 'Codex анализирует изображение…'));
+      button(imageCopy('Cancel analysis', 'Отменить анализ'), () => post({type:'cancelImageAnalysis',id:review.id}), false);
+    } else if (review?.state === 'ready') {
+      label(imageCopy('Codex requested ', 'Запрошенная модель Codex ') + review.requestedModel +
+        imageCopy(' · Served ', ' · Ответила ') + review.servedModel + ' · ' + review.evidence);
+      label(review.observation, 'p');
+      if (mayInclude) {
+        const include = button(imageCopy('Include observation in next DS41F Chat message', 'Включить описание в следующее сообщение DS41F'), () => {
+          includedImage = includedImage === review.id ? null : review.id;
+          include.setAttribute('aria-pressed', String(includedImage === review.id));
+        });
+        include.setAttribute('aria-pressed', String(includedImage === review.id));
+      } else label(imageCopy('Select local Chat with DS41F to include the observation.', 'Чтобы приложить описание, выберите локальный чат с DS41F.'));
+    } else {
+      if (review?.state === 'unavailable') label(review.reason + ' ' + imageCopy('Codex served model unconfirmed.', 'Ответившая модель Codex не подтверждена.'));
+      if (item.canAnalyze) {
+        button(imageCopy('Send pixels to Codex for analysis', 'Отправить изображение в Codex'), () => post({type:'analyzeImage',id:item.id}));
+        label(imageCopy('Uses your ChatGPT subscription on the extension host.', 'Используется ваша подписка ChatGPT на хосте расширения.'));
+      } else label(imageCopy('Image analysis needs a color frame decoded by FFmpeg on the extension host.', 'Для анализа нужен цветной кадр, декодированный FFmpeg на хосте расширения.'));
     }
   }
   function uploadNext() {
@@ -1196,7 +1249,11 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       drawRecovery();
       preparing = !!data.attaching;
       pending = !!data.pending;
-      controls(); renderAttachments(data.attachments || []);
+      const nextReview = data.imageAnalysis || null;
+      if (includedImage !== nextReview?.id) includedImage = null;
+      imageReview = nextReview;
+      imageCanInclude = data.imageCanInclude === true;
+      renderAttachments(data.attachments || []); controls();
       lastSignedIn = !!data.signedIn;
       lastAccount = data.account || null;
       lastAuthState = data.authState || (lastSignedIn ? 'signed_in' : 'signed_out'); lastAuthError = data.authError || '';
@@ -1261,7 +1318,9 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     if (running || submitting) { followUps.push({text, mode:uiMode}); question.value = ''; saveDraft(); drawFollowUps(); return; }
     if (uiMode !== 'chat' && !workspaceAvailable) { openFolderBrowser(); return; }
     followPaused = false;
-    submitText(text, uiMode);
+    const observation = uiMode === 'chat' && imageCanInclude ? includedImage : null;
+    includedImage = null;
+    submitText(text, uiMode, '', null, observation);
   });
   question.addEventListener('keydown', event => {
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); document.getElementById('form').requestSubmit(); }
