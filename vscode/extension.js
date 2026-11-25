@@ -994,9 +994,8 @@ function activate(context) {
     const baseGuard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
     let fullGrant = planMode ? null : fullAccess.capture(folder);
     let verifyAgentSavedFiles = () => {};
-    const useHarness = () => orchestration.enabled() && !fullGrant?.extra;
     let imageModel = () => 'ds41f';
-    const imageGuard = () => assertImageRoute(image, auth, imageModel(), useHarness());
+    const imageGuard = () => assertImageRoute(image, auth, imageModel(), orchestration.enabled() && !fullGrant?.extra);
     const guard = async() => {
       await baseGuard();
       if (image) imageGuard();
@@ -1007,7 +1006,7 @@ function activate(context) {
     if (attachmentScope !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account or thread changed before the agent started.');
     const api = core.createClient({ base: auth.api_base });
     const config = vscode.workspace.getConfiguration('tvijo');
-    if (useHarness()) return runHarnessFlow({goal,modelGoal,auth,folder,agentScope,planMode,guard,fullGrant,config});
+    if (orchestration.enabled() && !fullGrant?.extra) return runHarnessFlow({goal,modelGoal,auth,folder,agentScope,planMode,guard,fullGrant,config});
     const maxSteps = config.get('agentMaxSteps', 60);
     let budgetUsd = budgetLimit===null ? config.get('agentBudgetUsd', 2) : Math.min(config.get('agentBudgetUsd',2),budgetLimit);
     const taskBudget=require('./lib/task-limits').createTaskBudget(budgetUsd);
