@@ -4,7 +4,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
+const fsSync = require('node:fs');
 const {createRulesHost} = require('../lib/rules-host');
+const {resolveFolder} = require('../lib/active-workspace');
 
 async function fixture() {
   const root = await fs.mkdtemp(path.join(process.env.TVIJO_TEST_ARTIFACTS || os.tmpdir(),'trust-host-'));
@@ -47,6 +49,9 @@ test('0.10.8 whole-file secrets are scanned before 32 KiB aggregate truncation',
  const f=await fixture();await fs.writeFile(path.join(f.root,'AGENTS.md'),'a'.repeat(40000)+'\nsecret=DO_NOT_SEND');
  let r=await f.host.collect({});assert.equal(r.summary.rules.files.find(x=>x.file==='AGENTS.md').reason,'credential-content');assert.doesNotMatch(r.rulesText,/DO_NOT_SEND/);
  await fs.writeFile(path.join(f.root,'AGENTS.md'),'a'.repeat(40000));r=await f.host.collect({});assert.ok(Buffer.byteLength(r.rulesText)<=32768);assert.equal(r.summary.rules.truncated,true);assert.match(r.rulesText,/TRUNCATED/);
+ const tracker = f.host.beginTask(f.folder);
+ assert.equal(tracker.approvalRequired, false);
+ assert.equal(f.host.snapshot({folder:f.folder}).scanTruncated, false);
 });
 
 test('judgefix task fingerprints quarantine rule changes, creations and deletions across host restarts',async()=>{
@@ -82,6 +87,85 @@ test('judgefix2 bounded fingerprint scan exposes truncation and requires command
   const host=createRulesHost({...f.options,scanOptions:limits}),tracker=host.beginTask(f.folder);assert.equal(tracker.scanTruncated,true);assert.equal(tracker.approvalRequired,true);await tracker.check();assert.equal(host.scanTruncated(),true);assert.equal((await host.collect({})).summary.rules.scanTruncated,true);
  }
 });
+
+test('ignored nested rule edits, creations, deletions and renames quarantine before a later collection', async () => {
+  const f = await fixture();
+  const dir = path.join(f.root, 'plans', 'ignored-draft');
+  await fs.mkdir(path.join(dir, '.tvijo'), {recursive:true});
+  await fs.writeFile(path.join(f.root, '.gitignore'), 'plans/ignored-draft/\n');
+  await fs.writeFile(path.join(dir, 'AGENTS.md'), 'BASELINE_RULE');
+  await fs.writeFile(path.join(dir, '.tvijo', 'rules.md'), 'RULE_TO_DELETE');
+  await fs.writeFile(path.join(dir, '.cursorrules'), 'RULE_TO_RENAME');
+  const tracker = f.host.beginTask(f.folder);
+  assert.equal(tracker.approvalRequired, false);
+  assert.deepEqual(await tracker.check(), []);
+
+  await fs.writeFile(path.join(dir, 'AGENTS.md'), 'EDITED_RULE_CANARY');
+  await fs.writeFile(path.join(dir, 'CLAUDE.md'), 'CREATED_RULE_CANARY');
+  await fs.unlink(path.join(dir, '.tvijo', 'rules.md'));
+  await fs.rename(path.join(dir, '.cursorrules'), path.join(dir, '.windsurfrules'));
+  const changed = await tracker.check();
+  assert.deepEqual(changed.map(row => row.file.slice('plans/ignored-draft/'.length)).sort(),
+    ['.cursorrules', '.tvijo/rules.md', '.windsurfrules', 'AGENTS.md', 'CLAUDE.md']);
+  assert.equal(tracker.scanTruncated, false);
+  assert.equal(tracker.approvalRequired, true);
+
+  const restarted = createRulesHost(f.options);
+  const folder = resolveFolder(f.vscode, {uri:f.uri(dir)});
+  const next = await restarted.collect({folder});
+  assert.doesNotMatch(next.rulesText, /EDITED_RULE_CANARY|CREATED_RULE_CANARY|RULE_TO_RENAME/);
+  assert.equal(next.summary.rules.files.filter(row => row.quarantined).length, changed.length);
+});
+
+test('opening an unreadable subtree marks coverage incomplete and latches command approval', async () => {
+  const f = await fixture();
+  const dir = path.join(f.root, 'unreadable');
+  await fs.mkdir(dir);
+  const tracker = f.host.beginTask(f.folder);
+  assert.equal(tracker.approvalRequired, false);
+
+  const original = fsSync.opendirSync;
+  fsSync.opendirSync = function (absolute, ...options) {
+    if (absolute === dir) throw Object.assign(Error('test directory open denied'), {code:'EACCES'});
+    return original.call(this, absolute, ...options);
+  };
+  try {
+    await tracker.check();
+  } finally {
+    fsSync.opendirSync = original;
+  }
+  assert.equal(tracker.scanTruncated, true);
+  assert.equal(tracker.approvalRequired, true);
+  assert.equal(f.host.snapshot({folder:f.folder}).scanTruncated, true);
+  assert.deepEqual(await tracker.check(), []);
+  assert.equal(tracker.approvalRequired, true);
+});
+
+test('replacing a scanned subtree with an outside symlink quarantines the original rule path', async t => {
+  const f = await fixture();
+  const dir = path.join(f.root, 'rules-subtree');
+  const outside = path.join(f.options.storageRoot, 'outside');
+  await fs.mkdir(dir);
+  await fs.mkdir(outside);
+  await fs.writeFile(path.join(dir, 'AGENTS.md'), 'IN_SCOPE_RULE');
+  await fs.writeFile(path.join(outside, 'AGENTS.md'), 'OUTSIDE_RULE_CANARY');
+  const tracker = f.host.beginTask(f.folder);
+  await fs.rename(dir, path.join(f.options.storageRoot, 'retired'));
+  try {
+    await fs.symlink(outside, dir, 'dir');
+  } catch (error) {
+    if (error.code === 'EPERM' || error.code === 'EACCES') return t.skip('symlink creation unavailable');
+    throw error;
+  }
+
+  const changed = await tracker.check();
+  assert.deepEqual(changed.map(row => [row.file, row.fingerprint]), [['rules-subtree/AGENTS.md', 'missing']]);
+  assert.equal(tracker.approvalRequired, true);
+  const selected = f.host.snapshot({folder:{uri:f.uri(dir)}});
+  assert.equal(selected.status, 'unavailable');
+  assert.equal(selected.text, '');
+});
+
 test('judgefix2 quarantine is canonical-path persistent and account scoped',async()=>{
  const f=await fixture();let account='account-A';const options={...f.options,accountScope:()=>account};const host=createRulesHost(options),tracker=host.beginTask(f.folder);await fs.writeFile(path.join(f.root,'AGENTS.md'),'ACCOUNT_RULE_CANARY');await tracker.check();assert.doesNotMatch((await host.collect({})).rulesText,/ACCOUNT_RULE_CANARY/);
  account='account-B';assert.match((await host.collect({})).rulesText,/ACCOUNT_RULE_CANARY/);account='account-A';assert.doesNotMatch((await createRulesHost(options).collect({})).rulesText,/ACCOUNT_RULE_CANARY/);

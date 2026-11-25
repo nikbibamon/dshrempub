@@ -4,14 +4,32 @@ The extension sends a question, conversation history, selected code and explicit
 attached text to the configured service when you press **Ask**. It does not scan your
 workspace automatically. A file chosen, pasted or dropped from your computer is first
 transferred to the VS Code extension host (the SSH server in a Remote SSH window).
-Image text is extracted there with Tesseract, without an upstream model call. Images
-are not sent to a vision model. Only extracted text is submitted with the question.
+Tesseract extracts text there. FFmpeg, when installed, generates a small grayscale
+text thumbnail for layout. Both run on the extension host. When you press **Ask**,
+the service receives the previewed text and thumbnail. The original image file
+stays on the extension host.
+
+**Send pixels to Codex for analysis** is a separate action for one PNG or JPEG.
+FFmpeg prepares one color PNG without source metadata. The verified Codex CLI
+sends that frame directly to ChatGPT under the CLI account's subscription. The
+image request carries a fixed observation prompt and a generic attachment label.
+Draft text, chat history, project files and rules are outside the request. The
+CLI runs with an isolated filesystem and a tool-free profile on supported Linux
+x64 extension hosts. This action uses the account's Codex allowance.
+
+Tvijo writes the normalized frame and invocation state to a private temporary
+directory under its extension-host storage for this action and removes it
+when the helper returns. The observation stays in the composer until dismissed,
+superseded, or explicitly included in a local DS41F Chat, Agent, or Plan request. Inclusion
+sends quoted observation text as part of that ordinary Tvijo request. OpenAI's
+processing of the separate image request follows the ChatGPT account's data
+controls and terms.
 Avoid selecting credentials or private data you are not authorized to send.
 
 Unsubmitted attachments and image previews remain in extension-host memory until sent,
-removed, or the host reloads. They are not written to temporary files by this extension.
-After submission, file contents and OCR text are part of conversation history; original
-image bytes are not. The composer draft is kept in VS Code webview state. A separate
+removed, or the host reloads.
+Submitted file text, OCR and thumbnails can enter conversation history. The composer
+draft is kept in VS Code webview state. A separate
 **Add file to my knowledge base** command requires confirmation and stores the file's
 text in the service knowledge base. Attaching a file to a question does not add it there.
 

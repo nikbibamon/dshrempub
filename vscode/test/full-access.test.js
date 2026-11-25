@@ -112,9 +112,9 @@ test('an explicitly approved folder survives a host helper restart with the same
   const x=setup();await x.access.enable(x.first);const restored=createFullAccess({vscode:x.vscode,state:x.state,scope:f=>f===x.first?a:b});assert.equal(restored.status(x.first).enabled,true);assert.equal(restored.status(x.second).enabled,false);await restored.disable(x.first);assert.equal(x.access.status(x.first).enabled,false);
 });
 
-test('judgefix2 Full access consent and helper plainly document inherited-environment and post-write quarantine limitations EN/RU',async()=>{
+test('judgefix2 Full access consent documents its inherited-environment and quarantine limits separately from Auto EN/RU',async()=>{
  const {FULL_ACCESS_LIMITS}=require('../lib/full-access');const {SETTINGS_HELP}=require('../lib/settings-guide');
- for(const locale of ['en','ru']){const x=setup(locale);assert.equal(await x.access.enable(x.first),true);assert.ok(FULL_ACCESS_LIMITS?.[locale]);assert.ok(x.prompts[0].options.detail.includes(FULL_ACCESS_LIMITS[locale]));assert.ok(SETTINGS_HELP['tvijo.agentAutoRun'][locale].includes(FULL_ACCESS_LIMITS[locale]));}
+ for(const locale of ['en','ru']){const x=setup(locale);assert.equal(await x.access.enable(x.first),true);assert.ok(FULL_ACCESS_LIMITS?.[locale]);assert.ok(x.prompts[0].options.detail.includes(FULL_ACCESS_LIMITS[locale]));assert.ok(!SETTINGS_HELP['tvijo.agentAutoRun'][locale].includes(FULL_ACCESS_LIMITS[locale]));}
  assert.match(FULL_ACCESS_LIMITS.en,/quarantined, not prevented/);assert.match(FULL_ACCESS_LIMITS.en,/rewrites its own environment is not stopped/);
 });
 

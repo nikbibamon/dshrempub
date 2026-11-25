@@ -29,11 +29,18 @@ body #settings{flex:0 0 27px;font-size:16px}body #plus{flex:0 0 26px}
 body #state{min-height:0;flex:0 0 auto;font-size:11px;padding:0 12px;max-height:36px;overflow:auto}body #state:empty{display:none}
 body #activity{flex:0 0 auto;border:0;background:transparent;padding:2px 4px;margin:0 12px 3px}
 body #notice{order:9;flex:0 0 auto;margin:0 12px 8px;padding:6px 8px;max-height:120px;overflow:auto;border-color:var(--border);border-left:2px solid var(--bad);font-size:11px}body #notice.visible{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 8px}body #notice p{margin:0;flex:1 1 180px;min-width:0;overflow-wrap:break-word}body #notice button{flex:0 1 auto;max-width:100%;white-space:normal;overflow-wrap:break-word;text-align:left}
-body #settings-drawer{position:absolute;top:10px;bottom:152px;right:10px;left:10px;z-index:5;overflow:auto;padding:10px;background:var(--vscode-sideBar-background,var(--surface));border:1px solid var(--border);border-radius:9px;box-shadow:0 8px 24px #0005;min-height:120px}
+body #settings-drawer{position:absolute;top:10px;bottom:152px;right:10px;left:10px;z-index:5;display:flex;flex-direction:column;overflow:hidden;padding:0;background:var(--vscode-sideBar-background,var(--surface));border:1px solid var(--border);border-radius:9px;box-shadow:0 8px 24px #0005;min-height:120px}
+body #settings-drawer[hidden]{display:none}
+#drawer-header{flex:0 0 auto;padding:8px 10px 0;border-bottom:1px solid var(--border);background:var(--vscode-sideBar-background,var(--surface))}
+#drawer-title{flex:1;min-width:0}#drawer-close,#drawer-back{flex:0 0 28px;min-height:28px}
+#settings-home{flex:1;min-height:0;overflow:auto;padding:10px}#settings-home[hidden]{display:none}
 .drawer-heading,.drawer-tools{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.drawer-heading{justify-content:space-between;margin-bottom:5px}.drawer-tools{padding:7px 0;border-bottom:1px solid var(--border)}
 body #settings-drawer nav{padding:0;gap:2px}body #settings-drawer nav button{padding:6px;font-size:11px}body #settings-drawer .product-links{display:flex;padding:7px 0;border:0;gap:4px}body #settings-drawer .product-links button{width:auto;font-size:11px}
 body #settings-drawer #account-status{flex-wrap:wrap;padding:7px 0}body #settings-drawer #budget{margin-left:0;white-space:normal}body #history-note{margin:7px 0;padding:0;line-height:1.5}body #settings-drawer #recovery{padding:7px 0;max-height:none}
-body #context-panel.visible{flex:1;min-height:0;overflow:auto;max-height:none;margin:10px 12px}
+body #context-panel.visible{flex:1;min-height:0;overflow:auto;max-height:none;margin:10px;border:0;padding:0;background:transparent}
+#context-summary:empty{display:none}
+#mode-menu [aria-disabled="true"]{opacity:.55;cursor:help}
+#menu-tooltip{position:fixed;z-index:30;box-sizing:border-box;width:max-content;max-width:min(380px,calc(100vw - 16px));max-height:min(50vh,420px);overflow:auto;padding:10px 12px;border:1px solid var(--vscode-contrastBorder,var(--border));border-radius:7px;background:var(--vscode-editorHoverWidget-background,var(--raised));color:var(--vscode-editorHoverWidget-foreground,var(--text));font-size:12px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;box-shadow:0 4px 18px #0005}
 body[data-view="simple"] #agent-details,body[data-view="simple"] .task-footer{display:none}
 body[data-view="engineering"] #agent-details:not([hidden]){display:flex;flex:0 0 auto;flex-direction:column;box-sizing:border-box;min-height:0;max-height:max(70px,30vh);margin:0 8px 5px;border:1px solid var(--accent);border-radius:7px;background:var(--raised);overflow:hidden}
 body #agent-details[data-collapsed="true"]{height:auto;max-height:none}
