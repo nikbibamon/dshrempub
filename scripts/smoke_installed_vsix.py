@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the installed Tvijo extension in a real Linux editor (Python 3.11+, Playwright, X display).
+"""Exercise the installed extension in native Tvijo Code on Linux (Python 3.11+, Playwright, X display).
 
 Example: xvfb-run -a python3 scripts/smoke_installed_vsix.py --editor /path/to/code
          --vsix /path/to/package.vsix --sha256 <expected-digest> --evidence-dir /volume/qa
@@ -19,11 +19,44 @@ import tempfile
 import time
 import zipfile
 
-from playwright.sync_api import expect, sync_playwright
+def isolated_paths(run, short, source_env):
+    """Create owned storage. Use a short alias for paths used by Unix sockets."""
+    for name in (
+        'extensions', 'shared-data', 'workspace', 'tmp', 'runtime', 'xdg-config',
+        'xdg-data', 'xdg-cache', 'xdg-state', 'profile/User',
+    ):
+        (run / name).mkdir(mode=0o700, parents=True)
+    short.symlink_to(run, target_is_directory=True)
+    env = {key: source_env[key] for key in (
+        'HOME', 'PATH', 'DISPLAY', 'XAUTHORITY', 'LANG',
+    ) if key in source_env}
+    env.update(
+        SHELL='/bin/sh',
+        XDG_CONFIG_HOME=str(run / 'xdg-config'),
+        XDG_DATA_HOME=str(run / 'xdg-data'),
+        XDG_CACHE_HOME=str(run / 'xdg-cache'),
+        XDG_STATE_HOME=str(run / 'xdg-state'),
+        XDG_RUNTIME_DIR=str(short / 'runtime'),
+        TMPDIR=str(short / 'tmp'),
+    )
+    return env
+
+
+def editor_flags(short):
+    flags = [
+        '--user-data-dir', str(short / 'profile'),
+        '--extensions-dir', str(short / 'extensions'),
+        '--shared-data-dir', str(short / 'shared-data'),
+    ]
+    if os.geteuid() == 0:
+        flags.append('--no-sandbox')
+    return flags
 
 
 def palette(page, title):
-    page.keyboard.press('F1')
+    from playwright.sync_api import expect
+
+    page.keyboard.press('Control+Shift+p')
     widget = page.locator('.quick-input-widget:visible')
     widget.locator('input').fill('>' + title)
     first = widget.locator('.monaco-list-row').first
@@ -32,17 +65,27 @@ def palette(page, title):
 
 
 def visible_in_webview(page, selector):
+    from playwright.sync_api import Error as PlaywrightError
+
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
         for frame in page.frames:
-            control = frame.locator(selector)
-            if frame != page.main_frame and control.first.is_visible():
-                return control.first
+            if frame == page.main_frame or frame.is_detached():
+                continue
+            control = frame.locator(selector).first
+            try:
+                if control.is_visible():
+                    return control
+            except PlaywrightError:
+                if not frame.is_detached():
+                    raise
         page.wait_for_timeout(150)
     raise RuntimeError(f'Editor webview did not display {selector}')
 
 
 def exercise(page, run, version, commit):
+    from playwright.sync_api import expect
+
     page.set_default_timeout(15000)
     page.locator('.monaco-workbench').wait_for()
     # Only this run's empty, locally created workspace is trusted via the normal UI.
@@ -72,11 +115,14 @@ def exercise(page, run, version, commit):
     return observed
 
 
-def exercise_editor(editor, profile, run, env, version, commit):
-    flags = ['--user-data-dir', str(profile), '--extensions-dir', str(run / 'extensions')]
+def exercise_editor(editor, run, flags, env, version, commit):
+    from playwright.sync_api import sync_playwright
+
+    profile = run / 'profile'
     with (run / 'editor.log').open('x') as log:
         process = subprocess.Popen([
-            editor, *flags, '--locale=en', '--disable-gpu', '--skip-welcome', '--skip-release-notes',
+            editor, *flags, '--disable-layout-restore', '--use-inmemory-secretstorage',
+            '--locale=en', '--disable-gpu', '--skip-welcome', '--skip-release-notes',
             '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0', run / 'workspace',
         ], cwd=run, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
@@ -126,26 +172,33 @@ def main():
         parser.error('VSIX identity or BUILD_INFO version mismatch')
     editor = args.editor.resolve(strict=True)
     cli = (args.cli or editor.parent / 'bin' / editor.name).resolve(strict=True)
+    if cli != editor.parent / 'bin' / editor.name:
+        parser.error('Use the CLI bundled with the native editor')
+    # Fail before either entry point can fall back to product-wide shared storage.
+    cli_bundle = editor.parent / 'resources/app/out/cli.js'
+    if not cli_bundle.is_file() or b'--shared-data-dir' not in cli_bundle.read_bytes():
+        parser.error('The native editor must support --shared-data-dir')
     run = Path(tempfile.mkdtemp(prefix='tvijo-native-', dir=args.evidence_dir.resolve(strict=True)))
     print(f'Evidence: {run}', flush=True)
-    for name in ('home', 'extensions', 'workspace', 'tmp', 'profile/User'):
-        (run / name).mkdir(mode=0o700, parents=True)
-    profile = run / 'profile'
-    (profile / 'User/settings.json').write_text(json.dumps({
-        'extensions.autoCheckUpdates': False, 'extensions.autoUpdate': False,
-        'update.mode': 'none', 'telemetry.telemetryLevel': 'off',
-    }))
-    env = {key: os.environ[key] for key in ('PATH', 'DISPLAY', 'XAUTHORITY', 'LANG') if key in os.environ}
-    # Unix sockets have a short path limit. Keep profiles and editor scratch data on the evidence volume.
     with tempfile.TemporaryDirectory(prefix='tvijo-ipc-', dir='/tmp') as ipc:
-        short_tmp = Path(ipc) / 'tmp'
-        short_tmp.symlink_to(run / 'tmp', target_is_directory=True)
-        env.update(HOME=str(run / 'home'), SHELL='/bin/sh', XDG_RUNTIME_DIR=ipc, TMPDIR=str(short_tmp))
+        short = Path(ipc) / 'run'
+        env = isolated_paths(run, short, os.environ)
+        flags = editor_flags(short)
+        (run / 'profile/User/settings.json').write_text(json.dumps({
+            'extensions.autoCheckUpdates': False, 'extensions.autoUpdate': False,
+            'update.mode': 'none', 'telemetry.telemetryLevel': 'off',
+        }))
+        (run / 'isolation.json').write_text(json.dumps({
+            'home_preserved': env.get('HOME') == os.environ.get('HOME'),
+            'profile_flags': flags,
+            'shared_data_dir': str(run / 'shared-data'),
+            'scratch_dirs': {key: value for key, value in env.items()
+                             if key.startswith('XDG_') or key == 'TMPDIR'},
+        }, indent=2) + '\n')
         with (run / 'install.log').open('x') as log:
-            subprocess.run([cli, '--user-data-dir', profile, '--extensions-dir', run / 'extensions',
-                            '--install-extension', archive], cwd=run, env=env, stdout=log,
+            subprocess.run([cli, *flags, '--install-extension', archive], cwd=run, env=env, stdout=log,
                            stderr=subprocess.STDOUT, check=True, timeout=90)
-        observed = exercise_editor(editor, profile, run, env, version, commit)
+        observed = exercise_editor(editor, run, flags, env, version, commit)
     receipt = dict(observed_at=datetime.now(timezone.utc).isoformat(), sha256=digest, **observed,
                    guide_rendered=True, chat_composer_edited=True, chat_submitted=False)
     (run / 'activation.json').write_text(json.dumps(receipt, indent=2) + '\n')

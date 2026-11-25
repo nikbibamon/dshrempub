@@ -1,3 +1,10 @@
+## 0.10.39 — 2026-11-25 (prepared VSIX preview)
+
+- **Save Auto settings during an Agent task.** Agent Auto Run and Agent Auto Apply save in Settings. A saved change takes effect at the next eligible operation of the current task. A successful refresh of the same session preserves an in-flight save. Incomplete project rules still require confirmation for Auto commands. Full access still requires separate consent.
+- **Reconnect after a transport interruption.** Reconnect retries verification with the saved valid session and restores access to history, attachments and sending. Expired or rejected sessions require sign-in. The deployed gateway issues 24-hour device sessions.
+- **Optional image analysis through your ChatGPT subscription.** Attach one PNG or JPEG and explicitly choose **Send pixels to Codex for analysis**. The Linux x64 extension host needs FFmpeg, Codex CLI 0.171.0, Bubblewrap and ChatGPT sign-in. One bounded color frame goes to Codex. Local OCR and the grayscale text thumbnail remain available. Choose **Include observation in next DS41F request** to add the returned description to a local Chat, Agent or Plan turn. The ordinary model selection, tool permissions and budget rules still apply. A native Windows extension host has no supported analyzer in this preview.
+- **Update the extension.** Install the verified VSIX when its channel publishes it and reload the editor. Existing settings, history and grants carry over. Published editor installers and the standalone CLI have separate releases.
+
 ## 0.10.38 — 2026-11-23 (unreleased local VSIX candidate)
 
 - **Auto applies to the current Agent task.** A saved Manual, Edit or Auto change takes effect at the next eligible operation. Full access still requires separate consent.

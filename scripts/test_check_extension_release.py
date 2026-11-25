@@ -83,6 +83,28 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual(result['catalog_copies'], 1)
         self.assertTrue(result['prepared_assets_checked'])
 
+    def test_native_editor_fields_and_public_links_are_validated(self):
+        native = deepcopy(self.data['native_editor'])
+        invalid = [
+            None,
+            {**native, 'unrecognized': 'extra'},
+            {**native, 'version': ['1.140.07216']},
+            {**native, 'published_at': '2026-02-30T12:00:00Z'},
+            {**native, 'download': 'https://elsewhere.invalid/download'},
+            {**native, 'receipt': native['receipt'].replace('tvijocode', 'another-repo')},
+            {**native, 'article': {**native['article'], 'ru': 'https://tvijo.com.evil.invalid/wiki/ru/article/'}},
+            {**native, 'not_verified': 'interactive sign-in'},
+        ]
+        for value in invalid:
+            with self.subTest(value=value):
+                self.data['native_editor'] = value
+                self.prepare()
+                self.assert_rejected('native_editor')
+        self.data['native_editor'] = native
+        self.data['unrecognized'] = {}
+        self.prepare()
+        self.assert_rejected('Unexpected public catalog fields')
+
     def tagged_source(self):
         root = self.directory / 'tagged-source'
         root.mkdir()
@@ -115,7 +137,9 @@ class ReleaseCheckTests(unittest.TestCase):
         # A candidate can be ahead of the published catalog. Prepare a private
         # catalog for its real archive while retaining the public release history.
         if version != self.version:
-            self.data['releases'].insert(0, {'version': version})
+            history = self.data['releases']
+            candidate = next((row for row in history if row['version'] == version), {'version': version})
+            self.data['releases'] = [candidate] + [row for row in history if row['version'] != version]
         self.data['latest_version'] = version
         self.data['package'].update(filename=f'tvijo-dshrem-{version}.vsix',
                                     editor_requirement=package['engines']['vscode'])

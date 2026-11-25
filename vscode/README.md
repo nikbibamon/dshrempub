@@ -1,13 +1,10 @@
 <!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
-## What's new in 0.10.38 — 2026-11-23 (unreleased local VSIX candidate)
+## What's new in 0.10.39 — 2026-11-25 (prepared VSIX preview)
 
-- **Auto applies to the current Agent task.** A saved Manual, Edit or Auto change takes effect at the next eligible operation. Full access still requires separate consent.
-- **Scan rules in larger workspaces.** The bounded scan covers up to 16,384 directories and 300,000 entries. An incomplete scan still requires confirmation for Auto commands. Rules changed outside an approved direct edit remain subject to quarantine.
-- **Reconnect a saved session.** Choose **Reconnect** after a temporary account verification failure. History, attachments and sending become available after verification. An expired or rejected session requires sign-in.
-- **Auto saves survive a same-session refresh.** A successful check of the same saved session keeps a pending Auto save. A changed, expired, rejected or unverifiable session still blocks that save.
-- **Image context uses text.** Screenshots contribute OCR text and can include a grayscale text thumbnail when FFmpeg is available.
-- **Gateway session lifetime.** The deployed gateway still issues 24-hour device sessions. The server-side lifetime change is tracked separately.
-- **Candidate history.** This build supersedes local candidates 0.10.36 and 0.10.37.
+- **Save Auto settings during an Agent task.** Agent Auto Run and Agent Auto Apply save in Settings. A saved change takes effect at the next eligible operation of the current task. A successful refresh of the same session preserves an in-flight save. Incomplete project rules still require confirmation for Auto commands. Full access still requires separate consent.
+- **Reconnect after a transport interruption.** Reconnect retries verification with the saved valid session and restores access to history, attachments and sending. Expired or rejected sessions require sign-in. The deployed gateway issues 24-hour device sessions.
+- **Optional image analysis through your ChatGPT subscription.** Attach one PNG or JPEG and explicitly choose **Send pixels to Codex for analysis**. The Linux x64 extension host needs FFmpeg, Codex CLI 0.171.0, Bubblewrap and ChatGPT sign-in. One bounded color frame goes to Codex. Local OCR and the grayscale text thumbnail remain available. Choose **Include observation in next DS41F request** to add the returned description to a local Chat, Agent or Plan turn. The ordinary model selection, tool permissions and budget rules still apply. A native Windows extension host has no supported analyzer in this preview.
+- **Update the extension.** Install the verified VSIX when its channel publishes it and reload the editor. Existing settings, history and grants carry over. Published editor installers and the standalone CLI have separate releases.
 
 Earlier versions: the **Changelog** tab.
 <!-- changelog-latest:end -->
@@ -65,7 +62,7 @@ Choose **Configuration file example** in the help section or run **Tvijo: Open c
 
 # Tvijo DSHREM for VS Code
 
-Version 0.10.38. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.39. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 
@@ -604,8 +601,16 @@ are refused. Workspace paths must remain inside an open workspace folder; symlin
 are refused. Unsupported binary formats such as PDF are not silently converted.
 
 Attachments are context for the next question, separate from your knowledge base.
-Nothing is sent to the model until Ask. The draft and attachments remain after a failed
-question. Successfully sent attachments are removed from the composer. Original files
+Local OCR and the grayscale text thumbnail are still part of ordinary attachment
+context. The separate **Send pixels to Codex for analysis** action uses one decoded
+color frame from one attached PNG or JPEG. It needs FFmpeg, a Linux x64 extension
+host, Codex CLI 0.171.0, Bubblewrap and an existing ChatGPT subscription sign-in.
+Native Windows users can use the helper through a supported Linux x64 remote
+extension host. Choose **Include observation in next DS41F request** to attach the
+description as quoted data to a local Chat, Agent or Plan request. Shared, BYOK
+and Harness routes are excluded. Ordinary Ask sends its context when submitted.
+
+The draft and attachments remain after a failed question. Successfully sent attachments are removed from the composer. Original files
 and image previews are not stored in conversation history. Draft text survives hiding
 or restoring the view; unsubmitted attachments are kept only in extension-host memory.
 

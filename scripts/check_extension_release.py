@@ -5,6 +5,7 @@ Example: python3 scripts/check_extension_release.py --vsix build.vsix --copy sit
 Use --asset-dir to verify a prepared download directory before publication.
 """
 import argparse
+from datetime import datetime
 import hashlib
 from io import BytesIO
 import json
@@ -16,7 +17,38 @@ import zipfile
 
 CATALOG = Path(__file__).resolve().parents[1] / 'releases/tvijo-extension.json'
 PUBLIC_FIELDS = {'schema', 'as_of', 'product', 'latest_version', 'channel', 'publication', 'package', 'links', 'features', 'releases', 'limits', 'verification'}
+NATIVE_EDITOR_FIELDS = {'channel', 'version', 'embedded_extension', 'status', 'published_at', 'download', 'receipt', 'article', 'not_verified'}
 VSIX_NAMESPACE = 'http://schemas.microsoft.com/developer/vsx-schema/2011'
+
+
+def check_native_editor(data):
+    if not isinstance(data, dict) or set(data) != NATIVE_EDITOR_FIELDS:
+        raise ValueError('Unexpected native_editor fields')
+    version = data['version']
+    embedded = data['embedded_extension']
+    timestamp = data['published_at']
+    if (data['channel'] != 'native-editor' or data['status'] != 'pre-release'
+            or not isinstance(version, str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version)
+            or not isinstance(embedded, str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', embedded)
+            or not isinstance(timestamp, str) or not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z', timestamp)):
+        raise ValueError('Invalid native_editor release metadata')
+    try:
+        datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%SZ')
+    except ValueError as error:
+        raise ValueError('Invalid native_editor timestamp') from error
+    if (data['download'] != 'https://dsh.tvijo.com/download'
+            or data['receipt'] != f'https://github.com/nikbibamon/tvijocode/releases/download/{version}/BUILD_RECEIPT.json'):
+        raise ValueError('Unexpected native_editor download or receipt link')
+    article = data['article']
+    if not isinstance(article, dict) or set(article) != {'en', 'ru'}:
+        raise ValueError('Unexpected native_editor article fields')
+    for lang, prefix in (('en', 'https://tvijo.com/wiki/'), ('ru', 'https://tvijo.com/wiki/ru/')):
+        url = article[lang]
+        if not isinstance(url, str) or not re.fullmatch(re.escape(prefix) + r'[a-z0-9-]+/', url):
+            raise ValueError('Unexpected native_editor article link')
+    unverified = data['not_verified']
+    if not isinstance(unverified, list) or not all(isinstance(item, str) and item.strip() for item in unverified):
+        raise ValueError('Invalid native_editor not_verified list')
 
 
 def check_archive(archive, version, editor_requirement):
@@ -92,10 +124,12 @@ def check(catalog, vsix, copies=(), asset_dir=None):
     if len(raw) > 96 * 1024:  # Match gateway bound while preserving bilingual history.
         raise ValueError('Catalog too large')
     data = json.loads(raw)
-    if set(data) != PUBLIC_FIELDS or data['schema'] != 'tvijo.extension-release/v1':
+    if set(data) - {'native_editor'} != PUBLIC_FIELDS or data['schema'] != 'tvijo.extension-release/v1':
         raise ValueError('Unexpected public catalog fields')
     if re.search(rb'/(?:root|mnt)(?:/|\b)|(?:sk-[A-Za-z0-9]{20,}|tvijo_pk_[A-Za-z0-9]{12,}|ghp_[A-Za-z0-9]{20,})', raw):
         raise ValueError('Private path or key pattern in public catalog')
+    if 'native_editor' in data:
+        check_native_editor(data['native_editor'])
     version = data['latest_version']
     if not re.fullmatch(r'\d+\.\d+\.\d+', version):
         raise ValueError('Invalid version')
