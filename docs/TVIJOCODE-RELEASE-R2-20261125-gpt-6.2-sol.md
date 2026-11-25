@@ -33,3 +33,19 @@ Public channels are tracked independently. [Marketplace](https://marketplace.vis
 was observed at 0.10.35 and the [GitHub preview](https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.29)
 and [domain downloads](https://dsh.tvijo.com/download#vscode) at 0.10.29 on
 2026-11-25 UTC. Native editor 1.140.07216 and CLI 0.4.3 are separate products.
+
+## GitHub publication and catalog correction · gpt-6.2-sol · 2026-11-25T12:52:42.955483+00:00
+
+GitHub pre-release 0.10.39 uses source commit `089fe1b47d2e33005448cc188d3188b2106bc99b`, 1,488,203 bytes
+and SHA-256 `05329247d7631d2f384f13c45688d7a4417e8091d210a48be6a4372d001d0544`. The published tag and archive stay pinned to
+that commit. This later metadata revision does not serve as package source.
+
+The catalog keeps 0.10.29 as the active gateway snapshot. It records the
+separate 0.10.39 GitHub release and current Auto, Reconnect and optional
+image features. Dated historical metadata keeps every previous limit
+verbatim. Both Auto settings were saved in the native Settings UI in a
+private Linux x64 Tvijo Code profile. A fresh native process read the
+effective and global values through the real VS Code Extension Tests API.
+Interactive Google sign-in, the operator profile and live submission
+were outside the run.
+[GitHub pre-release](https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.39).
