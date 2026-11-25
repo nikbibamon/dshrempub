@@ -208,8 +208,12 @@ function rolloutReceipt(rollout, thread, answer) {
         context.permission_profile?.network !== 'restricted' || !ID.test(turn) || context.root_turn_id !== turn ||
         begun[0].payload.turn_id !== turn || end.turn_id !== turn || end.last_agent_message !== answer ||
         token.thread_id !== thread || token.turn_id !== turn || typeof token.response_id !== 'string' || !token.response_id) return null;
+    const usageFields = ['input_tokens', 'cached_input_tokens', 'cache_write_input_tokens', 'output_tokens', 'reasoning_output_tokens', 'total_tokens'];
+    const counts = Object.fromEntries(usageFields.filter(key => Number.isSafeInteger(token.usage?.[key]) && token.usage[key] >= 0)
+      .map(key => [key, token.usage[key]]));
     return { timestamp: contexts[0].timestamp, type: 'turn_context', thread_id: thread, turn_id: turn,
-      model: context.model, cli_version: session.cli_version, source: session.originator, provider: session.model_provider };
+      model: context.model, cli_version: session.cli_version, source: session.originator, provider: session.model_provider,
+      response_id: token.response_id, usage: counts };
   } catch { return null; }
 }
 
@@ -237,7 +241,7 @@ function parseResult(result, rollout = '') {
     if (/while requested model|rerout/i.test(result.stderr)) return { ok: false, reason: 'model_route_changed' };
     const thread = threads[0].thread_id;
     const local = rolloutReceipt(rollout, thread, answers[0].item.text);
-    if (confirmations.length > 1 || (!confirmations.length && !local)) return { ok: false, reason: 'model_receipt_missing' };
+    if (confirmations.length > 1 || (rollout && !local) || (!confirmations.length && !local)) return { ok: false, reason: 'model_receipt_missing' };
     const answer = JSON.parse(answers[0].item.text);
     const observation = answer?.observation;
     if (Object.keys(answer).length !== 1 || typeof observation !== 'string' || !observation.trim() || Buffer.byteLength(observation) > MAX_OBSERVATION_BYTES) {
@@ -252,7 +256,7 @@ function parseResult(result, rollout = '') {
   }
 }
 
-async function analyzeImage({ frame, storage, signal, guard = async () => true }) {
+async function analyzeImage({ frame, storage, signal, guard = async () => true, onAdmit }) {
   const base = { requested_model: MODEL, served_model: 'unknown', cli_version: VERSION, profile_sha256: profileDigest() };
   const result = reason => ({ ...base, ok: false, reason });
   if (!Buffer.isBuffer(frame) || !frame.length || frame.length > MAX_PIXEL_BYTES ||
@@ -294,10 +298,20 @@ async function analyzeImage({ frame, storage, signal, guard = async () => true }
     if (!await guard() || signal?.aborted) return result('cancelled');
     if (await hasManagedConfiguration(home)) return result('unverified_cli_configuration');
     if (authKey !== await authSnapshot(home)) return result('chatgpt_account_changed');
-    const call = accountProcess({ cwd, env: childEnv, signal, maxOutput: 64 * 1024, stopOnOutput: stopOnUnexpectedOutput });
-    const raw = await call(LIMITER, [...args, ...invocation()], INSTRUCTIONS, 75000);
+    const runArgs = [...args, ...invocation()];
+    if (onAdmit) await onAdmit({
+      executable: LIMITER, argv: runArgs, binary, cwd, profile_sha256: base.profile_sha256,
+      account_auth: 'ChatGPT', chatgpt_base_url: CHATGPT,
+      thread_store: path.join(directory, 'account-state', 'sessions'),
+      log_dir: path.join(directory, 'logs'), sqlite_home: path.join(directory, 'state')
+    });
     if (authKey !== await authSnapshot(home) || !await guard()) return result('chatgpt_account_changed');
-    return { ...base, ...parseResult(raw, raw.ok ? await privateRollout(directory) : '') };
+    const call = accountProcess({ cwd, env: childEnv, signal, maxOutput: 64 * 1024, stopOnOutput: stopOnUnexpectedOutput });
+    const raw = await call(LIMITER, runArgs, INSTRUCTIONS, 75000);
+    const rollout = raw.ok ? await privateRollout(directory) : '';
+    if (authKey !== await authSnapshot(home) || !await guard()) return result('chatgpt_account_changed');
+    if (raw.ok && !rollout) return result('model_receipt_missing');
+    return { ...base, ...parseResult(raw, rollout) };
   } catch (error) {
     return result(signal?.aborted ? 'cancelled' : error.message === 'sandbox_unavailable' ? error.message : 'image_helper_unavailable');
   } finally {

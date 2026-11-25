@@ -80,7 +80,7 @@ function rolloutFor(answer, changes = {}) {
     ['session_meta', { id:thread, originator:'codex_exec', source:'exec', model_provider:'openai', cli_version:'0.171.0', cwd, account_scoped:true, ...changes.session }],
     ['turn_context', { turn_id:turn, root_turn_id:turn, cwd, model:MODEL, approval_policy:'never', permission_profile:{network:'restricted'}, ...changes.context }],
     ['event_msg', { type:'task_started', turn_id:turn }],
-    ['token_usage_record', { thread_id:thread, turn_id:turn, response_id:'synthetic-response' }],
+    ['token_usage_record', { thread_id:thread, turn_id:turn, response_id:'synthetic-response', usage:{ input_tokens:100, output_tokens:10, total_tokens:110 } }],
     ['event_msg', { type:'task_complete', turn_id:turn, last_agent_message:answer, ...changes.end }],
     ...(changes.extra || [])
   ].map(([type,payload]) => JSON.stringify({timestamp:'2026-11-25T10:54:06Z',type,payload})).join('\n');
@@ -94,6 +94,7 @@ test('private CLI rollout can establish provenance only for the matching complet
   assert.equal(good.model_evidence, 'Codex CLI turn_context');
   assert.equal(good.turn_context.thread_id, thread);
   assert.equal(good.turn_context.model, MODEL);
+  assert.deepEqual(good.turn_context.usage, { input_tokens:100, output_tokens:10, total_tokens:110 });
   for (const changes of [
     { session:{id:'other-thread'} }, { session:{model_provider:'other'} }, { context:{model:'other'} },
     { end:{turn_id:'other-turn'} }, { end:{last_agent_message:'wrong answer'} },

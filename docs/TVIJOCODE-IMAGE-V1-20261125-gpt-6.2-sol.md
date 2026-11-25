@@ -26,21 +26,26 @@ Bubblewrap exposes the verified binary, network trust files, a read-only
 personal ChatGPT login file and disposable process state. The private
 requirement pins the official ChatGPT origin. The shell, hooks, MCP, apps,
 goal management and other tool surfaces are disabled. Model provenance comes
-from the CLI's server report or the matching private CLI turn record, which
-binds the response to the exact thread, completed turn and model.
+from the private CLI turn record, which binds the response to the exact thread,
+completed turn, model and usage. The CLI's server model report, when present,
+provides corroboration.
 
 | Verification, 2026-11-25 UTC | Result |
 |---|---|
 | Actual pinned CLI using an isolated loopback fixture and invented auth | PASS. One generating request and a separate non-generating prewarm. Both advertised zero tools. The generating request contained one image. |
 | Abort, output cap, disconnect and conflicting account route | PASS on the loopback fixture. Cancellation and disconnect stopped after one generating request. The conflicting route stopped before inference. |
 | Server model metadata missing | PASS on the final loopback fixture with a private `turn_context` matching the completed response. Without a matching record, the result was rejected. |
-| Single authorized ChatGPT subscription attempt on a synthetic image | FAIL. The earlier ephemeral invocation completed without a usable model receipt. The adapter discarded the observation. Actual served model is unknown. |
-| Real account on the final private-rollout profile | NOT_RUN. The phase's single live attempt was consumed by the ephemeral profile. |
+| Composer at 300 CSS px | PASS in an isolated Chromium page via Playwright. The pixels action, explicit observation opt-in and normal Chat submission fit without horizontal overflow or console errors. |
+| Account attempt 1 with the ephemeral profile | FAIL, `model_receipt_missing`. The adapter discarded the observation. Actual served model is unknown. |
+| Authorized account attempt 2 with the final private-rollout profile and identical synthetic frame | PASS. The actual response identified a red square in the upper left and a blue upward-pointing triangle farther right and lower. Pixel measurement verified both facts. |
 
-The synthetic test image has a red square on the left and a blue triangle lower
-on the right. Tesseract returned empty text. These are the fixture's predefined
-facts. The failed live receipt does not establish that Codex identified either
-fact. The final profile is a source candidate awaiting real-account acceptance.
-No release, install, or paid API request was made in this phase. The raw
-admission, transport and result receipts are in the operator's private task
-evidence directory.
+The final attempt used a 256 × 160 RGB fixture with empty OCR. Exact Codex CLI
+`turn_context` reported `gpt-6.2-sol` in thread
+`01a2125f-6117-71e0-b299-fc78aa3593a6`, turn
+`01a2125f-6127-7833-8f97-e0c0b267636d`, source `codex_exec`, provider
+`openai`. Usage was 206 input and 49 output tokens. The separate first attempt
+remains failed. Both requests ran on the ChatGPT subscription.
+
+Admission, wire, model and pixel receipts are in the operator's private task
+evidence directory. The source candidate awaits review before release packaging.
+No paid API request, release, or installation was made in this phase.
