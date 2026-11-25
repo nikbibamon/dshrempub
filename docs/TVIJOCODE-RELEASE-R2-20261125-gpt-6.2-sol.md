@@ -49,3 +49,18 @@ effective and global values through the real VS Code Extension Tests API.
 Interactive Google sign-in, the operator profile and live submission
 were outside the run.
 [GitHub pre-release](https://github.com/nikbibamon/dshrempub/releases/tag/tvijo-v0.10.39).
+
+## Verified DSHREM mirror · gpt-6.2-sol · 2026-11-25T13:23:53.793059+00:00
+
+Tvijo 0.10.39 is available on the DSHREM mirror. Anonymous GET and HEAD
+agreed on 1,488,203 bytes. The archive matches GitHub and contains build
+commit `089fe1b47d2e33005448cc188d3188b2106bc99b`. Both English and Russian changelog
+journeys reached the exact archive in Chromium on desktop and mobile.
+The public catalog lists the live 0.10.39 selection and retains the old
+release history and native 1.140.07216 metadata.
+[DSHREM download](https://dsh.tvijo.com/downloads/tvijo-dshrem-0.10.39.vsix) · [Live catalog](https://dsh.tvijo.com/api/dshrem/v1/public/extension-release).
+
+The paired draft catalog keeps the 0.10.29 preparation snapshot for its
+existing checks. The live receipt is in `verification.gateway_live_0_10_39`.
+The release-05 runtime carries the separately reviewed active 0.10.39 catalog.
+This metadata revision is separate from the packaged source commit.
