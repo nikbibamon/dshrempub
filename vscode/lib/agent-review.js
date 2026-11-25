@@ -28,6 +28,69 @@ function cleanText(value) {
     .replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi, '$1[redacted]');
 }
 
+function accountProcess({ cwd, env, signal, spawnImpl = spawn, maxOutput = MAX_OUTPUT, stopOnOutput }) {
+  return function processCall(agent, args, input, timeoutMs) {
+    return new Promise(resolve => {
+      if (signal?.aborted) return resolve({ ok: false, reason: 'cancelled', started: false });
+      let child, timer, killer, done = false, total = 0, stopReason = null;
+      const captured = { stdout: [], stderr: [] };
+      const partial = { stdout: '', stderr: '' };
+      const stop = reason => {
+        if (done || stopReason) return;
+        stopReason = reason;
+        const kill = name => {
+          if (spawnImpl === spawn && process.platform !== 'win32' && Number.isInteger(child?.pid)) {
+            try { process.kill(-child.pid, name); return; } catch { /* Already exited or no process group. */ }
+          }
+          try { child?.kill(name); } catch { /* Process might have exited. */ }
+        };
+        kill('SIGTERM');
+        killer = setTimeout(() => { kill('SIGKILL'); finish({ reason: stopReason }); }, 2000);
+        killer.unref?.();
+      };
+      const abort = () => stop('cancelled');
+      const finish = fields => {
+        if (done) return;
+        done = true; clearTimeout(timer); clearTimeout(killer); signal?.removeEventListener('abort', abort);
+        // Decode the complete bounded byte prefix, retaining split UTF-8 across
+        // chunks and omitting an incomplete final code point after truncation.
+        const output = stream => cleanText(new StringDecoder('utf8').write(Buffer.concat(captured[stream])));
+        resolve({ ok: !stopReason && fields.exit_code === 0, started: !!child, stdout: output('stdout'), stderr: output('stderr'), truncated: stopReason === 'output_limit', ...fields, ...(stopReason ? { reason: stopReason, ok: false } : {}) });
+      };
+      try {
+        child = spawnImpl(agent, args, { cwd, env: { ...env }, shell: false, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
+      } catch (error) { finish({ reason: error.code === 'ENOENT' ? 'not_installed' : 'spawn_failed' }); return; }
+      const collect = stream => chunk => {
+        const buffer = Buffer.from(chunk), available = Math.max(0, maxOutput - total);
+        if (available) captured[stream].push(buffer.subarray(0, available));
+        total += buffer.length;
+        if (total > maxOutput) stop('output_limit');
+        if (stopOnOutput && !stopReason) {
+          const lines = (partial[stream] + buffer.toString('utf8')).split('\n');
+          partial[stream] = lines.pop();
+          for (const line of lines) {
+            const reason = stopOnOutput(stream, line);
+            if (reason) { stop(reason); break; }
+          }
+        }
+      };
+      child.stdout.on('data', collect('stdout')); child.stderr.on('data', collect('stderr'));
+      child.once('error', error => finish({ reason: error.code === 'ENOENT' ? 'not_installed' : 'spawn_failed' }));
+      child.once('close', (code, exitSignal) => finish({ exit_code: code, exit_signal: exitSignal || null, ...(code ? { reason: 'cli_failed' } : {}) }));
+      child.stdin.on('error', () => {});
+      timer = setTimeout(() => stop('timeout'), timeoutMs); timer.unref?.();
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) abort();
+      child.stdin.end(input || '');
+    });
+  };
+}
+
+function isCodexAccountAuth(result) {
+  const output = result.stdout + result.stderr;
+  return result.ok && /logged in using chatgpt/i.test(output) && !/api key/i.test(output);
+}
+
 function createAgentReview({ root, guard = async () => {}, signal, enabled = false, claudeEnabled = false, maxCalls = 2, onReceipt = () => {}, spawnImpl = spawn, env = process.env }) {
   const cwd = path.resolve(root);
   const childEnv = accountEnvironment(env);
@@ -67,52 +130,7 @@ function createAgentReview({ root, guard = async () => {}, signal, enabled = fal
     return { codex: codexReason, claude: claudeAllowed ? null : claudeReason };
   }
 
-  function processCall(agent, args, input, timeoutMs) {
-    return new Promise(resolve => {
-      if (signal?.aborted) return resolve({ ok: false, reason: 'cancelled', started: false });
-      let child, timer, killer, done = false, total = 0, stopReason = null;
-      const captured = { stdout: [], stderr: [] };
-      const stop = reason => {
-        if (done || stopReason) return;
-        stopReason = reason;
-        const kill = name => {
-          if (spawnImpl === spawn && process.platform !== 'win32' && Number.isInteger(child?.pid)) {
-            try { process.kill(-child.pid, name); return; } catch { /* Already exited or no process group. */ }
-          }
-          try { child?.kill(name); } catch { /* Process might have exited. */ }
-        };
-        kill('SIGTERM');
-        killer = setTimeout(() => { kill('SIGKILL'); finish({ reason: stopReason }); }, 2000);
-        killer.unref?.();
-      };
-      const abort = () => stop('cancelled');
-      const finish = fields => {
-        if (done) return;
-        done = true; clearTimeout(timer); clearTimeout(killer); signal?.removeEventListener('abort', abort);
-        // Decode the complete bounded byte prefix, retaining split UTF-8 across
-        // chunks and omitting an incomplete final code point after truncation.
-        const output = stream => cleanText(new StringDecoder('utf8').write(Buffer.concat(captured[stream])));
-        resolve({ ok: !stopReason && fields.exit_code === 0, started: !!child, stdout: output('stdout'), stderr: output('stderr'), truncated: stopReason === 'output_limit', ...fields, ...(stopReason ? { reason: stopReason, ok: false } : {}) });
-      };
-      try {
-        child = spawnImpl(agent, args, { cwd, env: { ...childEnv }, shell: false, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
-      } catch (error) { finish({ reason: error.code === 'ENOENT' ? 'not_installed' : 'spawn_failed' }); return; }
-      const collect = stream => chunk => {
-        const buffer = Buffer.from(chunk), available = Math.max(0, MAX_OUTPUT - total);
-        if (available) captured[stream].push(buffer.subarray(0, available));
-        total += buffer.length;
-        if (total > MAX_OUTPUT) stop('output_limit');
-      };
-      child.stdout.on('data', collect('stdout')); child.stderr.on('data', collect('stderr'));
-      child.once('error', error => finish({ reason: error.code === 'ENOENT' ? 'not_installed' : 'spawn_failed' }));
-      child.once('close', (code, exitSignal) => finish({ exit_code: code, exit_signal: exitSignal || null, ...(code ? { reason: 'cli_failed' } : {}) }));
-      child.stdin.on('error', () => {});
-      timer = setTimeout(() => stop('timeout'), timeoutMs); timer.unref?.();
-      signal?.addEventListener('abort', abort, { once: true });
-      if (signal?.aborted) abort();
-      child.stdin.end(input || '');
-    });
-  }
+  const processCall = accountProcess({ cwd, env: childEnv, signal, spawnImpl });
 
   async function version(agent) {
     const result = await processCall(agent, ['--version'], '', 5000);
@@ -156,7 +174,7 @@ function createAgentReview({ root, guard = async () => {}, signal, enabled = fal
       const authArgs = agent === 'codex' ? ['login', 'status'] : ['auth', 'status', '--json'];
       const auth = await processCall(agent, authArgs, '', 10000);
       let accountAuth = false;
-      if (agent === 'codex') accountAuth = auth.ok && /logged in using chatgpt/i.test(auth.stdout + auth.stderr) && !/api key/i.test(auth.stdout + auth.stderr);
+      if (agent === 'codex') accountAuth = isCodexAccountAuth(auth);
       else { try { const data = JSON.parse(auth.stdout); accountAuth = auth.ok && data.loggedIn === true && ['claude.ai', 'oauth'].includes(data.authMethod); } catch { /* Unknown authentication is not approval for API spend. */ } }
       if (!accountAuth) return end({ ok: false, reason: auth.reason === 'cancelled' ? 'cancelled' : 'account_auth_required' });
       receipt.auth = 'account';
@@ -200,4 +218,4 @@ function createAgentReview({ root, guard = async () => {}, signal, enabled = fal
   return { status, review };
 }
 
-module.exports = { createAgentReview, accountEnvironment, MODELS, MAX_INPUT, MAX_OUTPUT };
+module.exports = { createAgentReview, accountEnvironment, accountProcess, isCodexAccountAuth, MODELS, MAX_INPUT, MAX_OUTPUT };

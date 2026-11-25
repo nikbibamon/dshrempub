@@ -11,7 +11,10 @@ test('root Extra is visibly unavailable while Full and explicit account-review t
  const view=sidebar({}, {signedIn:true,scopeKey:'tenant-a',workspaceSelected:true,composerMode:'agent',fullAccess:{available:true,enabled:true,extra:false,extraAvailable:false,extraUnavailableReason:'Extra unavailable on privileged root; choose Full or non-root.',reviews:false,scopeKey:'full-scope'},options:{agentPreset:'full'}});
  view.emit('mode:click',{});
  const extra=view.created.filter(n=>n.getAttribute?.('data-mode')==='extra').at(-1);const full=view.created.filter(n=>n.getAttribute?.('data-mode')==='full').at(-1);
- assert.equal(extra.disabled,true);assert.equal(full.disabled,false);
+ assert.equal(extra.getAttribute('aria-disabled'),'true');assert.equal(full.getAttribute('aria-disabled'),'false');
+ const before = view.outgoing.length; extra.click();
+ assert.equal(view.outgoing.length,before,'an unavailable but focusable mode cannot request a grant');
+ assert.match(extra.getAttribute('data-help'),/non-root.*Remote SSH|Remote SSH.*ordinary server account/);
  const review=view.created.filter(n=>n.getAttribute?.('data-mode')==='account-reviews').at(-1);assert.ok(review);review.click();
  assert.deepEqual({...view.outgoing.at(-1)},{type:'accountReviews',fullAccessScope:'full-scope',enabled:true,scopeKey:'tenant-a'});
 });
@@ -331,7 +334,7 @@ test('mode menu supports keyboard navigation and Shift+Tab remains ordinary focu
   const menu=view.element('mode-menu'), before=view.document.activeElement;
   assert.equal(before.attributes['data-mode'],'chat');
   view.emit('mode-menu:keydown',{key:'End',preventDefault(){}});
-  assert.equal(view.document.activeElement.attributes['data-mode'],'auto');
+  assert.equal(view.document.activeElement.attributes['data-mode'],'access-info');
   view.emit('mode-menu:keydown',{key:'Home',preventDefault(){}});
   assert.equal(view.document.activeElement.attributes['data-mode'],'chat');
   view.emit('mode-menu:keydown',{key:'Escape',preventDefault(){}});
@@ -360,7 +363,9 @@ test('0.10.8 Full access is host-gated with revoke in its menu and no path banne
   view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',signedIn:true,options}});
   view.element('mode').click();
   let full=view.element('mode-menu').children.find(item=>item.attributes['data-mode']==='full');
-  assert.equal(full.disabled,true);
+  assert.equal(full.getAttribute('aria-disabled'),'true');
+  const before = view.outgoing.length; full.click();
+  assert.equal(view.outgoing.length,before,'a missing project grant cannot be selected');
   view.emit('window:message',{data:{type:'state',scopeKey:'tenant-a',signedIn:true,options,fullAccess:{available:true,enabled:false,folder:'/work',scopeKey:'a'.repeat(64),active:[]}}});
   view.element('mode').click();
   full=view.element('mode-menu').children.find(item=>item.attributes['data-mode']==='full');
@@ -581,6 +586,60 @@ test('expired cached drafts cannot outlive the seven-day disk recovery window',(
 });
 
 
+test('settings sections retain navigation and return to the conversation with the draft intact', () => {
+  const view = sidebar();
+  view.element('question').value = 'Keep this project question';
+  view.emit('settings:click',{});
+  for (const tab of ['context','usage','terminal']) {
+    view.emit('tab-' + tab + ':click',{});
+    assert.equal(view.element('settings-drawer').hidden,false);
+    assert.equal(view.element('drawer-back').hidden,false);
+    assert.equal(view.element('settings-home').hidden,true);
+    assert.equal(view.element('tab-' + tab).getAttribute('aria-selected'),'true');
+    assert.equal(view.element('context-summary').hidden,tab !== 'context');
+    view.emit('drawer-back:click',{});
+    assert.equal(view.element('settings-drawer').hidden,false);
+    assert.equal(view.element('settings-home').hidden,false);
+    assert.equal(view.element('drawer-back').hidden,true);
+  }
+  view.emit('tab-context:click',{});
+  view.emit('settings-tabs:keydown',{key:'ArrowRight',target:{id:'tab-context'},preventDefault(){}});
+  assert.equal(view.element('tab-usage').getAttribute('aria-selected'),'true');
+  view.emit('drawer-close:click',{});
+  assert.equal(view.element('settings-drawer').hidden,true);
+  assert.equal(view.element('messages').hidden,false);
+  assert.equal(view.document.activeElement,view.element('settings'));
+  assert.equal(view.element('question').value,'Keep this project question');
+});
+
+test('a delayed usage response updates data without reopening a closed panel', () => {
+  const view = sidebar();
+  view.emit('tab-usage:click',{});
+  view.emit('window:message',{data:{type:'openUsage',scopeKey:'tenant-a'}});
+  view.emit('drawer-close:click',{});
+  view.emit('window:message',{data:{type:'usage',scopeKey:'tenant-a',usage:{tasks:[],account:{},scope:{}}}});
+  assert.equal(view.element('settings-drawer').hidden,true);
+  assert.equal(view.element('messages').hidden,false);
+  view.emit('window:message',{data:{type:'openUsage',scopeKey:'tenant-b'}});
+  assert.equal(view.element('settings-drawer').hidden,true,'another account cannot open this panel');
+});
+
+test('mode help explains project approvals, service credits and account reviews in both languages', () => {
+  const view = sidebar({}, {fullAccess:{available:true,enabled:true,extra:false,reviews:false},options:{agentPreset:'full'}});
+  const menu=view.element('mode-menu');
+  for (const mode of ['chat','manual','edit','plan','auto','full','extra','account-reviews']) {
+    const node=menu.children.find(item=>item.getAttribute('data-mode')===mode);
+    assert.ok(node.getAttribute('data-help').length > 100,mode);
+  }
+  const review=menu.children.find(item=>item.getAttribute('data-mode')==='account-reviews');
+  assert.match(review.getAttribute('data-help'),/180 seconds.*service model and credits/);
+  assert.match(view.element('workflow').getAttribute('data-help'),/GPT-6.1 Sol.*Tvijo API credits/);
+  view.emit('lang:click',{});
+  assert.match(view.element('drawer-close').getAttribute('aria-label'),/диалогу/);
+  assert.match(view.element('settings').getAttribute('data-help'),/Черновик|черновика/);
+  assert.match(menu.children.find(item=>item.getAttribute('data-mode')==='extra').getAttribute('data-help'),/пользователя сервера.*dsh.tvijo.com\/billing/);
+});
+
 test('compact settings preserve host controls and persist engineering preference without losing draft', () => {
   const view = sidebar();
   view.element('question').value = 'Keep my draft';
@@ -645,6 +704,42 @@ test('signed-out composer offers account activation even with cached transcript,
   assert.equal(view.element('composer-signin').hidden,true);
   view.emit('window:message',{data:{type:'state',signedIn:false,messages}});
   assert.equal(view.element('composer-signin').hidden,false);
+});
+
+test('saved session reconnect renders a localized retry instead of starting sign-in', () => {
+  const view = sidebar({}, {signedIn:false,scopeKey:null,authState:'checking'});
+  const button = view.element('composer-signin');
+  assert.equal(button.hidden,false);
+  assert.equal(button.textContent,'Checking session…');
+  assert.match(button.getAttribute('data-help'),/checking for a saved session/);
+  assert.equal(button.disabled,true);
+  assert.equal(view.element('send').disabled,true);
+  const outgoing = view.outgoing.length;
+  button.click();
+  assert.equal(view.outgoing.length,outgoing);
+
+  view.emit('window:message',{data:{type:'state',signedIn:false,scopeKey:null,authState:'reconnecting'}});
+  assert.equal(button.disabled,false);
+  assert.equal(button.textContent,'Reconnect');
+  assert.equal(button.getAttribute('data-help'),'Check your saved Tvijo session again.');
+  button.click();
+  assert.equal(view.outgoing.at(-1).type,'reconnectAccount');
+  view.emit('lang:click',{});
+  assert.equal(button.textContent,'Подключиться снова');
+  assert.equal(button.getAttribute('data-help'),'Повторно проверяет сохранённый сеанс Tvijo.');
+  view.element('signin').click();
+  assert.equal(view.outgoing.at(-1).type,'reconnectAccount');
+  assert.equal(view.element('send').disabled,true);
+
+  view.emit('window:message',{data:{type:'state',signedIn:true,scopeKey:'tenant-a',authState:'signed_in'}});
+  assert.equal(button.hidden,true);
+  assert.equal(view.element('send').disabled,false);
+  view.emit('window:message',{data:{type:'state',signedIn:false,scopeKey:null,authState:'reauth_required'}});
+  assert.equal(button.hidden,false);
+  assert.equal(button.textContent,'Войти');
+  assert.equal(view.element('send').disabled,true);
+  button.click();
+  assert.equal(view.outgoing.at(-1).type,'account');
 });
 
 test('quote state is concise and localized in simple view, detailed only in engineering', () => {
@@ -759,4 +854,56 @@ test('individual steps disclose their own untrusted events and retain state unti
   view.emit('window:message',{data:{type:'agent',scopeKey:'tenant-b',event:{type:'start',goal:'New'}}});
   view.emit('window:message',{data:{type:'agent',scopeKey:'tenant-b',event:{type:'step',step:1,maxSteps:1}}});
   assert.notEqual(view.element('agent-log').children.at(-1),section);assert.notEqual(view.element('agent-log').children.at(-1).open,true);
+});
+
+
+test('image pixels need an explicit sidebar action and the observation is a one-time Chat opt-in', () => {
+  const image = { id:'image-1', name:'synthetic.png', kind:'image', size:1024, canAnalyze:true };
+  const data = { type:'state', signedIn:true, scopeKey:'tenant-a', composerMode:'chat', messages:[], attachments:[image], imageCanInclude:{chat:true,agent:true,plan:true} };
+  const view = sidebar({}, data);
+  const box = view.element('image-analysis');
+  const button = text => box.children.find(node => node.tag === 'button' && node.textContent.startsWith(text));
+  assert.equal(view.outgoing.some(row => row.type === 'analyzeImage'), false);
+  assert.ok(box.children.some(node => /ChatGPT subscription/.test(node.textContent)));
+  button('Send pixels').click();
+  assert.deepEqual({...view.outgoing.at(-1)}, { type:'analyzeImage', id:'image-1', scopeKey:'tenant-a' });
+  const running = { id:'analysis-1', attachmentId:image.id, state:'running' };
+  view.emit('window:message', { data:{...data, imageAnalysis:running} });
+  button('Cancel analysis').click();
+  assert.equal(view.outgoing.at(-1).id, running.id);
+  const ready = { ...running, state:'ready', requestedModel:'gpt-6.2-sol', servedModel:'gpt-6.2-sol', evidence:'Server model report', observation:'<img src=x> Blue triangle' };
+  view.emit('window:message', { data:{...data, imageAnalysis:ready} });
+  assert.ok(box.children.some(node => node.tag === 'p' && node.textContent === ready.observation && !node.children.length));
+  const include = button('Include observation');
+  assert.equal(include.getAttribute('aria-pressed'), 'false');
+  include.click();
+  assert.equal(include.getAttribute('aria-pressed'), 'true');
+  view.element('question').value = 'What do you see?';
+  view.emit('form:submit', { preventDefault() {} });
+  assert.equal(view.outgoing.at(-1).imageObservation, ready.id);
+  assert.equal(JSON.stringify(view.state()).includes('Blue triangle'), false);
+  view.emit('window:message', { data:{...data, scopeKey:'tenant-b', attachments:[], imageAnalysis:null} });
+  assert.equal(box.hidden, true);
+});
+
+
+test('image opt-in follows Agent and Plan and remains explicit if eligibility changes before submit', () => {
+  for (const mode of ['agent','plan']) {
+    const image = { id:'image-1', kind:'image', name:'synthetic.png', size:1024, canAnalyze:true };
+    const imageAnalysis = { id:'analysis-1', attachmentId:image.id, state:'ready', requestedModel:'gpt-6.2-sol', servedModel:'gpt-6.2-sol', observation:'A red square.' };
+    const data = {type:'state',signedIn:true,scopeKey:'tenant-a',composerMode:mode,workspaceSelected:true,
+      attachments:[image],imageAnalysis,imageCanInclude:{chat:false,agent:true,plan:true}};
+    const view = sidebar({}, data);
+    const box = view.element('image-analysis');
+    const include = box.children.find(node => node.tag === 'button' && node.textContent.startsWith('Include observation'));
+    assert.ok(include, mode);
+    include.click();
+    view.emit('window:message',{data:{...data,imageCanInclude:{chat:false,agent:false,plan:false}}});
+    assert.ok(box.children.some(node => /Use local DS41F/.test(node.textContent)), mode);
+    view.element('question').value = 'Explain the photo';
+    view.emit('form:submit',{preventDefault() {}});
+    assert.equal(view.outgoing.at(-1).imageObservation,'analysis-1', mode);
+    assert.equal(view.outgoing.at(-1).agent,true);
+    assert.equal(view.outgoing.at(-1).plan,mode === 'plan');
+  }
 });
