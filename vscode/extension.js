@@ -194,7 +194,7 @@ function activate(context) {
   let modeUpdatePending = false;
   let attaching = false;
   let attachments = [];
-  let imageAnalysis = null, imagePending = false;
+  let imageAnalysis = null, imagePending = false, imageGeneration = 0;
   let activeAbort = null;
   let codingReview = null;
   const byokSelection = customerConnection.createSelection();
@@ -854,7 +854,11 @@ function activate(context) {
       workflow: scope && shared.selection(scope) ? (byokSelection.get({...auth,scope,authEpoch:authAttempt},shared.selection(scope).projectId) ? 'BYOK · ' : 'Managed · ') + 'Tvijo ' + vscode.workspace.getConfiguration('tvijo').get('service', 'standard') : vscode.workspace.getConfiguration('tvijo').get('model', 'ds41f') + ' · ' + vscode.workspace.getConfiguration('tvijo').get('agentMode', 'single'),
       attachments: signedIn ? attachments.map(files.attachmentSummary) : [],
       imageAnalysis: signedIn ? imagePresentation(view) : null,
-      imageCanInclude: signedIn && !shared.selection(scope) && options?.model === 'ds41f',
+      imageCanInclude: signedIn && !shared.selection(scope) && auth.kind !== 'project' && options ? {
+        chat: options.model === 'ds41f',
+        agent: options.agentModel === 'ds41f' && (!orchestration.enabled() || fullAccessState().extra),
+        plan: options.agentModel === 'ds41f' && !orchestration.enabled()
+      } : null,
       botRunning: !!customerBot?.running,
       status: message || (lastAgentOutcome?.scope === nextAgentScope && !busy && !attaching ? lastAgentOutcome.text : '') || (attaching ? L('Preparing attachment…', 'Подготовка вложения…') : busy ? L('Answering…', 'Отвечаю…') : pending ? L('Pending check', 'Требуется проверка') : recovery ? L('Legacy request check', 'Проверка старой заявки') : signedIn ? (shared.selection(scope) ? shared.selection(scope).projectName + ' · ' + (shared.selection(scope).threadTitle || L('Choose or create a shared thread', 'Выберите или создайте общую ветку')) : L('Ready', 'Готово')) : authStatus || L('Sign in to verify your account', 'Войдите, чтобы проверить аккаунт')) });
   }
@@ -968,16 +972,16 @@ function activate(context) {
     } finally {agentAbort=null;agentRunning=false;busy=false;await postActivity('done','');await postChatState();}
   }
 
-  async function runAgentFlow(goal, { planMode = false, budgetLimit = null, retryOf = null } = {}) {
+  async function runAgentFlow(goal, { planMode = false, budgetLimit = null, retryOf = null, imageObservation = null } = {}) {
     ensureIdle();
-    revokeImageAnalysis();
+    const image = beginImageSubmission(imageObservation);
     if (!goal?.trim()) return;
     const runLocale = noteReplyLocale(goal), traceRows = [];
     await requireWorkspace();
     const auth = await requireAuth();
     const attachmentScope = currentViewScope(auth.scope);
     const agentAttachments = attachments.slice();
-    const modelGoal = files.questionWithAttachments(goal.trim(), agentAttachments);
+    const modelGoal = files.questionWithAttachments(goal.trim(), agentAttachments, image?.result);
     // Authentication yields: a permission update can acquire the idle lock
     // while it is pending. Snapshot settings only after checking again.
     ensureIdle();
@@ -990,11 +994,20 @@ function activate(context) {
     const baseGuard = codingGuard(auth, path.resolve(folder.uri.fsPath), workspaceEpoch);
     let fullGrant = planMode ? null : fullAccess.capture(folder);
     let verifyAgentSavedFiles = () => {};
-    const guard = async() => { await baseGuard(); if (fullGrant) fullAccess.assertCurrent(folder,fullGrant); verifyAgentSavedFiles(); };
+    const useHarness = () => orchestration.enabled() && !fullGrant?.extra;
+    let imageModel = () => 'ds41f';
+    const imageGuard = () => assertImageRoute(image, auth, imageModel(), useHarness());
+    const guard = async() => {
+      await baseGuard();
+      if (image) imageGuard();
+      if (fullGrant) fullAccess.assertCurrent(folder,fullGrant);
+      verifyAgentSavedFiles();
+    };
+    if (image) imageGuard();
     if (attachmentScope !== currentViewScope(auth.scope)) throw new core.ServiceError('account_changed', 'The account or thread changed before the agent started.');
     const api = core.createClient({ base: auth.api_base });
     const config = vscode.workspace.getConfiguration('tvijo');
-    if (orchestration.enabled() && !fullGrant?.extra) return runHarnessFlow({goal,modelGoal,auth,folder,agentScope,planMode,guard,fullGrant,config});
+    if (useHarness()) return runHarnessFlow({goal,modelGoal,auth,folder,agentScope,planMode,guard,fullGrant,config});
     const maxSteps = config.get('agentMaxSteps', 60);
     let budgetUsd = budgetLimit===null ? config.get('agentBudgetUsd', 2) : Math.min(config.get('agentBudgetUsd',2),budgetLimit);
     const taskBudget=require('./lib/task-limits').createTaskBudget(budgetUsd);
@@ -1038,6 +1051,11 @@ function activate(context) {
       await clearPending(auth);
       const { pack } = await currentPack(auth);
       const agentModel = packs.packModel(config, 'agentModel', 'ds41f', pack);
+      if (image) {
+        imageModel = () => packs.packModel(vscode.workspace.getConfiguration('tvijo'), 'agentModel', 'ds41f', pack);
+        assertImageRoute(image, auth, agentModel);
+        await guard();
+      }
       taskReceipt.requestedModel(agentModel);
       const contextMode = config.get('workspaceContext', 'ask');
       let tree = '';
@@ -1321,15 +1339,27 @@ function activate(context) {
           const idempotencyKey = randomUUID();
           finalIdempotencyKey=idempotencyKey;
           await local.savePending(auth.scope, { idempotencyKey, apiBase: auth.api_base, tenantId: auth.tenant_id, createdAt: new Date().toISOString() });
+          if (image) await guard();
           projectRulesHost.assertCurrent(agentRuleGrants);
           taskReceipt.request();
           return await api.ask({
-            beforeChat:() => projectRulesHost.assertCurrent(agentRuleGrants),
+            beforeChat:() => { projectRulesHost.assertCurrent(agentRuleGrants); if (image) imageGuard(); },
             token: auth.access_token, messages: stepMessages, maxUsd: Math.min(1, Math.floor(remaining * 1e9) / 1e9), idempotencyKey,
             title: 'VS Code agent step ' + step + ': ' + goal.trim().slice(0, 50),
             // Devstral reasons at length and was cut off at 2048 (empty step); 4096 is the gateway ceiling.
             maxTokens: agentModel === 'devstral' ? 4096 : 2048, model: agentModel, mode: 'single', method: config.get('reasoningMethod', 'evidence-first'), signal,
-            onGrant: async grant => { taskReceipt.task(grant.id,grant.model); if(grant.model)servedModels.add(grant.model);runJournals.task(recoveryKey,localAgentRunId,grant.id);runJournals.append(recoveryKey,localAgentRunId,{type:'step_attempt_started',step,attempt:attempt+1,taskId:grant.id,retry_of:retry_of || retryOf}); await mapTask(auth, grant.id, {...grant, title:'Agent step ' + step, model:grant.model || agentModel, status:'running', startedAt:Date.now()}); await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id }); await guard(); projectRulesHost.assertCurrent(agentRuleGrants); await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…')); }
+            onGrant: async grant => {
+              taskReceipt.task(grant.id,grant.model);
+              if (grant.model) servedModels.add(grant.model);
+              runJournals.task(recoveryKey,localAgentRunId,grant.id);
+              runJournals.append(recoveryKey,localAgentRunId,{type:'step_attempt_started',step,attempt:attempt+1,taskId:grant.id,retry_of:retry_of || retryOf});
+              await mapTask(auth, grant.id, {...grant, title:'Agent step ' + step, model:grant.model || agentModel, status:'running', startedAt:Date.now()});
+              await local.savePending(auth.scope, { idempotencyKey, taskId: grant.id, apiBase: auth.api_base, tenantId: auth.tenant_id });
+              await guard();
+              if (image) assertImageRoute(image, auth, grant.model || agentModel);
+              projectRulesHost.assertCurrent(agentRuleGrants);
+              await postActivity('model', L('Agent step ' + step + ' · model is working…', 'Шаг агента ' + step + ' · модель работает…'));
+            }
           }).catch(async error => {
             const pending = local.pending(auth.scope, idempotencyKey);
             if (error.definitiveGrantRefusal && !pending?.taskId) { await local.savePending(auth.scope, undefined, idempotencyKey); }
@@ -1414,6 +1444,7 @@ function activate(context) {
       } catch { /* Preserve the original failure if local history cannot be saved. */ }
       await finishMap(auth, abort.signal.aborted ? 'cancelled' : 'failed');
       if (!local.pending(auth.scope) && error?.code !== 'usage_unknown') runJournals.finish(recoveryKey,localAgentRunId,receipt.execution.outcome);
+      if (image && !imageOwnerCurrent(image)) throw imageScopeError();
       if (abort.signal.aborted) {
         lastRunStopped = true;
         lastError = null;
@@ -1732,12 +1763,39 @@ function activate(context) {
   function revokeImageAnalysis() {
     imageAnalysis?.controller.abort();
     imageAnalysis = null;
+    imageGeneration++;
   }
 
   function imageOwnerCurrent(run) {
-    return !authDisposed && run.view === chatView && run.epoch === workspaceEpoch && run.attempt === authAttempt &&
+    return !authDisposed && run.generation === imageGeneration && run.view === chatView && run.epoch === workspaceEpoch && run.attempt === authAttempt &&
       identity?.scope === run.scope && currentViewScope(run.scope) === run.viewScope &&
       attachments.length === 1 && attachments[0] === run.item;
+  }
+
+  function imageScopeError() {
+    return new core.ServiceError('image_observation_scope', L('The image observation expired. Analyze the current attachment again.', 'Срок действия описания истёк. Заново проанализируйте текущее вложение.'));
+  }
+
+  function imageForSubmission(view, message, bridgeId) {
+    if (message.imageObservation === undefined) return null;
+    const image = imageAnalysis;
+    if (!image?.result?.ok || image.controller.signal.aborted || image.id !== message.imageObservation ||
+        image.view !== view || image.viewScope !== message.scopeKey || bridgeId || message.from || !imageOwnerCurrent(image)) throw imageScopeError();
+    return image;
+  }
+
+  function beginImageSubmission(image) {
+    if (image && (image !== imageAnalysis || !imageOwnerCurrent(image))) throw imageScopeError();
+    revokeImageAnalysis();
+    return image && { ...image, generation: imageGeneration };
+  }
+
+  function assertImageRoute(image, auth, model, harness = false) {
+    if (!image) return;
+    if (image.scope !== auth.scope || !imageOwnerCurrent(image)) throw imageScopeError();
+    if (auth.kind === 'project' || shared.selection(auth.scope) || harness || model !== 'ds41f') {
+      throw new core.ServiceError('image_observation_route', L('Image observations can be included in local DS41F Chat, Agent, or Plan requests.', 'Описание изображения можно включить в локальный запрос DS41F в режиме «Чат», «Агент» или «План».'));
+    }
   }
 
   function imagePresentation(view) {
@@ -1775,8 +1833,9 @@ function activate(context) {
     ensureIdle();
     if (imagePending || !identity || view !== chatView || message.scopeKey !== currentViewScope(identity.scope) ||
         attachments.length !== 1 || attachments[0].id !== message.id || !attachments[0].frame) return;
+    revokeImageAnalysis();
     const run = {
-      id: randomUUID(), item: attachments[0], view, scope: identity.scope, viewScope: message.scopeKey,
+      generation: imageGeneration, id: randomUUID(), item: attachments[0], view, scope: identity.scope, viewScope: message.scopeKey,
       epoch: workspaceEpoch, attempt: authAttempt, controller: new AbortController(), result: null
     };
     imageAnalysis = run;
@@ -2858,7 +2917,7 @@ function activate(context) {
 
   async function askQuestion(question, { showEditor = false, includeSelection = false, imageObservation = null } = {}) {
     ensureIdle();
-    revokeImageAnalysis();
+    const image = beginImageSubmission(imageObservation);
     if (!question?.trim()) return;
     noteReplyLocale(question);
     if (vscode.workspace.workspaceFolders?.length) await requireWorkspace();
@@ -2871,6 +2930,7 @@ function activate(context) {
     lastError = null; lastAgentOutcome = null;
     await postChatState();
     const auth = await requireAuth();
+    assertImageRoute(image, auth, 'ds41f');
     await postActivity('prepare', L('Preparing the request…', 'Готовлю запрос…'));
     const api = core.createClient({ base: auth.api_base });
     const freshAccount = auth.kind === 'project' ? accountSnapshot : await api.account(auth.access_token);
@@ -2942,11 +3002,9 @@ function activate(context) {
     const { pack } = await currentPack(auth);
     if (!await isCurrentAuth(auth)) throw new core.ServiceError('account_changed', 'The account changed. Submit again from the intended account.');
     const model = packs.packModel(config, 'model', 'ds41f', pack);
-    const imageCurrent = () => imageObservation && imageOwnerCurrent(imageObservation) && auth.scope === imageObservation.scope;
-    if (imageObservation && (!imageCurrent() || selectionState || model !== 'ds41f')) {
-      throw new core.ServiceError('image_observation_scope', 'The image observation is available only for a current local DS41F Chat message.');
-    }
-    const explicitContent = files.questionWithAttachments(core.questionWithSelection(question.trim(), selection), sentAttachments, imageObservation?.result);
+    const imageGuard = () => assertImageRoute(image, auth, packs.packModel(vscode.workspace.getConfiguration('tvijo'), 'model', 'ds41f', pack));
+    assertImageRoute(image, auth, model);
+    const explicitContent = files.questionWithAttachments(core.questionWithSelection(question.trim(), selection), sentAttachments, image?.result);
     let content = contextBlock + explicitContent;
     let messages = packs.packMessages([...(selectionState ? [] : history.filter(item => !item.localRecovery).map((item) => ({ role: item.role, content:item.role === 'user' ? (item.display || item.content) : item.content }))), { role: 'user', content }], pack);
     if (!selectionState && (!core.previewFits(messages, freshAccount) || core.gatewayMessageBytes(messages)>90000) && contextBlock) {
@@ -2970,7 +3028,7 @@ function activate(context) {
       let answer;
       try { answer = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: 'Tvijo is answering…', cancellable: true },
-      (_progress, token) => {
+      async (_progress, token) => {
         const abort = new AbortController();
         activeAbort = abort;
         let taskId = null;
@@ -2979,21 +3037,36 @@ function activate(context) {
           if (taskId) api.cancel(auth.access_token, taskId).catch(() => { /* Best effort; no retry. */ });
         });
         const runner = selectionState ? workspaceClient(api, auth.access_token).askService : api.ask;
+        if (image) {
+          if (!await isCurrentAuth(auth)) throw imageScopeError();
+          imageGuard();
+        }
         projectRulesHost.assertCurrent(chatRuleGrants);
         grantStarted = true;
         return runner({
           beforeChat:() => {
             projectRulesHost.assertCurrent(chatRuleGrants);
-            if (imageObservation && !imageCurrent()) throw new core.ServiceError('image_observation_scope', 'The image observation expired before sending.');
+            if (image) imageGuard();
           },
           serviceId: grantRequest.service_id, maxMicroTvijo: grantRequest.max_micro_tvijo, payer,
-          beforeGrant: async () => { projectRulesHost.assertCurrent(chatRuleGrants); if (!await isCurrentAuth(auth) || (imageObservation && !imageCurrent()) || (selectionState && byokSelection.get(auth,selectionState.projectId) !== payer)) throw new core.ServiceError('account_changed', 'The account, project or thread changed before reservation.'); },
+          beforeGrant: async () => { projectRulesHost.assertCurrent(chatRuleGrants); if (!await isCurrentAuth(auth) || (selectionState && byokSelection.get(auth,selectionState.projectId) !== payer)) throw new core.ServiceError('account_changed', 'The account, project or thread changed before reservation.'); },
           onQuote: async quote => { await confirmByok(auth,selectionState?.projectId,payer,quote); await postActivity('quote', L('Quote reserved; waiting for the model…', 'Цена зарезервирована; жду модель…')); grantRequest.quote_id = quote.quote_id; grantRequest.tariff_version = quote.tariff_version; await local.savePending(auth.scope, { idempotencyKey, request: grantRequest, apiBase: auth.api_base, tenantId: auth.tenant_id, projectId: selectionState?.projectId, threadId: selectionState?.threadId, createdAt: new Date().toISOString() }); if (chatView) await chatView.webview.postMessage({ type: 'quote', scopeKey: auth.viewScope, quote: { quote_id: quote.quote_id, ceiling_micro_tvijo: quote.ceiling_micro_tvijo, estimated_max_micro_tvijo: quote.estimated_max_micro_tvijo, tariff_version: quote.tariff_version } }); },
           projectId: selectionState?.projectId, threadId: selectionState?.threadId, maxUsd: grantRequest.max_usd,
           token: auth.access_token, messages, idempotencyKey, signal: abort.signal,
           model: grantRequest.model, mode: grantRequest.mode, method: grantRequest.method,
           title: `VS Code: ${question.trim().slice(0, 80)}`,
-          onGrant: async (grant) => { taskId = grant.id; runJournals.task(chatJournal.scope,chatJournal.id,grant.id); projectRulesHost.assertCurrent(chatRuleGrants); if (imageObservation && !await isCurrentAuth(auth)) throw new core.ServiceError('image_observation_scope', 'The image observation expired before sending.'); await mapTask(auth, grant.id, {...grant, title:question.trim().slice(0,100), model:grant.model || grantRequest.model, status:'running', startedAt:Date.now()}); await postActivity('model', L('Model is working…', 'Модель работает…')); await local.savePending(auth.scope, { idempotencyKey, request: grantRequest, apiBase: auth.api_base, tenantId: auth.tenant_id, projectId: selectionState?.projectId, threadId: selectionState?.threadId, taskId: grant.id, createdAt: new Date().toISOString() }); }
+          onGrant: async (grant) => {
+            taskId = grant.id;
+            runJournals.task(chatJournal.scope,chatJournal.id,grant.id);
+            projectRulesHost.assertCurrent(chatRuleGrants);
+            await mapTask(auth, grant.id, {...grant, title:question.trim().slice(0,100), model:grant.model || grantRequest.model, status:'running', startedAt:Date.now()});
+            await postActivity('model', L('Model is working…', 'Модель работает…'));
+            await local.savePending(auth.scope, { idempotencyKey, request: grantRequest, apiBase: auth.api_base, tenantId: auth.tenant_id, projectId: selectionState?.projectId, threadId: selectionState?.threadId, taskId: grant.id, createdAt: new Date().toISOString() });
+            if (image) {
+              if (!await isCurrentAuth(auth)) throw imageScopeError();
+              assertImageRoute(image, auth, grant.model || model);
+            }
+          }
         });
       }); } catch (error) {
         const pending = local.pending(auth.scope, idempotencyKey);
@@ -3502,6 +3575,10 @@ function activate(context) {
               let question = message.question;
               let referencesResolved = false;
               const action = slashAction(question);
+              const image = imageForSubmission(view, message, bridgeId);
+              if (image && (!question.trim() || action || question.trim().startsWith('!') || fileReference(question))) {
+                throw new core.ServiceError('image_observation_route', L('Include the image observation in a normal local DS41F request.', 'Включите описание изображения в обычный локальный запрос DS41F.'));
+              }
               if (message.agent && message.plan && modePresets.isPlanBypass(question, action)) {
                 throw new core.ServiceError('plan_mode', L('Switch to an Agent preset before using commands or write actions.', 'Переключитесь на режим агента перед командами или записью.'));
               }
@@ -3536,6 +3613,7 @@ function activate(context) {
                 for (const item of [...replacements].reverse()) remainder = remainder.slice(0, item.start) + remainder.slice(item.end);
                 referencesResolved = replacements.length > 0;
                 if (referencesResolved && /^[\s,;.!?]*$/.test(remainder)) {
+                  if (image) throw imageScopeError();
                   await view.webview.postMessage({ type: 'submission', scopeKey: message.scopeKey, ok: true, question: message.question });
                   if (bridgeId && ownsLiveQuestion) { bridgeStatus(() => bridgeInbox.finish(bridgeId, 'completed', {answer:''})); bridgeDone = true; }
                   return;
@@ -3551,16 +3629,8 @@ function activate(context) {
               } else if (message.question.trim().startsWith('!')) {
                 await runUserShell(message.question.trim().slice(1).trim());
               } else if (message.agent) {
-                executionOutcome = await runAgentFlow(question, { planMode: !!message.plan });
-              } else {
-                const image = message.imageObservation === undefined ? null : imageAnalysis;
-                if (message.imageObservation !== undefined &&
-                    (!image?.result?.ok || image.id !== message.imageObservation || image.view !== view ||
-                    image.viewScope !== message.scopeKey || bridgeId || message.from || !imageOwnerCurrent(image))) {
-                  throw new core.ServiceError('image_observation_scope', 'The image observation expired. Analyze the current attachment again.');
-                }
-                await askQuestion(question, { imageObservation: image });
-              }
+                executionOutcome = await runAgentFlow(question, { planMode: !!message.plan, imageObservation: image });
+              } else await askQuestion(question, { imageObservation: image });
               await view.webview.postMessage({ type: 'submission', scopeKey: message.scopeKey, ok: true, question: message.question });
               if (bridgeId && ownsLiveQuestion) {
                 if (lastRunStopped) bridgeStatus(() => bridgeInbox.finish(bridgeId, 'cancelled', {outcome:'cancelled',receiptId:executionOutcome?.receiptId,error:'stopped_by_user'}));

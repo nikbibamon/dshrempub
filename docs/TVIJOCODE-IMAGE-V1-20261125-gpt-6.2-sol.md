@@ -14,9 +14,10 @@ PNG or JPEG. The attachment keeps its existing local OCR and grayscale layout.
 FFmpeg re-encodes one RGB PNG without source metadata. The request contains the
 normalized pixels, a generic path inside the process namespace and a fixed
 observation prompt. The composer shows the requested model and its machine
-provenance. With a local DS41F Chat selected, **Include observation in next
-DS41F Chat message** includes the result as quoted text in that one ordinary
-request.
+provenance. **Include observation in next DS41F request** adds quoted evidence to
+the next local Chat, Agent, or Plan request. Chat uses the selected chat model.
+Agent and Plan use the selected agent model. Shared, BYOK, Harness and alternate
+models cannot include the observation.
 
 The admitted CLI is the Linux x64 Codex 0.171.0 binary with SHA-256
 `b76a027d6b210f9a8da7aaf321dd235c700f0ef7a794d4a5314b9af6c134f0f0`.
@@ -36,6 +37,7 @@ provides corroboration.
 | Abort, output cap, disconnect and conflicting account route | PASS on the loopback fixture. Cancellation and disconnect stopped after one generating request. The conflicting route stopped before inference. |
 | Server model metadata missing | PASS on the final loopback fixture with a private `turn_context` matching the completed response. Without a matching record, the result was rejected. |
 | Composer at 300 CSS px | PASS in an isolated Chromium page via Playwright. The pixels action, explicit observation opt-in and normal Chat submission fit without horizontal overflow or console errors. |
+| Outbound Chat, Agent and Plan requests | PASS with mock transport. Opted-in image text reaches the ordinary DS41F request. Forged or stale receipts, changed workspace and incompatible routes are refused. |
 | Account attempt 1 with the ephemeral profile | FAIL, `model_receipt_missing`. The adapter discarded the observation. Actual served model is unknown. |
 | Authorized account attempt 2 with the final private-rollout profile and identical synthetic frame | PASS. The actual response identified a red square in the upper left and a blue upward-pointing triangle farther right and lower. Pixel measurement verified both facts. |
 

@@ -20,7 +20,7 @@ x64 extension hosts. This action uses the account's Codex allowance.
 Tvijo writes the normalized frame and invocation state to a private temporary
 directory under its extension-host storage for this action and removes it
 when the helper returns. The observation stays in the composer until dismissed,
-superseded, or explicitly included in a local DS41F Chat message. Inclusion
+superseded, or explicitly included in a local DS41F Chat, Agent, or Plan request. Inclusion
 sends quoted observation text as part of that ordinary Tvijo request. OpenAI's
 processing of the separate image request follows the ChatGPT account's data
 controls and terms.

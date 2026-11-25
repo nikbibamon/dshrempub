@@ -859,7 +859,7 @@ test('individual steps disclose their own untrusted events and retain state unti
 
 test('image pixels need an explicit sidebar action and the observation is a one-time Chat opt-in', () => {
   const image = { id:'image-1', name:'synthetic.png', kind:'image', size:1024, canAnalyze:true };
-  const data = { type:'state', signedIn:true, scopeKey:'tenant-a', composerMode:'chat', messages:[], attachments:[image], imageCanInclude:true };
+  const data = { type:'state', signedIn:true, scopeKey:'tenant-a', composerMode:'chat', messages:[], attachments:[image], imageCanInclude:{chat:true,agent:true,plan:true} };
   const view = sidebar({}, data);
   const box = view.element('image-analysis');
   const button = text => box.children.find(node => node.tag === 'button' && node.textContent.startsWith(text));
@@ -884,4 +884,26 @@ test('image pixels need an explicit sidebar action and the observation is a one-
   assert.equal(JSON.stringify(view.state()).includes('Blue triangle'), false);
   view.emit('window:message', { data:{...data, scopeKey:'tenant-b', attachments:[], imageAnalysis:null} });
   assert.equal(box.hidden, true);
+});
+
+
+test('image opt-in follows Agent and Plan and remains explicit if eligibility changes before submit', () => {
+  for (const mode of ['agent','plan']) {
+    const image = { id:'image-1', kind:'image', name:'synthetic.png', size:1024, canAnalyze:true };
+    const imageAnalysis = { id:'analysis-1', attachmentId:image.id, state:'ready', requestedModel:'gpt-6.2-sol', servedModel:'gpt-6.2-sol', observation:'A red square.' };
+    const data = {type:'state',signedIn:true,scopeKey:'tenant-a',composerMode:mode,workspaceSelected:true,
+      attachments:[image],imageAnalysis,imageCanInclude:{chat:false,agent:true,plan:true}};
+    const view = sidebar({}, data);
+    const box = view.element('image-analysis');
+    const include = box.children.find(node => node.tag === 'button' && node.textContent.startsWith('Include observation'));
+    assert.ok(include, mode);
+    include.click();
+    view.emit('window:message',{data:{...data,imageCanInclude:{chat:false,agent:false,plan:false}}});
+    assert.ok(box.children.some(node => /Use local DS41F/.test(node.textContent)), mode);
+    view.element('question').value = 'Explain the photo';
+    view.emit('form:submit',{preventDefault() {}});
+    assert.equal(view.outgoing.at(-1).imageObservation,'analysis-1', mode);
+    assert.equal(view.outgoing.at(-1).agent,true);
+    assert.equal(view.outgoing.at(-1).plan,mode === 'plan');
+  }
 });

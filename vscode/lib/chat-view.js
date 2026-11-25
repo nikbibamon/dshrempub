@@ -802,7 +802,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   let lastSignedIn = false;
   let lastStatus = '';
   let lastAttachments = [];
-  let imageReview = null, imageCanInclude = false, includedImage = null;
+  let imageReview = null, imageCanInclude = null, includedImage = null;
   const imageCopy = (en, ru) => locale === 'ru' ? ru : en;
   let lastAccount = null;
   let lastAuthState = 'loading', lastAuthError = '', activeWorkspaceLabel = '';
@@ -946,7 +946,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
   }
   function controls() {
     const blocked = running || preparing || submitting || uploading;
-    send.disabled = preparing || uploading || !!pendingModeRequestId || !scopeKey;
+    send.disabled = preparing || uploading || !!pendingModeRequestId || !scopeKey || (!!includedImage && (running || submitting));
     const queues = running || submitting;
     send.hidden = false;
     send.title = t(queues ? 'queueSend' : 'send'); send.setAttribute('aria-label', t(queues ? 'queueSend' : 'send'));
@@ -1061,8 +1061,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     const item = lastAttachments.length === 1 && lastAttachments[0].kind === 'image' ? lastAttachments[0] : null;
     box.replaceChildren();
     box.hidden = !item;
-    const mayInclude = uiMode === 'chat' && imageCanInclude;
-    if (!mayInclude) includedImage = null;
+    const mayInclude = imageCanInclude?.[uiMode] === true;
     if (!item) return;
     const review = imageReview?.attachmentId === item.id ? imageReview : null;
     const disabled = running || submitting || preparing || uploading;
@@ -1087,18 +1086,19 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       label(imageCopy('Codex requested ', 'Запрошенная модель Codex ') + review.requestedModel +
         imageCopy(' · Served ', ' · Ответила ') + review.servedModel + ' · ' + review.evidence);
       label(review.observation, 'p');
-      if (mayInclude) {
-        const include = button(imageCopy('Include observation in next DS41F Chat message', 'Включить описание в следующее сообщение DS41F'), () => {
+      if (mayInclude || includedImage === review.id) {
+        const include = button(imageCopy('Include observation in next DS41F request', 'Включить описание в следующий запрос DS41F'), () => {
           includedImage = includedImage === review.id ? null : review.id;
           include.setAttribute('aria-pressed', String(includedImage === review.id));
         });
         include.setAttribute('aria-pressed', String(includedImage === review.id));
-      } else label(imageCopy('Select local Chat with DS41F to include the observation.', 'Чтобы приложить описание, выберите локальный чат с DS41F.'));
+      }
+      if (!mayInclude) label(imageCopy('Use local DS41F Chat, Agent, or Plan to include the observation.', 'Чтобы приложить описание, выберите локальный запрос DS41F в режиме «Чат», «Агент» или «План».'));
     } else {
       if (review?.state === 'unavailable') label(review.reason + ' ' + imageCopy('Codex served model unconfirmed.', 'Ответившая модель Codex не подтверждена.'));
       if (item.canAnalyze) {
         button(imageCopy('Send pixels to Codex for analysis', 'Отправить изображение в Codex'), () => post({type:'analyzeImage',id:item.id}));
-        label(imageCopy('Uses your ChatGPT subscription on the extension host.', 'Используется ваша подписка ChatGPT на хосте расширения.'));
+        label(imageCopy('Uses your ChatGPT subscription on a supported Linux x64 extension host.', 'Используется ваша подписка ChatGPT на поддерживаемом хосте Linux x64.'));
       } else label(imageCopy('Image analysis needs a color frame decoded by FFmpeg on the extension host.', 'Для анализа нужен цветной кадр, декодированный FFmpeg на хосте расширения.'));
     }
   }
@@ -1252,7 +1252,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
       const nextReview = data.imageAnalysis || null;
       if (includedImage !== nextReview?.id) includedImage = null;
       imageReview = nextReview;
-      imageCanInclude = data.imageCanInclude === true;
+      imageCanInclude = data.imageCanInclude || null;
       renderAttachments(data.attachments || []); controls();
       lastSignedIn = !!data.signedIn;
       lastAccount = data.account || null;
@@ -1318,9 +1318,7 @@ nav{flex-shrink:0}.run-chip{font-size:11px;padding:3px 6px;border:1px solid var(
     if (running || submitting) { followUps.push({text, mode:uiMode}); question.value = ''; saveDraft(); drawFollowUps(); return; }
     if (uiMode !== 'chat' && !workspaceAvailable) { openFolderBrowser(); return; }
     followPaused = false;
-    const observation = uiMode === 'chat' && imageCanInclude ? includedImage : null;
-    includedImage = null;
-    submitText(text, uiMode, '', null, observation);
+    submitText(text, uiMode, '', null, includedImage);
   });
   question.addEventListener('keydown', event => {
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); document.getElementById('form').requestSubmit(); }
