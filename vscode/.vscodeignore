@@ -5,3 +5,5 @@ test/**
 **/auth.json
 **/node_modules/**
 **/.git/**
+scripts/**
+**/*.sha256.json

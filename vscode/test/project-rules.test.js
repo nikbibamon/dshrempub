@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { collect:collectRules, inspect, compileGlob, MAX_READ_BYTES:MAX_RULES_BYTES } = require('../lib/project-rules');
+const { collect:collectRules, inspect, compileGlob, fingerprintProject, MAX_READ_BYTES:MAX_RULES_BYTES } = require('../lib/project-rules');
 const collect=options=>collectRules({workspaceTrusted:true,...options});
 
 const base = process.env.TVIJO_FIT_TEST_TMP || path.join(os.tmpdir(), 'tvijo-worker-fit-rules');
@@ -30,6 +30,37 @@ test('rule scans skip ordinary file metadata but retain nested rules and the ent
  result=require('../lib/project-rules').fingerprintProject({root,boundary:root});
  assert.notEqual(result.get(path.join(root,'.tvijo','rules.md')).fingerprint,before);
  assert.equal(require('../lib/project-rules').fingerprintProject({root,boundary:root,maxEntries:5}).truncated,true);
+});
+
+test('default fingerprint coverage reaches ignored plan rules beyond the former directory limit', async () => {
+  const root = await workspace();
+  const plan = path.join(root, 'plans', 'ignored-draft');
+  const project = {root, boundary:root};
+  await fsp.writeFile(path.join(root, '.gitignore'), 'plans/ignored-draft/\n');
+  await Promise.all(Array.from({length:1024}, (_, index) => fsp.mkdir(path.join(root, 'folder-' + index))));
+  const nestedRules = [
+    'AGENTS.md',
+    '.github/copilot-instructions.md',
+    '.tvijo/rules.md',
+    '.clinerules/nested/advice.md'
+  ];
+  for (const relative of nestedRules) {
+    const file = path.join(plan, relative);
+    await fsp.mkdir(path.dirname(file), {recursive:true});
+    await fsp.writeFile(file, 'Synthetic project instructions.\n');
+  }
+
+  const limited = fingerprintProject({...project, maxDirectories:1024, maxEntries:20000});
+  assert.equal(limited.truncated, true);
+  assert.equal(limited.scannedDirectories, 1024);
+  assert.equal(limited.has(path.join(plan, 'AGENTS.md')), false);
+
+  const complete = fingerprintProject(project);
+  assert.equal(complete.truncated, false);
+  assert.ok(complete.scannedDirectories > 1024);
+  for (const relative of nestedRules) {
+    assert.match(complete.get(path.join(plan, relative))?.fingerprint || '', /^[a-f0-9]{64}$/);
+  }
 });
 
 async function workspace() {

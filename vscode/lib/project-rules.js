@@ -207,7 +207,8 @@ const normalizedRulePath=absolute=>path.resolve(absolute).normalize('NFC').toLow
 const ruleId=absolute=>createHash('sha256').update(normalizedRulePath(absolute)).digest('hex');
 function quarantinePath(absolute){const parts=path.resolve(absolute).split(path.sep),at=parts.findIndex(part=>part.toLowerCase()==='.clinerules');return at<0?path.resolve(absolute):parts.slice(0,at+1).join(path.sep);}
 function quarantineMatch(absolute,quarantined=[]){const name=normalizedRulePath(absolute);return quarantined.some(value=>{const target=normalizedRulePath(value);return name===target || name.startsWith(target+path.sep);});}
-const SCAN_MAX_DIRECTORIES=1024,SCAN_MAX_ENTRIES=20000;
+// Large workspaces still need full rule coverage before Auto can run commands.
+const SCAN_MAX_DIRECTORIES=16_384,SCAN_MAX_ENTRIES=300_000;
 const SCAN_SKIP=new Set(['.git','node_modules','venv','.venv','env','.env','dist','build','out','target','coverage','vendor','generated','.generated','gen','__generated__','.next','.nuxt','.svelte-kit','.cache','cache','caches','.npm','npm-cache','.yarn','.pnpm-store','.angular','.expo','__pycache__','.pytest_cache','.mypy_cache','.ruff_cache','.tox','.nox','.gradle','.turbo','.parcel-cache','.vscode-test','bower_components']);
 function fingerprintProject(options){
  const result=new Map();result.truncated=false;result.scannedDirectories=0;result.scannedEntries=0;
