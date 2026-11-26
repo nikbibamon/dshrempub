@@ -41,7 +41,7 @@ def build(repo, output):
             str(rel) in {
                 "package.json", "extension.js", "workspace.js",
                 "README.md", "CHANGELOG.md", "PRIVACY.md",
-                "package.nls.json", "package.nls.ru.json", "settings.example.json",
+                "package.nls.json", "package.nls.ru.json", "package.nls.uk.json", "settings.example.json",
                 "media/learning-guide.html",
             }
             or (rel.parts[0] == "lib" and rel.suffix == ".js")

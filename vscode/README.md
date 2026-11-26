@@ -1,10 +1,9 @@
 <!-- changelog-latest:start (generated from CHANGELOG.md by scripts/sync-readme.cjs; edit CHANGELOG.md) -->
-## What's new in 0.10.39 — 2026-11-25 (prepared VSIX preview)
+## What's new in 0.10.40 — 2026-11-26 UTC (prepared VSIX preview)
 
-- **Save Auto settings during an Agent task.** Agent Auto Run and Agent Auto Apply save in Settings. A saved change takes effect at the next eligible operation of the current task. A successful refresh of the same session preserves an in-flight save. Incomplete project rules still require confirmation for Auto commands. Full access still requires separate consent.
-- **Reconnect after a transport interruption.** Reconnect retries verification with the saved valid session and restores access to history, attachments and sending. Expired or rejected sessions require sign-in. The deployed gateway issues 24-hour device sessions.
-- **Optional image analysis through your ChatGPT subscription.** Attach one PNG or JPEG and explicitly choose **Send pixels to Codex for analysis**. The Linux x64 extension host needs FFmpeg, Codex CLI 0.171.0, Bubblewrap and ChatGPT sign-in. One bounded color frame goes to Codex. Local OCR and the grayscale text thumbnail remain available. Choose **Include observation in next DS41F request** to add the returned description to a local Chat, Agent or Plan turn. The ordinary model selection, tool permissions and budget rules still apply. A native Windows extension host has no supported analyzer in this preview.
-- **Update the extension.** Install the verified VSIX when its channel publishes it and reload the editor. Existing settings, history and grants carry over. Published editor installers and the standalone CLI have separate releases.
+- **Set up company access in Ukrainian, English or Russian.** Choose your language, approve sign-in in the browser, select your organization and project, then check the connection to DSHREM.
+- **Verify access again before reporting a connection.** The setup uses a device session and checks the selected project on the gateway. An expired or revoked membership cannot pass the check.
+- **Availability.** The candidate is for a gateway that supports Tvijo organizations. The read-only connection check sends no model request. Existing editor settings and personal projects need no migration.
 
 Earlier versions: the **Changelog** tab.
 <!-- changelog-latest:end -->
@@ -62,7 +61,7 @@ Choose **Configuration file example** in the help section or run **Tvijo: Open c
 
 # Tvijo DSHREM for VS Code
 
-Version 0.10.39. A project-scoped chat, bounded agent and coding-review client for the
+Version 0.10.40. A project-scoped chat, bounded agent and coding-review client for the
 Tvijo service (dsh.tvijo.com). Every task has a spending ceiling; provider credentials
 stay on the service unless you explicitly connect your own provider (BYOK).
 

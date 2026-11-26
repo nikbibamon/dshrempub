@@ -1,4 +1,5 @@
 {
+  "tvijo.organizationSetup.title": "Set up organization access",
   "tvijo.pack.description": "Adds project instructions from a server skill pack. Auto (empty value) checks root file markers, then engineer if available; No pack (none) disables pack instructions. For example, choose a loaded pack whose description matches your project. Only real loaded catalog IDs, categories when supplied, and descriptions are listed. An unavailable saved ID is preserved. Instructions stay in host memory; explicit model choices take priority.",
   "tvijo.service.description": "Service for shared projects only; unused outside a shared project. The default ID standard names a shared-project service, not a quality tier. For example, choose a service for a shared team thread; the server fixes its quote before reservation. Choices below come only from an already loaded server catalog. If none is loaded, use the existing service/workflow picker in chat.",
   "tvijo.model.description": "Requests a model for ordinary chat and Quick Edit. Use to choose a route; unavailable routes are refused. Shared-project chat uses service quotes instead. Local Agent/Plan uses agentModel.",

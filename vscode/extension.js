@@ -6,6 +6,7 @@ const fs = require('node:fs/promises');
 const { constants } = require('node:fs');
 const core = require('./lib/client');
 const { approveDevice } = require('./lib/device-login');
+const organizationSetup = require('./lib/organization-setup');
 const packs = require('./lib/packs');
 const { chatHtml } = require('./lib/chat-view');
 const { buildAgentMap } = require('./lib/agent-map');
@@ -2611,7 +2612,7 @@ function activate(context) {
     context.subscriptions.push(panel);
   });
 
-  command('tvijo.signIn', async () => {
+  async function signIn(organizationLanguage) {
     ensureIdle();
     if (deviceLoginActive) return;
     deviceLoginActive = true;
@@ -2622,9 +2623,14 @@ function activate(context) {
     assertAuthAttempt(attempt, api.base);
     const device = await api.startDeviceLogin();
     assertAuthAttempt(attempt, api.base);
-    await approveDevice(vscode, device, { check: () => assertAuthAttempt(attempt, api.base), L });
+    const copy = organizationSetup.COPY[organizationLanguage];
+    const loginCopy = copy ? (en, ru, uk) => ({ en, ru, uk })[organizationLanguage] : L;
+    await approveDevice(vscode, device, {
+      check: () => assertAuthAttempt(attempt, api.base), L: loginCopy,
+      language: copy ? organizationLanguage : undefined
+    });
     const auth = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: 'Tvijo: approve sign-in in your browser', cancellable: true },
+      { location: vscode.ProgressLocation.Notification, title: copy ? 'Tvijo: ' + copy.progress : 'Tvijo: approve sign-in in your browser', cancellable: true },
       (_progress, token) => {
         const abort = new AbortController();
         token.onCancellationRequested(() => abort.abort());
@@ -2636,9 +2642,23 @@ function activate(context) {
       await writeAuthMode(check, 'device');
       switchIdentity(null);
     });
-    vscode.window.showInformationMessage('Tvijo: signed in. The token is kept in VS Code secret storage.');
+    vscode.window.showInformationMessage(copy ? 'Tvijo: ' + copy.signedIn : 'Tvijo: signed in. The token is kept in VS Code secret storage.');
     } catch (error) { if (attempt === authAttempt) deviceLoginError = localizedMessage(error); throw error; }
     finally { deviceLoginActive = false; await postChatState(); }
+  }
+  command('tvijo.signIn', () => signIn());
+
+  command(organizationSetup.COMMAND, () => {
+    ensureIdle();
+    return organizationSetup.run({
+      window: vscode.window, globalState: context.globalState, language: vscode.env.language,
+      readSession: async () => {
+        const session = await readAuth();
+        return session?.secretKey === AUTH_KEY && !savedAuthProblem(session) ? session : null;
+      },
+      signIn, createClient: core.createClient,
+      stillCurrent: async session => sameCredential(await readAuth(), session) && !savedAuthProblem(session)
+    });
   });
 
   command('tvijo.signOut', async () => {
@@ -3744,6 +3764,18 @@ function activate(context) {
     context.subscriptions.push(participant);
   }
   refreshStatus();
+  if (vscode.ExtensionMode && context.extensionMode === vscode.ExtensionMode.Production) {
+    async function offerOrganizationSetup() {
+      if (context.globalState.get(organizationSetup.OFFERED) || await readAuth()) return;
+      await context.globalState.update(organizationSetup.OFFERED, true);
+      const lang = organizationSetup.locale(context.globalState.get(organizationSetup.LOCALE) || vscode.env.language);
+      const copy = organizationSetup.COPY[lang];
+      if (await vscode.window.showInformationMessage(copy.offer, copy.start) === copy.start) {
+        await vscode.commands.executeCommand(organizationSetup.COMMAND);
+      }
+    }
+    void offerOrganizationSetup().catch(report);
+  }
   if (vscode.workspace.getConfiguration('tvijo').get('telegram.enabled', false)) { botAutostart = true; handlers.get('tvijo.startBot')().then(refreshStatus).catch(report).finally(() => { botAutostart = false; }); }
 }
 

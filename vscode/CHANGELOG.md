@@ -1,3 +1,9 @@
+## 0.10.40 — 2026-11-26 UTC (prepared VSIX preview)
+
+- **Set up company access in Ukrainian, English or Russian.** Choose your language, approve sign-in in the browser, select your organization and project, then check the connection to DSHREM.
+- **Verify access again before reporting a connection.** The setup uses a device session and checks the selected project on the gateway. An expired or revoked membership cannot pass the check.
+- **Availability.** The candidate is for a gateway that supports Tvijo organizations. The read-only connection check sends no model request. Existing editor settings and personal projects need no migration.
+
 ## 0.10.39 — 2026-11-25 (prepared VSIX preview)
 
 - **Save Auto settings during an Agent task.** Agent Auto Run and Agent Auto Apply save in Settings. A saved change takes effect at the next eligible operation of the current task. A successful refresh of the same session preserves an in-flight save. Incomplete project rules still require confirmation for Auto commands. Full access still requires separate consent.
